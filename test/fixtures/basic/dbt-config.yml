@@ -1,0 +1,25 @@
+# Minimal dbt Cloud configuration for testing
+project:
+  name: test_project
+  repository:
+    remote_url: https://github.com/test-org/test-repo.git
+  
+  environments:
+    - name: Development
+      type: development
+      connection_id: 999999
+      credential:
+        token_name: dev_token
+        schema: dev
+      dbt_version: "1.5.0"
+      jobs:
+        - name: test_run
+          description: "Test job"
+          is_active: true
+          execute_steps:
+            - "dbt run"
+          triggers:
+            schedule: false
+            github_webhook: false
+            git_provider_webhook: false
+            on_merge: false

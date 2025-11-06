@@ -1,0 +1,115 @@
+# Comprehensive dbt Cloud configuration with advanced features
+project:
+  name: advanced_project
+  repository:
+    remote_url: https://github.com/test-org/test-repo.git
+  
+  environments:
+    - name: Development
+      type: development
+      connection_id: 999999
+      credential:
+        token_name: dev_token
+        schema: dev_schema
+      dbt_version: "1.5.0"
+      custom_branch: develop
+      enable_model_query_history: true
+      jobs:
+        - name: dev_run
+          description: "Development dbt run with tests"
+          is_active: true
+          execute_steps:
+            - "dbt run"
+            - "dbt test"
+            - "dbt docs generate"
+          triggers:
+            schedule: false
+            github_webhook: true
+            git_provider_webhook: false
+            on_merge: false
+          generate_docs: true
+          run_lint: true
+          num_threads: 4
+
+    - name: Staging
+      type: deployment
+      connection_id: 999998
+      credential:
+        token_name: staging_token
+        schema: staging_schema
+      dbt_version: "1.5.0"
+      jobs:
+        - name: staging_build
+          description: "Staging daily build"
+          is_active: true
+          execute_steps:
+            - "dbt run"
+            - "dbt test"
+          triggers:
+            schedule: true
+            github_webhook: false
+            git_provider_webhook: false
+            on_merge: false
+          schedule_type: "every_day"
+          schedule_hours: [2, 14]
+          num_threads: 8
+          timeout_seconds: 3600
+          generate_docs: true
+          run_generate_sources: true
+
+    - name: Production
+      type: deployment
+      connection_id: 999997
+      credential:
+        token_name: prod_token
+        schema: prod_schema
+      dbt_version: "1.5.0"
+      jobs:
+        - name: prod_daily
+          description: "Daily production run"
+          is_active: true
+          execute_steps:
+            - "dbt run"
+            - "dbt test"
+            - "dbt docs generate"
+          triggers:
+            schedule: true
+            github_webhook: false
+            git_provider_webhook: false
+            on_merge: false
+          schedule_type: "every_day"
+          schedule_hours: [6]
+          num_threads: 16
+          timeout_seconds: 7200
+          generate_docs: true
+          run_compare_changes: true
+          errors_on_lint_failure: true
+
+        - name: prod_weekly
+          description: "Weekly comprehensive analysis"
+          is_active: true
+          execute_steps:
+            - "dbt run --select model_tag:weekly"
+            - "dbt test"
+          triggers:
+            schedule: true
+            github_webhook: false
+            git_provider_webhook: false
+            on_merge: false
+          schedule_type: "every_week"
+          schedule_days: [0]  # Sunday
+          schedule_hours: [1]
+          num_threads: 12
+
+  environment_variables:
+    - name: DBT_ENV
+      environment_values:
+        Development: dev
+        Staging: staging
+        Production: prod
+    
+    - name: LOG_LEVEL
+      environment_values:
+        Development: debug
+        Staging: info
+        Production: warn

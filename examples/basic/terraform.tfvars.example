@@ -1,0 +1,15 @@
+# Example terraform.tfvars file
+# Copy this file to terraform.tfvars and fill in your values
+# NEVER commit this file with real credentials!
+
+dbt_account_id = 12345
+dbt_token      = "dbtc_your_token_here"
+dbt_host_url   = "https://cloud.getdbt.com"
+
+# Optional: Set token_map if your credentials need additional tokens
+token_map = {
+  # "dev_token"  = "your-dev-token-value"
+  # "prod_token" = "your-prod-token-value"
+}
+
+target_name = "prod"

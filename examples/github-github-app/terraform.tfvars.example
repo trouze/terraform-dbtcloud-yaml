@@ -1,0 +1,15 @@
+# Example: terraform.tfvars for GitHub GitHub App integration
+# Copy this file to terraform.tfvars and fill in your values
+
+dbt_account_id = "123456"  # Your dbt Cloud account ID
+dbt_api_token  = "dbt_..."  # Your dbt Cloud API token (keep secret!)
+
+# Map of database credentials needed by your jobs
+# Keys should match the variable names in your dbt profiles.yml
+token_map = {
+  "SNOWFLAKE_USER"     = "your_snowflake_username"
+  "SNOWFLAKE_PASSWORD" = "your_snowflake_password"
+}
+
+# Optional: Override the target name if needed
+# target_name = "dev"

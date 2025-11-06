@@ -1,0 +1,53 @@
+# Example dbt Cloud configuration
+# Copy this file and update it with your own values
+
+project:
+  name: my_dbt_project
+  repository:
+    remote_url: https://github.com/your-org/your-dbt-repo.git
+  
+  environments:
+    - name: Development
+      type: development
+      connection_id: 12345  # Replace with your connection ID
+      credential:
+        token_name: dev_token
+        schema: dev_schema
+      dbt_version: "1.5.0"
+      jobs:
+        - name: dev_run
+          description: "Development dbt run"
+          is_active: true
+          execute_steps:
+            - "dbt run"
+            - "dbt test"
+          triggers:
+            schedule: false
+            github_webhook: true
+            git_provider_webhook: false
+            on_merge: false
+    
+    - name: Production
+      type: deployment
+      connection_id: 12346  # Replace with your connection ID
+      credential:
+        token_name: prod_token
+        schema: prod_schema
+      dbt_version: "1.5.0"
+      jobs:
+        - name: daily_prod_build
+          description: "Daily production build"
+          is_active: true
+          execute_steps:
+            - "dbt run"
+            - "dbt test"
+            - "dbt docs generate"
+          triggers:
+            schedule: true
+            github_webhook: false
+            git_provider_webhook: false
+            on_merge: false
+          schedule_type: "every_day"
+          schedule_hours: [6]
+          num_threads: 8
+          generate_docs: true

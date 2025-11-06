@@ -1,0 +1,37 @@
+{
+  "version": "1.0.0",
+  "name": "dbt-terraform-modules-yaml",
+  "namespace": "yourusername",
+  "type": "module",
+  "provider": "dbtcloud",
+  "source": "github.com/yourusername/dbt-terraform-modules-yaml",
+  "description": "Terraform modules for managing dbt Cloud resources (projects, environments, jobs, credentials) via YAML configuration",
+  "homepage": "https://github.com/yourusername/dbt-terraform-modules-yaml",
+  "repository": "https://github.com/yourusername/dbt-terraform-modules-yaml.git",
+  "issues_url": "https://github.com/yourusername/dbt-terraform-modules-yaml/issues",
+  "tags": [
+    "terraform",
+    "dbt",
+    "dbt-cloud",
+    "infrastructure-as-code",
+    "yaml",
+    "module",
+    "dbtcloud"
+  ],
+  "license": "MIT",
+  "min_terraform_version": "1.0",
+  "features": [
+    "YAML-based configuration",
+    "Multi-environment support",
+    "Credential management",
+    "Job scheduling and triggers",
+    "Environment variables",
+    "GitHub Actions integration"
+  ],
+  "integration_examples": [
+    "Basic single environment",
+    "Multi-environment (Dev/Staging/Prod)",
+    "Advanced job scheduling",
+    "Credential rotation"
+  ]
+}

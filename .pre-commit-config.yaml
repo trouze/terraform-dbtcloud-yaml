@@ -1,0 +1,60 @@
+repos:
+  # Terraform formatting and documentation
+  - repo: https://github.com/terraform-docs/terraform-docs
+    rev: v0.16.0
+    hooks:
+      - id: terraform-docs-go
+        name: terraform-docs
+        description: Generate terraform documentation
+        entry: terraform-docs -c .terraform-docs.yml
+        language: golang
+        files: ^[^/]*\.tf$
+        exclude: ^\.terraform/.*$
+        args: [--sort-by-required]
+
+  # Terraform linting
+  - repo: https://github.com/terraform-linters/tflint
+    rev: v0.50.3
+    hooks:
+      - id: tflint
+        name: tflint
+        description: Run tflint to check terraform code quality
+        entry: tflint
+        language: golang
+        files: \.tf$
+        exclude: ^\.terraform/.*$
+
+  # General linting and formatting
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+        name: Trim trailing whitespace
+        exclude: ^\.terraform/.*$
+
+      - id: end-of-file-fixer
+        name: Fix end of file
+        exclude: ^\.terraform/.*$
+
+      - id: check-yaml
+        name: Check YAML syntax
+        args: [--safe]
+        exclude: ^\.terraform/.*$
+
+      - id: check-json
+        name: Check JSON syntax
+        exclude: ^\.terraform/.*$
+
+      - id: check-added-large-files
+        name: Check for large files
+        args: [--maxkb=1000]
+        exclude: ^\.terraform/.*$
+
+  # Detect secrets
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.4.0
+    hooks:
+      - id: detect-secrets
+        name: Detect secrets
+        args: [--baseline, .secrets.baseline]
+        exclude: ^\.terraform/.*$

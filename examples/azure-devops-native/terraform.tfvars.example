@@ -1,0 +1,15 @@
+# Example: terraform.tfvars for Azure DevOps native integration
+# Copy this file to terraform.tfvars and fill in your values
+
+dbt_account_id = "123456"  # Your dbt Cloud account ID
+dbt_api_token  = "dbt_..."  # Your dbt Cloud API token (keep secret!)
+
+# Map of database credentials needed by your jobs
+# Keys should match the variable names in your dbt profiles.yml
+token_map = {
+  "SQL_SERVER_USER"     = "your_sql_user"
+  "SQL_SERVER_PASSWORD" = "your_sql_password"
+}
+
+# Optional: Override the target name if needed
+# target_name = "dev"

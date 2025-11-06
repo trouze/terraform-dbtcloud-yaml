@@ -1,0 +1,98 @@
+# dbt Cloud Configuration - Generic SSH Deploy Key
+# This example uses SSH deploy key authentication (works with any Git provider)
+#
+# Deploy Key Benefits:
+# - Works with any Git provider (GitHub, GitLab, Azure DevOps, Bitbucket, Gitea, etc.)
+# - No provider-specific IDs needed
+# - Simple SSH key-based authentication
+# - Good for self-hosted Git systems
+#
+# Setup:
+# 1. Generate SSH keypair: ssh-keygen -t ed25519 -f dbt-cloud-key -C "dbt-cloud"
+# 2. Add public key (dbt-cloud-key.pub) to your repository as a deploy key
+# 3. Add the private key to dbt Cloud as a credential
+# 4. Use the SSH URL for remote_url (not HTTPS)
+
+project:
+  name: "my-dbt-project"
+  
+  # Generic repository with SSH deploy key (works with any provider)
+  repository:
+    remote_url: "git@github.com:myorganization/my-dbt-repo.git"
+    # git_clone_strategy defaults to "deploy_key" (no need to specify)
+  
+  environments:
+    # Development environment
+    - name: "dev"
+      type: "development"
+      dbt_version: "1.7.0"
+      database_schema: "analytics_dev"
+      threads: 4
+      
+      credentials:
+        - name: "postgres_dev"
+          database_type: "postgres"
+          schema: "analytics_dev"
+          threads: 4
+          host: "localhost"
+          port: 5432
+          database: "analytics"
+          username_var_name: "POSTGRES_USER"
+          password_var_name: "POSTGRES_PASSWORD"
+      
+      jobs:
+        - name: "dbt_run_dev"
+          triggers:
+            - type: "schedule"
+              on_merge: false
+              schedule_interval: "0 2 * * *"  # 2 AM UTC daily
+          execution:
+            timeout_seconds: 900
+            command: "dbt run"
+    
+    # Production environment
+    - name: "prod"
+      type: "production"
+      dbt_version: "1.7.0"
+      database_schema: "analytics"
+      threads: 8
+      
+      credentials:
+        - name: "postgres_prod"
+          database_type: "postgres"
+          schema: "analytics"
+          threads: 8
+          host: "prod.example.com"
+          port: 5432
+          database: "analytics"
+          username_var_name: "POSTGRES_USER"
+          password_var_name: "POSTGRES_PASSWORD"
+      
+      jobs:
+        - name: "dbt_run_prod"
+          triggers:
+            - type: "schedule"
+              on_merge: false
+              schedule_interval: "0 4 * * *"  # 4 AM UTC daily
+          execution:
+            timeout_seconds: 1800
+            command: "dbt run"
+        
+        - name: "dbt_test_prod"
+          triggers:
+            - type: "schedule"
+              on_merge: false
+              schedule_interval: "30 4 * * *"  # 4:30 AM UTC daily
+          execution:
+            timeout_seconds: 900
+            command: "dbt test"
+
+  # Environment variables for both dev and prod
+  environment_variables:
+    - name: "MODELS_TO_RUN"
+      value: "my_models"
+      environment_names: ["dev", "prod"]
+    
+    - name: "DBT_LOG_LEVEL"
+      value: "info"
+      environment_names: ["dev", "prod"]

@@ -1,0 +1,90 @@
+# dbt Cloud Configuration - GitLab with Deploy Token Integration
+# This example uses GitLab Deploy Token for secure, native GitLab integration
+#
+# Deploy Token Benefits:
+# - No personal tokens needed (better security)
+# - Fine-grained access control
+# - Easy to rotate
+# - Good for CI/CD integration
+#
+# See docs/REPOSITORY_CONFIGURATION.md for how to find gitlab_project_id
+
+project:
+  name: "my-dbt-project"
+  
+  # GitLab repository with native Deploy Token integration
+  repository:
+    remote_url: "https://gitlab.com/myorganization/my-dbt-repo.git"
+    git_clone_strategy: "deploy_token"
+    gitlab_project_id: 9876543  # Replace with your GitLab project ID
+  
+  environments:
+    # Development environment
+    - name: "dev"
+      type: "development"
+      dbt_version: "1.7.0"
+      database_schema: "analytics_dev"
+      threads: 4
+      
+      credentials:
+        - name: "bigquery_dev"
+          database_type: "bigquery"
+          schema: "analytics_dev"
+          threads: 4
+          project_id: "my-gcp-project"
+          dataset: "analytics_dev"
+          keyfile_var_name: "BIGQUERY_KEYFILE"
+      
+      jobs:
+        - name: "dbt_run_dev"
+          triggers:
+            - type: "gitlab_merge_request"
+              on_merge: false
+          execution:
+            timeout_seconds: 900
+            command: "dbt run"
+    
+    # Production environment
+    - name: "prod"
+      type: "production"
+      dbt_version: "1.7.0"
+      database_schema: "analytics"
+      threads: 8
+      
+      credentials:
+        - name: "bigquery_prod"
+          database_type: "bigquery"
+          schema: "analytics"
+          threads: 8
+          project_id: "my-gcp-project"
+          dataset: "analytics"
+          keyfile_var_name: "BIGQUERY_KEYFILE"
+      
+      jobs:
+        - name: "dbt_run_prod"
+          triggers:
+            - type: "schedule"
+              on_merge: false
+              schedule_interval: "0 4 * * *"  # 4 AM UTC daily
+          execution:
+            timeout_seconds: 1800
+            command: "dbt run"
+        
+        - name: "dbt_test_prod"
+          triggers:
+            - type: "schedule"
+              on_merge: false
+              schedule_interval: "30 4 * * *"  # 4:30 AM UTC daily
+          execution:
+            timeout_seconds: 900
+            command: "dbt test"
+
+  # Environment variables for both dev and prod
+  environment_variables:
+    - name: "MODELS_TO_RUN"
+      value: "my_models"
+      environment_names: ["dev", "prod"]
+    
+    - name: "DBT_LOG_LEVEL"
+      value: "info"
+      environment_names: ["dev", "prod"]

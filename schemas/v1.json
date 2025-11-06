@@ -1,0 +1,383 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/trouze/dbt-cloud-terraform-starter/refs/heads/main/schemas/project/v1.json",
+  "title": "dbt Cloud Terraform Configuration Schema v1",
+  "description": "JSON Schema for validating dbt Cloud YAML configuration files. Use this with your IDE's YAML validation (VS Code: yaml extension, JetBrains: built-in support)",
+  "type": "object",
+  "properties": {
+    "project": {
+      "type": "object",
+      "description": "Root project configuration object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Project name (alphanumeric, underscores, hyphens only)",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "repository": {
+          "type": "object",
+          "description": "Git repository configuration with support for GitHub, GitLab, Azure DevOps, and Bitbucket. Provider-specific fields are auto-detected and validated.",
+          "properties": {
+            "remote_url": {
+              "type": "string",
+              "description": "Git repository URL (HTTPS or SSH format). Supports GitHub, GitLab, Azure DevOps, and Bitbucket.",
+              "oneOf": [
+                {
+                  "pattern": "^https://github\\.com/[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+(\\.git)?$",
+                  "title": "GitHub HTTPS"
+                },
+                {
+                  "pattern": "^git@github\\.com:[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+(\\.git)?$",
+                  "title": "GitHub SSH"
+                },
+                {
+                  "pattern": "^https://gitlab\\.com/[a-zA-Z0-9_/-]+(\\.git)?$",
+                  "title": "GitLab HTTPS"
+                },
+                {
+                  "pattern": "^git@gitlab\\.com:[a-zA-Z0-9_/-]+(\\.git)?$",
+                  "title": "GitLab SSH"
+                },
+                {
+                  "pattern": "^https://dev\\.azure\\.com/[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+/_git/[a-zA-Z0-9_.-]+$",
+                  "title": "Azure DevOps HTTPS"
+                },
+                {
+                  "pattern": "^git@ssh\\.dev\\.azure\\.com:v3/[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$",
+                  "title": "Azure DevOps SSH"
+                },
+                {
+                  "pattern": "^https://bitbucket\\.org/[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+(\\.git)?$",
+                  "title": "Bitbucket HTTPS"
+                },
+                {
+                  "pattern": "^git@bitbucket\\.org:[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+(\\.git)?$",
+                  "title": "Bitbucket SSH"
+                }
+              ]
+            },
+            "git_clone_strategy": {
+              "type": ["string", "null"],
+              "description": "Git clone strategy. If omitted, auto-detected based on provider: 'deploy_key' (default), 'github_app' (GitHub native), 'deploy_token' (GitLab native), 'azure_active_directory_app' (Azure DevOps native)",
+              "enum": ["deploy_key", "github_app", "deploy_token", "azure_active_directory_app"],
+              "default": null
+            },
+            "is_active": {
+              "type": ["boolean", "null"],
+              "description": "Whether the repository is active and available for use",
+              "default": true
+            },
+            "github_installation_id": {
+              "type": ["integer", "null"],
+              "description": "[GitHub native integration only] GitHub App installation ID. Required when git_clone_strategy is 'github_app'. Ignored for non-GitHub repositories.",
+              "minimum": 1,
+              "default": null
+            },
+            "gitlab_project_id": {
+              "type": ["integer", "null"],
+              "description": "[GitLab native integration only] GitLab project ID (numeric). Required when git_clone_strategy is 'deploy_token'. Find in GitLab project settings > General. Ignored for non-GitLab repositories.",
+              "minimum": 1,
+              "default": null
+            },
+            "azure_active_directory_project_id": {
+              "type": ["string", "null"],
+              "description": "[Azure DevOps native integration only] Azure DevOps project ID (UUID format). Required when git_clone_strategy is 'azure_active_directory_app'. Ignored for non-Azure DevOps repositories.",
+              "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$|^null$",
+              "default": null
+            },
+            "azure_active_directory_repository_id": {
+              "type": ["string", "null"],
+              "description": "[Azure DevOps native integration only] Azure DevOps repository ID (UUID format). Required when git_clone_strategy is 'azure_active_directory_app'. Ignored for non-Azure DevOps repositories.",
+              "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$|^null$",
+              "default": null
+            },
+            "azure_bypass_webhook_registration_failure": {
+              "type": ["boolean", "null"],
+              "description": "[Azure DevOps native integration only] If false (default), connection fails if service user can't set webhooks. If true, connection succeeds but auto-triggering won't work. Ignored for non-Azure DevOps repositories.",
+              "default": false
+            },
+            "private_link_endpoint_id": {
+              "type": ["string", "null"],
+              "description": "Private Link endpoint ID for VPC access. Optional for all providers.",
+              "default": null
+            },
+            "pull_request_url_template": {
+              "type": ["string", "null"],
+              "description": "Custom URL template for creating pull requests. If not set, uses provider-specific default. Optional for all providers.",
+              "default": null
+            }
+          },
+          "required": ["remote_url"],
+          "additionalProperties": false
+        },
+        "environments": {
+          "type": "array",
+          "description": "List of dbt Cloud environments",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "description": "Environment configuration",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Environment name",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "type": {
+                "type": "string",
+                "description": "Environment type",
+                "enum": ["development", "deployment"],
+                "default": "development"
+              },
+              "connection_id": {
+                "type": "integer",
+                "description": "dbt Cloud connection ID (find in dbt Cloud UI: Admin > Connections)",
+                "minimum": 1
+              },
+              "credential": {
+                "type": "object",
+                "description": "Credential configuration",
+                "properties": {
+                  "token_name": {
+                    "type": "string",
+                    "description": "Key in token_map variable that contains the warehouse token",
+                    "minLength": 1
+                  },
+                  "schema": {
+                    "type": "string",
+                    "description": "Default warehouse schema name",
+                    "minLength": 1
+                  }
+                },
+                "required": ["token_name", "schema"],
+                "additionalProperties": false
+              },
+              "dbt_version": {
+                "type": ["string", "null"],
+                "description": "dbt version (e.g., '1.5.0', '1.6.0'). Null uses default.",
+                "pattern": "^(\\d+\\.\\d+\\.\\d+)?$"
+              },
+              "custom_branch": {
+                "type": ["string", "null"],
+                "description": "Custom git branch for this environment",
+                "default": null
+              },
+              "enable_model_query_history": {
+                "type": ["boolean", "null"],
+                "description": "Enable query history in dbt Cloud",
+                "default": null
+              },
+              "jobs": {
+                "type": "array",
+                "description": "List of jobs in this environment",
+                "items": {
+                  "type": "object",
+                  "description": "Job configuration",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "description": "Job name (must be unique within environment)",
+                      "minLength": 1,
+                      "maxLength": 256
+                    },
+                    "description": {
+                      "type": ["string", "null"],
+                      "description": "Job description",
+                      "maxLength": 512,
+                      "default": null
+                    },
+                    "is_active": {
+                      "type": ["boolean", "null"],
+                      "description": "Whether job is active",
+                      "default": true
+                    },
+                    "execute_steps": {
+                      "type": "array",
+                      "description": "dbt commands to execute (e.g., 'dbt run', 'dbt test')",
+                      "minItems": 1,
+                      "items": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "triggers": {
+                      "type": "object",
+                      "description": "Job trigger configuration (at least one must be true)",
+                      "properties": {
+                        "schedule": {
+                          "type": "boolean",
+                          "description": "Enable scheduled runs",
+                          "default": false
+                        },
+                        "github_webhook": {
+                          "type": "boolean",
+                          "description": "Trigger on GitHub push (requires GitHub integration)",
+                          "default": false
+                        },
+                        "git_provider_webhook": {
+                          "type": "boolean",
+                          "description": "Trigger on git provider webhook",
+                          "default": false
+                        },
+                        "on_merge": {
+                          "type": "boolean",
+                          "description": "Trigger on merge to main branch",
+                          "default": false
+                        }
+                      },
+                      "required": ["schedule", "github_webhook", "git_provider_webhook", "on_merge"],
+                      "additionalProperties": false
+                    },
+                    "schedule_type": {
+                      "type": ["string", "null"],
+                      "description": "Schedule type: 'every_day', 'every_week', 'every_month', or null for custom cron",
+                      "enum": ["every_day", "every_week", "every_month", null],
+                      "default": null
+                    },
+                    "schedule_hours": {
+                      "type": ["array", "null"],
+                      "description": "Hours of day to run (0-23, UTC). Use with schedule_type",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 23
+                      },
+                      "default": null
+                    },
+                    "schedule_days": {
+                      "type": ["array", "null"],
+                      "description": "Days of week to run (0=Sunday, 6=Saturday). Use with every_week",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 6
+                      },
+                      "default": null
+                    },
+                    "schedule_cron": {
+                      "type": ["string", "null"],
+                      "description": "Cron expression for advanced scheduling (5-field format, UTC)",
+                      "pattern": "^(([0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9]|\\*|\\*/[0-9]+|[0-9]+-[0-9]+)(,([0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9]|\\*|\\*/[0-9]+|[0-9]+-[0-9]+))*\\s+){4}([0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9]|\\*|\\*/[0-9]+|[0-9]+-[0-9]+)(,([0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9]|\\*|\\*/[0-9]+|[0-9]+-[0-9]+))*$",
+                      "default": null
+                    },
+                    "num_threads": {
+                      "type": ["integer", "null"],
+                      "description": "Number of parallel threads (1-16)",
+                      "minimum": 1,
+                      "maximum": 16,
+                      "default": null
+                    },
+                    "timeout_seconds": {
+                      "type": ["integer", "null"],
+                      "description": "Job timeout in seconds (300-86400)",
+                      "minimum": 300,
+                      "maximum": 86400,
+                      "default": null
+                    },
+                    "target_name": {
+                      "type": ["string", "null"],
+                      "description": "dbt target name (defaults to environment name)",
+                      "default": null
+                    },
+                    "dbt_version": {
+                      "type": ["string", "null"],
+                      "description": "Job-specific dbt version (overrides environment version)",
+                      "pattern": "^(\\d+\\.\\d+\\.\\d+)?$",
+                      "default": null
+                    },
+                    "generate_docs": {
+                      "type": ["boolean", "null"],
+                      "description": "Generate dbt docs after run",
+                      "default": null
+                    },
+                    "run_lint": {
+                      "type": ["boolean", "null"],
+                      "description": "Run linters during job execution",
+                      "default": null
+                    },
+                    "run_generate_sources": {
+                      "type": ["boolean", "null"],
+                      "description": "Run dbt source freshness checks",
+                      "default": null
+                    },
+                    "run_compare_changes": {
+                      "type": ["boolean", "null"],
+                      "description": "Compare changes across runs",
+                      "default": null
+                    },
+                    "errors_on_lint_failure": {
+                      "type": ["boolean", "null"],
+                      "description": "Fail job if lint errors detected",
+                      "default": null
+                    },
+                    "triggers_on_draft_pr": {
+                      "type": ["boolean", "null"],
+                      "description": "Allow triggers on draft pull requests",
+                      "default": null
+                    },
+                    "self_deferring": {
+                      "type": ["boolean", "null"],
+                      "description": "Self-defer to latest run of this job",
+                      "default": null
+                    },
+                    "deferring_job_id": {
+                      "type": ["integer", "null"],
+                      "description": "Job ID to defer to",
+                      "minimum": 1,
+                      "default": null
+                    },
+                    "deferring_environment_id": {
+                      "type": ["integer", "null"],
+                      "description": "Environment ID to defer to",
+                      "minimum": 1,
+                      "default": null
+                    }
+                  },
+                  "required": ["name", "execute_steps", "triggers"],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": ["name", "type", "connection_id", "credential"],
+            "additionalProperties": false
+          }
+        },
+        "environment_variables": {
+          "type": "array",
+          "description": "Project-level environment variables (accessible to all jobs)",
+          "items": {
+            "type": "object",
+            "description": "Environment variable definition",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Variable name (use UPPER_SNAKE_CASE)",
+                "pattern": "^[A-Z_][A-Z0-9_]*$",
+                "minLength": 1,
+                "maxLength": 256
+              },
+              "environment_values": {
+                "type": "object",
+                "description": "Values by environment name (e.g., 'Development', 'Production')",
+                "minProperties": 1,
+                "additionalProperties": {
+                  "type": "string",
+                  "maxLength": 4096
+                }
+              }
+            },
+            "required": ["name", "environment_values"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["name", "repository", "environments"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["project"],
+  "additionalProperties": false
+}

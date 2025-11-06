@@ -1,0 +1,93 @@
+# dbt Cloud Configuration - Azure DevOps with Native Integration
+# This example uses Azure AD Application for secure, native Azure DevOps integration
+#
+# Azure Native Integration Benefits:
+# - Seamless Azure AD authentication
+# - Native webhook support
+# - Better PR integration with Azure DevOps
+# - Granular permissions control
+#
+# See docs/REPOSITORY_CONFIGURATION.md for how to find project and repository IDs
+
+project:
+  name: "my-dbt-project"
+  
+  # Azure DevOps repository with native Azure AD integration
+  repository:
+    remote_url: "https://dev.azure.com/myorganization/my-project/_git/my-dbt-repo"
+    git_clone_strategy: "azure_active_directory_app"
+    azure_active_directory_project_id: "550e8400-e29b-41d4-a716-446655440000"  # Replace with your Azure project UUID
+    azure_active_directory_repository_id: "550e8400-e29b-41d4-a716-446655440001"  # Replace with your Azure repo UUID
+  
+  environments:
+    # Development environment
+    - name: "dev"
+      type: "development"
+      dbt_version: "1.7.0"
+      database_schema: "analytics_dev"
+      threads: 4
+      
+      credentials:
+        - name: "sql_server_dev"
+          database_type: "sql_server"
+          schema: "analytics_dev"
+          threads: 4
+          server: "dev.database.windows.net"
+          database: "analytics"
+          username_var_name: "SQL_SERVER_USER"
+          password_var_name: "SQL_SERVER_PASSWORD"
+      
+      jobs:
+        - name: "dbt_run_dev"
+          triggers:
+            - type: "azure_devops_pull_request"
+              on_merge: false
+          execution:
+            timeout_seconds: 900
+            command: "dbt run"
+    
+    # Production environment
+    - name: "prod"
+      type: "production"
+      dbt_version: "1.7.0"
+      database_schema: "analytics"
+      threads: 8
+      
+      credentials:
+        - name: "sql_server_prod"
+          database_type: "sql_server"
+          schema: "analytics"
+          threads: 8
+          server: "prod.database.windows.net"
+          database: "analytics"
+          username_var_name: "SQL_SERVER_USER"
+          password_var_name: "SQL_SERVER_PASSWORD"
+      
+      jobs:
+        - name: "dbt_run_prod"
+          triggers:
+            - type: "schedule"
+              on_merge: false
+              schedule_interval: "0 4 * * *"  # 4 AM UTC daily
+          execution:
+            timeout_seconds: 1800
+            command: "dbt run"
+        
+        - name: "dbt_test_prod"
+          triggers:
+            - type: "schedule"
+              on_merge: false
+              schedule_interval: "30 4 * * *"  # 4:30 AM UTC daily
+          execution:
+            timeout_seconds: 900
+            command: "dbt test"
+
+  # Environment variables for both dev and prod
+  environment_variables:
+    - name: "MODELS_TO_RUN"
+      value: "my_models"
+      environment_names: ["dev", "prod"]
+    
+    - name: "DBT_LOG_LEVEL"
+      value: "info"
+      environment_names: ["dev", "prod"]

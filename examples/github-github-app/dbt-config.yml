@@ -1,0 +1,94 @@
+# dbt Cloud Configuration - GitHub with GitHub App Integration
+# This example uses GitHub App for secure, native GitHub integration
+#
+# GitHub App Benefits:
+# - No tokens needed in Terraform (better security)
+# - Automatic webhook management
+# - Better PR integration
+# - Granular permissions control
+#
+# See docs/REPOSITORY_CONFIGURATION.md for how to find github_installation_id
+
+project:
+  name: "my-dbt-project"
+  
+  # GitHub repository with native GitHub App integration
+  repository:
+    remote_url: "https://github.com/myorganization/my-dbt-repo.git"
+    git_clone_strategy: "github_app"
+    github_installation_id: 12345678  # Replace with your GitHub App installation ID
+  
+  environments:
+    # Development environment
+    - name: "dev"
+      type: "development"
+      dbt_version: "1.7.0"
+      database_schema: "analytics_dev"
+      threads: 4
+      
+      credentials:
+        - name: "snowflake_dev"
+          database_type: "snowflake"
+          schema: "analytics_dev"
+          threads: 4
+          database: "analytics"
+          account: "myaccount"
+          warehouse: "transforming_dev"
+          username_var_name: "SNOWFLAKE_USER"
+          password_var_name: "SNOWFLAKE_PASSWORD"
+      
+      jobs:
+        - name: "dbt_run_dev"
+          triggers:
+            - type: "github_pull_request"
+              on_merge: false
+          execution:
+            timeout_seconds: 900
+            command: "dbt run"
+    
+    # Production environment
+    - name: "prod"
+      type: "production"
+      dbt_version: "1.7.0"
+      database_schema: "analytics"
+      threads: 8
+      
+      credentials:
+        - name: "snowflake_prod"
+          database_type: "snowflake"
+          schema: "analytics"
+          threads: 8
+          database: "analytics"
+          account: "myaccount"
+          warehouse: "transforming_prod"
+          username_var_name: "SNOWFLAKE_USER"
+          password_var_name: "SNOWFLAKE_PASSWORD"
+      
+      jobs:
+        - name: "dbt_run_prod"
+          triggers:
+            - type: "schedule"
+              on_merge: false
+              schedule_interval: "0 4 * * *"  # 4 AM UTC daily
+          execution:
+            timeout_seconds: 1800
+            command: "dbt run"
+        
+        - name: "dbt_test_prod"
+          triggers:
+            - type: "schedule"
+              on_merge: false
+              schedule_interval: "30 4 * * *"  # 4:30 AM UTC daily
+          execution:
+            timeout_seconds: 900
+            command: "dbt test"
+
+  # Environment variables for both dev and prod
+  environment_variables:
+    - name: "MODELS_TO_RUN"
+      value: "my_models"
+      environment_names: ["dev", "prod"]
+    
+    - name: "DBT_LOG_LEVEL"
+      value: "info"
+      environment_names: ["dev", "prod"]

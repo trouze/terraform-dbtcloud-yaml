@@ -1,0 +1,14 @@
+# Example: terraform.tfvars for GitLab Deploy Token integration
+# Copy this file to terraform.tfvars and fill in your values
+
+dbt_account_id = "123456"  # Your dbt Cloud account ID
+dbt_api_token  = "dbt_..."  # Your dbt Cloud API token (keep secret!)
+
+# Map of database credentials needed by your jobs
+# Keys should match the variable names in your dbt profiles.yml
+token_map = {
+  "BIGQUERY_KEYFILE" = file("${path.module}/bigquery-key.json")
+}
+
+# Optional: Override the target name if needed
+# target_name = "dev"
