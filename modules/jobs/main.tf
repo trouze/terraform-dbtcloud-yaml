@@ -50,10 +50,6 @@ resource "dbtcloud_job" "job" {
   schedule_interval          = lookup(each.value, "schedule_interval", null)
   schedule_type              = lookup(each.value, "schedule_type", null)
   target_name                = lookup(each.value, "target_name", null)
+  timeout_seconds            = lookup(each.value, "timeout_seconds", 0)
   triggers_on_draft_pr       = lookup(each.value, "triggers_on_draft_pr", false)
-
-  # Provider v1.3+ execution block
-  execution = {
-    timeout_seconds = lookup(each.value, "timeout_seconds", 0)
-  }
 }
