@@ -53,7 +53,7 @@ resource "dbtcloud_job" "job" {
   triggers_on_draft_pr       = lookup(each.value, "triggers_on_draft_pr", false)
 
   # Provider v1.3+ execution block
-  execution {
+  execution = {
     timeout_seconds = lookup(each.value, "timeout_seconds", 0)
   }
 }
