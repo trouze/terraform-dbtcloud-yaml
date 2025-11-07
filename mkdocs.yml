@@ -1,0 +1,127 @@
+site_name: dbt-terraform-modules-yaml
+site_description: Manage dbt Cloud infrastructure with Terraform using YAML configuration
+site_author: Tyler Rouze
+site_url: https://trouze.github.io/dbt-terraform-modules-yaml
+
+repo_url: https://github.com/trouze/dbt-terraform-modules-yaml
+repo_name: trouze/dbt-terraform-modules-yaml
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  palette:
+    # Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: orange
+      accent: deep orange
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: orange
+      accent: deep orange
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - search.share
+    - toc.follow
+    - content.code.copy
+    - content.code.annotate
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil
+    view: material/eye
+
+plugins:
+  - search:
+      lang: en
+  - git-revision-date-localized:
+      enable_creation_date: true
+      type: timeago
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Quick Start: getting-started/quickstart.md
+    - Examples: getting-started/examples.md
+  - Configuration:
+    - YAML Schema: configuration/yaml-schema.md
+    - Environment Variables: configuration/environment-variables.md
+    - Multi-Project Setup: configuration/multi-project.md
+  - Reference:
+    - Module API: reference/terraform.md
+    - Submodules:
+      - Credentials: reference/module-credentials.md
+      - Environments: reference/module-environments.md
+      - Jobs: reference/module-jobs.md
+      - Project: reference/module-project.md
+      - Repository: reference/module-repository.md
+      - Environment Variables: reference/module-environment_variables.md
+      - Environment Variable Job Overrides: reference/module-environment_variable_job_overrides.md
+      - Project Repository: reference/module-project_repository.md
+  - Guides:
+    - CI/CD Integration: guides/cicd.md
+    - Best Practices: guides/best-practices.md
+    - Troubleshooting: guides/troubleshooting.md
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/trouze/dbt-terraform-modules-yaml
+      name: GitHub Repository
+  generator: false
+
+copyright: Copyright &copy; 2025 Tyler Rouze
