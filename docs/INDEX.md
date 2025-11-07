@@ -1,326 +1,211 @@
-# Project Index & Quick Reference
+# dbt-terraform-modules-yaml
 
-## 🚀 Quick Start
+[![Terraform Version](https://img.shields.io/badge/terraform-%3E%3D%201.0-blue?logo=terraform)](https://www.terraform.io) [![dbt Cloud Provider](https://img.shields.io/badge/dbt--cloud--provider-v1.3-blue)](https://registry.terraform.io/providers/dbt-labs/dbtcloud/latest) [![License](https://img.shields.io/badge/license-Apache%202.0-green)](https://github.com/trouze/dbt-terraform-modules-yaml/blob/main/LICENSE)
 
-**First time here?** Start with:
-1. [README.md](README.md) - Overview and configuration reference
-2. [QUICKSTART.md](QUICKSTART.md) - 5-minute setup guide
-3. [examples/basic/](examples/basic/) - Copy this to start
+Manage your entire dbt Cloud setup with infrastructure-as-code using Terraform and YAML. Define projects, repositories, environments, credentials, and jobs in a single, human-readable YAML file.
 
-## 📁 File Organization
+## Why This Project Exists
 
-### Configuration (The Things You Use)
-```
-main.tf                     # Root module orchestration
-variables.tf               # Input validation
-outputs.tf                 # Output values
-providers.tf               # Provider configuration
-```
+Setting up dbt Cloud via Terraform requires writing complex HCL for every resource. This module simplifies that by letting you define your infrastructure in YAML - the language data teams already know. No need to learn Terraform syntax just to configure dbt.
 
-### Schema & Validation
-```
-schemas/v1.json            # JSON Schema for YAML validation
-SCHEMA_SETUP.md             # IDE setup instructions (VS Code, JetBrains, etc)
-```
+**Benefits:**
 
-### Documentation (The Things You Read)
-```
-README.md                           # Main documentation (4000+ words)
-QUICKSTART.md                       # 5-minute getting started
-CONTRIBUTING.md                     # How to contribute
-CHANGELOG.md                        # Release notes and roadmap
-MIGRATION_GUIDE.md                  # How to migrate from manual setup
-TESTING.md                          # Testing guide for developers
-LAUNCH_CHECKLIST.md                 # Pre-release verification checklist
-COMPLETION_SUMMARY.md               # What was built and next steps
-IMPLEMENTATION_SUMMARY.md           # Technical architecture details
-NEXT_STEPS.md                       # Post-launch roadmap
-REPOSITORY_CONFIGURATION.md         # Multi-provider Git setup guide
-REPOSITORY_VALIDATION_SUMMARY.md    # Technical details on validation
-```
+- ✅ **YAML-based configuration** - intuitive for data engineers
+- ✅ **Infrastructure as Code** - version control your dbt setup
+- ✅ **Multi-provider Git support** - GitHub, GitLab, Azure DevOps, SSH
+- ✅ **Complete resource management** - projects, repos, environments, credentials, jobs
+- ✅ **Environment variable management** - set dbt variables alongside infrastructure
+- ✅ **Reusable modules** - standardize your dbt deployments
 
-### Examples (Copy These)
-```
-examples/README.md                          # Examples overview
-examples/EXAMPLES.md                        # Provider-specific examples guide
-examples/basic/main.tf                      # Module usage pattern
-examples/basic/variables.tf                 # Input template
-examples/basic/dbt-config.yml               # YAML configuration
-examples/basic/terraform.tfvars.example     # Credentials template
-examples/github-github-app/                 # GitHub App integration example
-examples/gitlab-deploy-token/               # GitLab token integration example
-examples/azure-devops-native/               # Azure DevOps integration example
-examples/generic-ssh-deploy-key/            # SSH key integration example
-```
+## Quick Start
 
-### Tests
-```
-test/terraform_test.go                      # Integration test suite
-test/go.mod                                 # Go dependencies
-test/fixtures/basic/                        # Minimal test fixture
-test/fixtures/complete/                     # Advanced test fixture
-```
+Get started in 3 simple steps:
 
-### GitHub Integration
-```
-.github/workflows/terraform-validate.yml    # CI/CD pipeline
-.github/ISSUE_TEMPLATE/bug_report.md        # Bug report template
-.github/ISSUE_TEMPLATE/feature_request.md   # Feature request template
-```
+## Quick Start
 
-### Development Tools
-```
-.pre-commit-config.yaml                     # Pre-commit hooks
-.tflint.hcl                                 # TFLint configuration
-terraform-registry-manifest.json            # Registry metadata
-```
+Get started in 3 simple steps:
 
-## 🎯 Use Cases
+=== "Step 1: Clone the Example"
 
-### "I want to get started quickly"
-→ Read [QUICKSTART.md](QUICKSTART.md)  
-→ Copy [examples/basic/](examples/basic/)  
-→ Update `dbt-config.yml` with your values  
-→ Run `terraform apply`
+    ```bash
+    # Clone or copy the basic example
+    git clone https://github.com/trouze/dbt-terraform-modules-yaml.git
+    cd dbt-terraform-modules-yaml/examples/basic
 
-### "I need to migrate from manual setup"
-→ Read [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)  
-→ Follow Step-by-Step guide  
-→ Use before/after comparisons  
-→ Use migration checklist
+    # Or copy to your own directory
+    cp -r examples/basic my-dbt-setup
+    cd my-dbt-setup
+    ```
 
-### "I want IDE validation for my YAML"
-→ Read [SCHEMA_SETUP.md](SCHEMA_SETUP.md)  
-→ Follow instructions for your IDE  
-→ Copy schema file to your workspace  
-→ Enable JSON Schema validation
+=== "Step 2: Configure Credentials"
 
-### "I'm having issues with YAML syntax"
-→ Read [README.md#yaml-validation-examples](README.md#yaml-validation-examples)  
-→ Check [README.md#yaml-common-errors--solutions](README.md#yaml-common-errors--solutions)  
-→ Run validation: `terraform console` → `yamldecode(file("./dbt-config.yml"))`
+    ```bash
+    # Create .env file from example
+    cp .env.example .env
 
-### "I want to troubleshoot an error"
-→ Read [README.md#troubleshooting](README.md#troubleshooting)  
-→ Check error message against table  
-→ Follow solution steps  
-→ See [Debugging Checklist](README.md#debugging-checklist)
+    # Edit with your dbt Cloud credentials
+    export TF_VAR_dbt_account_id=12345
+    export TF_VAR_dbt_api_token=dbtc_xxxxx
+    export TF_VAR_dbt_pat=dbtc_xxxxx
+    export TF_VAR_dbt_host_url=https://cloud.getdbt.com/api
+    export TF_VAR_yaml_file_path=./dbt-config.yml
+    ```
 
-### "I need to set up a Git repository connection"
-→ Read [REPOSITORY_CONFIGURATION.md](REPOSITORY_CONFIGURATION.md)  
-→ Pick your provider (GitHub, GitLab, Azure, Bitbucket)  
-→ Copy example from [examples/](examples/)  
-→ Follow provider-specific setup guide  
-→ Run `terraform apply`
+=== "Step 3: Deploy"
 
-### "I want to use GitHub App for secure integration"
-→ Copy [examples/github-github-app/](examples/github-github-app/)  
-→ Read [REPOSITORY_CONFIGURATION.md#github](REPOSITORY_CONFIGURATION.md#github)  
-→ Find your GitHub App installation ID  
-→ Update `dbt-config.yml`  
-→ Deploy
+    ```bash
+    # Load credentials
+    source .env
 
-### "I'm using GitLab and want Deploy Token integration"
-→ Copy [examples/gitlab-deploy-token/](examples/gitlab-deploy-token/)  
-→ Read [REPOSITORY_CONFIGURATION.md#gitlab](REPOSITORY_CONFIGURATION.md#gitlab)  
-→ Create Deploy Token in GitLab  
-→ Get your GitLab project ID  
-→ Update `dbt-config.yml` and deploy
+    # Initialize and deploy
+    terraform init
+    terraform plan
+    terraform apply
+    ```
 
-### "I need to support multiple Git providers"
-→ Read [REPOSITORY_CONFIGURATION.md#url-format-reference](REPOSITORY_CONFIGURATION.md#url-format-reference)  
-→ Use auto-detection feature  
-→ Module handles provider differences automatically  
-→ See [REPOSITORY_VALIDATION_SUMMARY.md](REPOSITORY_VALIDATION_SUMMARY.md) for technical details
+!!! success "That's it!"
+    Your dbt Cloud project is now managed with infrastructure-as-code!
 
-### "I'm a developer and want to contribute"
-→ Read [CONTRIBUTING.md](CONTRIBUTING.md)  
-→ Follow development setup  
-→ Run tests: `cd test && go test -v`  
-→ See [TESTING.md](TESTING.md) for detailed testing guide
+## Features
 
-### "I want to run tests"
-→ Read [TESTING.md](TESTING.md)  
-→ Run `cd test && go test -v`  
-→ Run specific test: `go test -v -run TestBasicConfiguration`  
-→ Check coverage: `go test -cover`
+### YAML Configuration
 
-### "I need technical details about the architecture"
-→ Read [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md)  
-→ Check [COMPLETION_SUMMARY.md](COMPLETION_SUMMARY.md)  
-→ Review main.tf comments
+Define everything in one file:
 
-### "I'm preparing for release/launch"
-→ Read [LAUNCH_CHECKLIST.md](LAUNCH_CHECKLIST.md)  
-→ Go through 60+ verification items  
-→ Address any failures  
-→ Sign-off when ready
+```yaml
+project:
+  name: "my-dbt-project"
+  repository:
+    remote_url: "https://github.com/myorg/myrepo.git"
+    git_clone_strategy: "github_app"
+    github_installation_id: 123456
 
-### "I want to see the roadmap"
-→ Check [CHANGELOG.md#roadmap](CHANGELOG.md#roadmap)  
-→ See [NEXT_STEPS.md](NEXT_STEPS.md) for detailed items
-
-## 🔍 Common Questions
-
-**Q: How do I get started?**  
-A: [QUICKSTART.md](QUICKSTART.md) - 5 minutes to working setup
-
-**Q: What's different about this vs manual setup?**  
-A: [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) - shows before/after
-
-**Q: How do I know if my YAML is valid?**  
-A: [SCHEMA_SETUP.md](SCHEMA_SETUP.md) - set up IDE validation, or [README.md#yaml-validation-examples](README.md#yaml-validation-examples)
-
-**Q: What if something breaks?**  
-A: [README.md#troubleshooting](README.md#troubleshooting) - 12+ error scenarios
-
-**Q: How do I contribute?**  
-A: [CONTRIBUTING.md](CONTRIBUTING.md) - development guidelines
-
-**Q: How do I run tests?**  
-A: [TESTING.md](TESTING.md) - testing guide with examples
-
-**Q: What's in the modules?**  
-A: [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) - technical details
-
-**Q: What was completed?**  
-A: [COMPLETION_SUMMARY.md](COMPLETION_SUMMARY.md) - full project summary
-
-**Q: What's next after launch?**  
-A: [NEXT_STEPS.md](NEXT_STEPS.md) - post-launch roadmap
-
-## 📚 Documentation by Audience
-
-### For End Users
-1. **Getting Started**: [QUICKSTART.md](QUICKSTART.md)
-2. **Configuration**: [README.md](README.md) (Configuration section)
-3. **Examples**: [examples/](examples/)
-4. **Validation**: [README.md#yaml-validation-examples](README.md#yaml-validation-examples)
-5. **Help**: [README.md#troubleshooting](README.md#troubleshooting)
-
-### For Migrating Users
-1. **Migration Path**: [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)
-2. **Step-by-Step**: [MIGRATION_GUIDE.md#migration-steps](MIGRATION_GUIDE.md#migration-steps)
-3. **Patterns**: [MIGRATION_GUIDE.md#common-migration-patterns](MIGRATION_GUIDE.md#common-migration-patterns)
-4. **Checklist**: [MIGRATION_GUIDE.md#migration-checklist](MIGRATION_GUIDE.md#migration-checklist)
-
-### For Developers
-1. **Contributing**: [CONTRIBUTING.md](CONTRIBUTING.md)
-2. **Testing**: [TESTING.md](TESTING.md)
-3. **Architecture**: [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md)
-4. **Code**: [main.tf](main.tf) (with inline comments)
-
-### For Operators
-1. **Configuration Reference**: [README.md#configuration](README.md#configuration)
-2. **Secret Management**: [README.md#secret-management](README.md#secret-management)
-3. **Troubleshooting**: [README.md#troubleshooting](README.md#troubleshooting)
-4. **Best Practices**: [README.md#best-practices](README.md#best-practices)
-
-### For Maintainers
-1. **Release Notes**: [CHANGELOG.md](CHANGELOG.md)
-2. **Launch**: [LAUNCH_CHECKLIST.md](LAUNCH_CHECKLIST.md)
-3. **Project Status**: [COMPLETION_SUMMARY.md](COMPLETION_SUMMARY.md)
-4. **Roadmap**: [NEXT_STEPS.md](NEXT_STEPS.md)
-
-## 🛠 Tools & Configuration
-
-### For Code Quality
-```bash
-terraform fmt -recursive     # Format code
-terraform validate           # Validate syntax
-tflint .                      # Lint code
-pre-commit run --all-files   # Run all hooks
+  environments:
+    - name: "Production"
+      type: "deployment"
+      connection_id: 1
+      jobs:
+        - name: "daily_run"
+          execute_steps:
+            - "dbt run"
+          triggers:
+            schedule: true
+            schedule_hours: [6]
 ```
 
-### For Validation
-```bash
-# YAML validation
-terraform console
-yamldecode(file("./dbt-config.yml"))
+### Multi-Provider Git Support
 
-# Schema validation (see SCHEMA_SETUP.md)
-```
+Automatically configures your Git provider:
 
-### For Testing
-```bash
-cd test
-go test -v                              # Run all tests
-go test -v -run TestBasicConfiguration  # Run specific test
-go test -cover                          # Run with coverage
-```
+- **GitHub** with GitHub App
+- **GitLab** with Deploy Token
+- **Azure DevOps** with Azure AD
+- **SSH** Deploy Key (universal)
 
-### For Formatting
-```bash
-# Format Terraform files
-terraform fmt -recursive
+### Secure Credentials
 
-# Format documentation (manual review)
-# Check Markdown formatting in your editor
-```
+- Keep secrets in `.env` or GitHub Secrets
+- Never commit sensitive values
+- Support for database credentials as environment variables
 
-## 📊 Project Statistics
+## Use Cases
 
-| Category | Count | Details |
-|----------|-------|---------|
-| **Files** | 34 | New/updated files |
-| **Documentation** | 10 | Markdown files (6000+ words) |
-| **Code Files** | 8 | Terraform + Go |
-| **Test Cases** | 9 | Integration tests |
-| **Examples** | 2 | Basic + Complete fixtures |
-| **Total Lines** | 10,000+ | Code + docs + tests |
+<div class="grid cards" markdown>
 
-## ✅ Verification
+-   :material-rocket-launch:{ .lg .middle } **Single dbt Project**
 
-**Before using this project, verify:**
-- [ ] `terraform validate` passes
-- [ ] `go test -v` passes (in test/ directory)
-- [ ] `terraform fmt -recursive` completes
-- [ ] No files have `terraform.tfvars` (only example file)
+    ---
 
-**Quick verification:**
-```bash
-terraform validate && echo "✅ Terraform valid"
-cd test && go test -v && echo "✅ Tests pass" && cd ..
-terraform fmt -recursive && echo "✅ Formatted"
-```
+    Get started quickly with a single project
 
-## 🎓 Learning Path
+    ```bash
+    terraform apply
+    ```
 
-### Beginner
-1. [QUICKSTART.md](QUICKSTART.md) - Get it working
-2. [README.md](README.md) - Understand concepts
-3. [examples/basic/](examples/basic/) - See real example
+-   :material-git:{ .lg .middle } **Multiple Projects**
 
-### Intermediate
-1. [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) - Migrate from manual
-2. [README.md#configuration](README.md#configuration) - Deep dive config
-3. [SCHEMA_SETUP.md](SCHEMA_SETUP.md) - IDE integration
+    ---
 
-### Advanced
-1. [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md) - Technical details
-2. [CONTRIBUTING.md](CONTRIBUTING.md) - Development setup
-3. [TESTING.md](TESTING.md) - Test infrastructure
+    Run multiple dbt projects in parallel CI/CD
 
-### Expert
-1. [main.tf](main.tf) - Module orchestration logic
-2. [test/terraform_test.go](test/terraform_test.go) - Test patterns
-3. [modules/*/](modules/) - Internal module details
+    ```bash
+    # Run each project separately
+    for config in configs/*.yml; do
+      terraform plan -var="yaml_file_path=$config"
+    done
+    ```
 
-## 🚀 Launch Status
+-   :material-github:{ .lg .middle } **CI/CD Pipeline**
 
-- [x] Core functionality complete
-- [x] Documentation comprehensive
-- [x] Tests passing
-- [x] Examples working
-- [x] Schema validation configured
-- [x] Pre-commit hooks setup
-- [x] CI/CD configured
-- [x] Ready for Registry publication
+    ---
 
-**Current Status: ✅ READY FOR LAUNCH**
+    Automate deployments with GitHub Actions
 
-See [LAUNCH_CHECKLIST.md](LAUNCH_CHECKLIST.md) for final verification steps.
+    ```yaml
+    # GitHub Actions example
+    - env:
+        TF_VAR_dbt_account_id: ${{ secrets.DBT_ACCOUNT_ID }}
+        TF_VAR_dbt_api_token: ${{ secrets.DBT_API_TOKEN }}
+      run: terraform apply
+    ```
+
+</div>
+
+## Requirements
+
+- Terraform >= 1.0
+- dbt Cloud account
+- dbt Cloud API token
+- Git repository for your dbt models
+
+## What's Next?
+
+<div class="grid cards" markdown>
+
+-   :material-rocket-launch:{ .lg .middle } **Getting Started**
+
+    ---
+
+    Follow the quick start guide to deploy your first dbt Cloud project
+
+    [:octicons-arrow-right-24: Quick Start](getting-started/quickstart.md)
+
+-   :material-file-document:{ .lg .middle } **Configuration**
+
+    ---
+
+    Learn about YAML schema and configuration options
+
+    [:octicons-arrow-right-24: Configuration](configuration/yaml-schema.md)
+
+-   :material-book-open-variant:{ .lg .middle } **Examples**
+
+    ---
+
+    Explore real-world examples and use cases
+
+    [:octicons-arrow-right-24: Examples](getting-started/examples.md)
+
+-   :material-github:{ .lg .middle } **Reference**
+
+    ---
+
+    Complete Terraform module API documentation
+
+    [:octicons-arrow-right-24: Module API](reference/terraform.md)
+
+</div>
+
+## Community & Support
+
+- 📖 **Documentation** - You're reading it!
+- 🐛 **Issues** - [Report bugs or request features](https://github.com/trouze/dbt-terraform-modules-yaml/issues)
+- 💬 **Discussions** - [Share ideas and best practices](https://github.com/trouze/dbt-terraform-modules-yaml/discussions)
+
+## License
+
+This project is licensed under Apache License 2.0. See [LICENSE](https://github.com/trouze/dbt-terraform-modules-yaml/blob/main/LICENSE) for details.
 
 ---
 
-**Need help?** Check [Troubleshooting in README](README.md#troubleshooting) or open a [GitHub Issue](https://github.com/trouze/dbt-cloud-terraform-starter/issues).
+**Ready to manage your dbt Cloud with code?** Start with the [Quick Start Guide](getting-started/quickstart.md)!

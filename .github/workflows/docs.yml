@@ -1,0 +1,73 @@
+name: Deploy Documentation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - '**.tf'
+      - 'schemas/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for git-revision-date-localized plugin
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      
+      - name: Cache Python dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+      
+      - name: Install dependencies
+        run: |
+          pip install mkdocs-material
+          pip install mkdocs-git-revision-date-localized-plugin
+      
+      - name: Install terraform-docs
+        run: |
+          wget https://github.com/terraform-docs/terraform-docs/releases/download/v0.20.0/terraform-docs-v0.20.0-linux-amd64.tar.gz
+          tar -xzf terraform-docs-v0.20.0-linux-amd64.tar.gz
+          sudo mv terraform-docs /usr/local/bin/
+          terraform-docs --version
+      
+      - name: Generate Terraform documentation
+        run: |
+          # Generate main module docs
+          terraform-docs markdown table . > docs/reference/terraform.md
+          
+          # Generate submodule docs
+          for dir in modules/*/; do
+            module_name=$(basename $dir)
+            echo "Generating docs for module: $module_name"
+            terraform-docs markdown table $dir > docs/reference/module-${module_name}.md
+          done
+      
+      - name: Commit updated Terraform docs
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add docs/reference/*.md
+          git diff --quiet && git diff --staged --quiet || git commit -m "docs: auto-update terraform reference"
+        continue-on-error: true
+      
+      - name: Build and deploy MkDocs
+        run: mkdocs gh-deploy --force
