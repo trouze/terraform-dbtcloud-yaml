@@ -14,9 +14,9 @@ provider "dbtcloud" {
   token      = var.dbt_api_token
 }
 
-# Test the dbt-terraform-modules-yaml module from GitHub
+# Test the terraform-dbtcloud-yaml module from GitHub
 module "dbt_cloud_test" {
-  source = "git::https://github.com/trouze/dbt-terraform-modules-yaml.git?ref=v0.1.0-alpha"
+  source = "git::https://github.com/trouze/terraform-dbtcloud-yaml.git?ref=v0.1.0-alpha"
 
   dbt_account_id = var.dbt_account_id
   dbt_token      = var.dbt_token

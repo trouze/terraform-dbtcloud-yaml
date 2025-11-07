@@ -35,7 +35,7 @@ terraform plan
 terraform apply
 ```
 
-[:material-github: View Source](https://github.com/trouze/dbt-terraform-modules-yaml/tree/main/examples/basic){ .md-button }
+[:material-github: View Source](https://github.com/trouze/terraform-dbtcloud-yaml/tree/main/examples/basic){ .md-button }
 
 ---
 
@@ -300,4 +300,4 @@ project:
 - **GitLab CI/CD Pipeline**
 - **Azure DevOps Integration**
 
-Want to contribute an example? [Open a PR](https://github.com/trouze/dbt-terraform-modules-yaml/pulls)!
+Want to contribute an example? [Open a PR](https://github.com/trouze/terraform-dbtcloud-yaml/pulls)!

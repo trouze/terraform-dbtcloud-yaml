@@ -400,7 +400,7 @@ provider "dbtcloud" {
 }
 
 module "dbt_cloud" {
-  source = "git::https://github.com/trouze/dbt-terraform-modules-yaml.git"
+  source = "git::https://github.com/trouze/terraform-dbtcloud-yaml.git"
   
   dbt_account_id = var.dbt_account_id
   dbt_token      = var.dbt_api_token
