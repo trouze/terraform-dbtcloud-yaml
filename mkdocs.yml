@@ -1,10 +1,10 @@
-site_name: dbt-terraform-modules-yaml
+site_name: terraform-dbtcloud-yaml
 site_description: Manage dbt Cloud infrastructure with Terraform using YAML configuration
 site_author: Tyler Rouze
-site_url: https://trouze.github.io/dbt-terraform-modules-yaml
+site_url: https://trouze.github.io/terraform-dbtcloud-yaml
 
-repo_url: https://github.com/trouze/dbt-terraform-modules-yaml
-repo_name: trouze/dbt-terraform-modules-yaml
+repo_url: https://github.com/trouze/terraform-dbtcloud-yaml
+repo_name: trouze/terraform-dbtcloud-yaml
 edit_uri: edit/main/docs/
 
 theme:
@@ -120,7 +120,7 @@ markdown_extensions:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/trouze/dbt-terraform-modules-yaml
+      link: https://github.com/trouze/terraform-dbtcloud-yaml
       name: GitHub Repository
   generator: false
 

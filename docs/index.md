@@ -1,6 +1,6 @@
-# dbt-terraform-modules-yaml
+# terraform-dbtcloud-yaml
 
-[![Terraform Version](https://img.shields.io/badge/terraform-%3E%3D%201.0-blue?logo=terraform)](https://www.terraform.io) [![dbt Cloud Provider](https://img.shields.io/badge/dbt--cloud--provider-v1.3-blue)](https://registry.terraform.io/providers/dbt-labs/dbtcloud/latest) [![License](https://img.shields.io/badge/license-Apache%202.0-green)](https://github.com/trouze/dbt-terraform-modules-yaml/blob/main/LICENSE)
+[![Terraform Version](https://img.shields.io/badge/terraform-%3E%3D%201.0-blue?logo=terraform)](https://www.terraform.io) [![dbt Cloud Provider](https://img.shields.io/badge/dbt--cloud--provider-v1.3-blue)](https://registry.terraform.io/providers/dbt-labs/dbtcloud/latest) [![License](https://img.shields.io/badge/license-Apache%202.0-green)](https://github.com/trouze/terraform-dbtcloud-yaml/blob/main/LICENSE)
 
 Manage your entire dbt Cloud setup with infrastructure-as-code using Terraform and YAML. Define projects, repositories, environments, credentials, and jobs in a single, human-readable YAML file.
 
@@ -29,8 +29,8 @@ Get started in 3 simple steps:
 
     ```bash
     # Clone or copy the basic example
-    git clone https://github.com/trouze/dbt-terraform-modules-yaml.git
-    cd dbt-terraform-modules-yaml/examples/basic
+    git clone https://github.com/trouze/terraform-dbtcloud-yaml.git
+    cd terraform-dbtcloud-yaml/examples/basic
 
     # Or copy to your own directory
     cp -r examples/basic my-dbt-setup
@@ -199,12 +199,12 @@ Automatically configures your Git provider:
 ## Community & Support
 
 - 📖 **Documentation** - You're reading it!
-- 🐛 **Issues** - [Report bugs or request features](https://github.com/trouze/dbt-terraform-modules-yaml/issues)
-- 💬 **Discussions** - [Share ideas and best practices](https://github.com/trouze/dbt-terraform-modules-yaml/discussions)
+- 🐛 **Issues** - [Report bugs or request features](https://github.com/trouze/terraform-dbtcloud-yaml/issues)
+- 💬 **Discussions** - [Share ideas and best practices](https://github.com/trouze/terraform-dbtcloud-yaml/discussions)
 
 ## License
 
-This project is licensed under Apache License 2.0. See [LICENSE](https://github.com/trouze/dbt-terraform-modules-yaml/blob/main/LICENSE) for details.
+This project is licensed under Apache License 2.0. See [LICENSE](https://github.com/trouze/terraform-dbtcloud-yaml/blob/main/LICENSE) for details.
 
 ---
 

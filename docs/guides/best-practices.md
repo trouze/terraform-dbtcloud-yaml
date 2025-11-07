@@ -104,10 +104,10 @@ Use clear, descriptive names:
 Always pin module versions:
 
 ```hcl
+```hcl
 module "dbt_cloud" {
-  source = "git::https://github.com/trouze/dbt-terraform-modules-yaml.git?ref=v1.0.0"
-  # NOT: source = "git::https://github.com/..."  # ❌ Unpredictable
-}
+  source = "git::https://github.com/trouze/terraform-dbtcloud-yaml.git?ref=v1.0.0"
+```
 ```
 
 ---
@@ -249,7 +249,7 @@ Use schema validation in IDE:
 
 ```yaml
 # Add to top of dbt-config.yml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/trouze/dbt-terraform-modules-yaml/main/schemas/v1.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/trouze/terraform-dbtcloud-yaml/main/schemas/v1.json
 
 project:
   name: "my-project"
@@ -574,6 +574,6 @@ Before deploying to production:
 
 ## Getting Help
 
-- 📖 [Documentation](https://trouze.github.io/dbt-terraform-modules-yaml)
-- 🐛 [Issues](https://github.com/trouze/dbt-terraform-modules-yaml/issues)
-- 💬 [Discussions](https://github.com/trouze/dbt-terraform-modules-yaml/discussions)
+- 📖 [Documentation](https://trouze.github.io/terraform-dbtcloud-yaml)
+- 🐛 [Issues](https://github.com/trouze/terraform-dbtcloud-yaml/issues)
+- 💬 [Discussions](https://github.com/trouze/terraform-dbtcloud-yaml/discussions)

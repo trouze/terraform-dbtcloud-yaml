@@ -16,8 +16,8 @@ Before you begin, make sure you have:
 Start with the basic example as a template:
 
 ```bash
-git clone https://github.com/trouze/dbt-terraform-modules-yaml.git
-cd dbt-terraform-modules-yaml/examples/basic
+git clone https://github.com/trouze/terraform-dbtcloud-yaml.git
+cd terraform-dbtcloud-yaml/examples/basic
 
 # Or copy to your own directory
 cp -r examples/basic ~/my-dbt-setup
@@ -120,8 +120,10 @@ terraform init
 You should see:
 
 ```
+```
 Initializing modules...
-Downloading git::https://github.com/trouze/dbt-terraform-modules-yaml.git...
+Downloading git::https://github.com/trouze/terraform-dbtcloud-yaml.git...
+```
 
 Terraform has been successfully initialized!
 ```

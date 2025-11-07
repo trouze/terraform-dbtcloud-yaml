@@ -11,10 +11,10 @@ The YAML configuration is validated against a JSON Schema to ensure correctness.
 Add this to the top of your `dbt-config.yml`:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/trouze/dbt-terraform-modules-yaml/main/schemas/v1.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/trouze/terraform-dbtcloud-yaml/main/schemas/v1.json
 
 project:
-  name: "my-project"
+  name: "my-dbt-project"
   ...
 ```
 
@@ -392,7 +392,7 @@ environment_variables:
 Here's a full example combining all elements:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/trouze/dbt-terraform-modules-yaml/main/schemas/v1.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/trouze/terraform-dbtcloud-yaml/main/schemas/v1.json
 
 project:
   name: "analytics"

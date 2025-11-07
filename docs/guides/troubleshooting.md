@@ -525,7 +525,7 @@ Still stuck? Here's how to get support:
 
 ### 1. Check Existing Issues
 
-Search [GitHub Issues](https://github.com/trouze/dbt-terraform-modules-yaml/issues) for similar problems.
+Search [GitHub Issues](https://github.com/trouze/terraform-dbtcloud-yaml/issues) for similar problems.
 
 ### 2. Create Detailed Issue
 
@@ -536,9 +536,9 @@ Include:
 - **Minimal config** that reproduces the issue
 - **What you've tried** already
 
-### 3. Community Support
+### Community Support
 
-- [GitHub Discussions](https://github.com/trouze/dbt-terraform-modules-yaml/discussions)
+- [GitHub Discussions](https://github.com/trouze/terraform-dbtcloud-yaml/discussions)
 - [dbt Community Slack](https://www.getdbt.com/community/)
 
 ---
@@ -616,7 +616,7 @@ Before deployment:
 
     Report bugs or request features
 
-    [:octicons-arrow-right-24: Open Issue](https://github.com/trouze/dbt-terraform-modules-yaml/issues)
+    [:octicons-arrow-right-24: Open Issue](https://github.com/trouze/terraform-dbtcloud-yaml/issues)
 
 -   :material-forum:{ .lg .middle } __Discussions__
 
@@ -624,6 +624,6 @@ Before deployment:
 
     Ask questions and share ideas
 
-    [:octicons-arrow-right-24: Join Discussion](https://github.com/trouze/dbt-terraform-modules-yaml/discussions)
+    [:octicons-arrow-right-24: Join Discussion](https://github.com/trouze/terraform-dbtcloud-yaml/discussions)
 
 </div>
