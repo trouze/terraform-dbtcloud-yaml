@@ -1,0 +1,86 @@
+version: 2
+account:
+  name: "Finance Data"
+  host_url: "https://cloud.getdbt.com"
+  id: 123
+
+globals:
+  connections:
+    - key: "snowflake_prod"
+      name: "Snowflake Prod"
+      type: "snowflake"
+  repositories:
+    - key: "shared_repo"
+      remote_url: "https://github.com/myorg/dbt-analytics.git"
+      git_clone_strategy: "github_app"
+      github_installation_id: 987654
+  notifications:
+    - key: "slack_ops"
+      type: "slack"
+      target:
+        channel: "#dbt-ops"
+  service_tokens:
+    - key: "ci_runner"
+      name: "CI Runner"
+      scopes:
+        - "run_jobs"
+  groups:
+    - key: "analytics_team"
+      name: "Analytics Team"
+      members:
+        - "analyst1@example.com"
+  privatelink_endpoints:
+    - key: "aws-use1"
+      cloud: "aws"
+      region: "us-east-1"
+      endpoint_id: "pl-12345"
+  semantic_layer_configs:
+    - key: "sl-prod"
+      project_key: "analytics"
+      enabled: true
+      settings:
+        default_metric: "revenue"
+
+projects:
+  - key: "analytics"
+    name: "analytics"
+    repository: "shared_repo"
+    environments:
+      - key: "prod"
+        name: "Production"
+        type: "deployment"
+        connection: "snowflake_prod"
+        credential:
+          token_name: "prod_databricks_token"
+          schema: "analytics_prod"
+          catalog: "production"
+    environment_variables:
+      - name: "DBT_WAREHOUSE"
+        environment_values:
+          Production: "prod_wh"
+    jobs:
+      - key: "prod_daily"
+        name: "Daily Run"
+        environment_key: "prod"
+        execute_steps:
+          - "dbt run"
+          - "dbt test"
+        triggers:
+          schedule: true
+          github_webhook: false
+          git_provider_webhook: false
+          on_merge: false
+        notification_keys:
+          - "slack_ops"
+        deferring_environment_key: "prod"
+    notifications:
+      - key: "email_failures"
+        type: "email"
+        target:
+          address: "alerts@example.com"
+
+metadata:
+  placeholders:
+    - id: "LOOKUP:connection.global_snowflake"
+      description: "Fill with target account connection ID or lookup key"
+

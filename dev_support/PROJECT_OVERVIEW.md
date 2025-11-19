@@ -239,3 +239,14 @@ Jobs reference environments by name (`split("_", each.key)`), but Terraform need
   - **Terraform dbtcloud provider**: Capture schema for resources the module uses (`dbtcloud_project`, `dbtcloud_job`, etc.), including known bugs or options.
   - **Other dependencies**: SSH key authorship, GitHub/GitLab/Azure DevOps webhook requirements, or database credential APIs should go here.
 - Keep both `dbt_api_v2.yaml` and `dbt_api_v2 with references.yaml` in this directory. Use the clean OpenAPI file when you need a minimal, machine-readable contract (e.g., tooling or client generation), and rely on the “with references” version when you are planning, understanding, or writing enhancements because it adds prose, usage guidance, and links back to canonical dbt docs.
+
+## 16. Provider Capabilities & Migration Strategy
+
+- **Provider surface area**: The official provider (`/Users/operator/Documents/git/dbt-labs/terraform-provider-dbtcloud/docs/`) includes resources for every dbt Cloud object we care about—projects, repositories, project repositories, environments, jobs, environment variables, job overrides, plus warehouse credentials (Snowflake/Databricks/BigQuery/etc.), notifications, service tokens, global/extended connections, PrivateLink endpoints, semantic layer configs, groups/permissions, IP restrictions, lineage integrations, license maps, and more. The matching `dbtcloud_*` data sources mirror those resources so Terraform can look up existing objects by ID.
+- **Using data sources during migration**: When targeting a fresh account, leverage data sources like `dbtcloud_environment`, `dbtcloud_repository`, `dbtcloud_global_connection`, `dbtcloud_group`, and credential-specific sources to fetch IDs for integrations or infrastructure that already exist. Feed these IDs into the YAML (for example via `token_map`, connection IDs, or repository metadata) so Terraform links to the right objects without hard-coding source-account IDs.
+- **Importer workflow (old → YAML → new)**:
+  1. **Extract** metadata from the source account via dbt Cloud APIs (projects, repos, credentials, environments, jobs, env vars, notifications, etc.).
+  2. **Normalize** into the YAML shape enforced by `schemas/v1.json`, dropping/flagging source-specific IDs for resources that must be recreated.
+  3. **Map IDs** for reusable infrastructure by querying the destination account with provider data sources and injecting the resulting IDs into the YAML or Terraform variables.
+  4. **Apply** the existing Terraform module with the generated YAML to create resources in the new account, letting Terraform manage state.
+  5. **Iterate** by exporting the new Terraform state and repeating the workflow for future migrations or expansions.

@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Docs: Introduced `dev_support/versioning.md` outlining module/schema/importer versioning and changelog rules.
+- Importer: Added `importer/VERSION` (default `0.1.0-dev`) to drive build-level logging and future release tagging.
 
 ### Changed
 

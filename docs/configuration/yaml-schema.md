@@ -6,6 +6,66 @@ Complete reference for the dbt Cloud YAML configuration format.
 
 The YAML configuration is validated against a JSON Schema to ensure correctness. Your IDE can use this schema for auto-completion and validation.
 
+### Schema Versions
+
+- **Version 1 (`schemas/v1.json`)** – single-project configuration (current default). Keep using this if you only manage a single project and don’t need shared resources.
+- **Version 2 (`schemas/v2.json`)** – multi-project/account-aware configs with reusable `globals`, placeholder metadata, and cross-resource references by key. Required for importer output.
+
+Add the appropriate schema reference to the top of your YAML file. Example for v2:
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/trouze/terraform-dbtcloud-yaml/main/schemas/v2.json
+
+version: 2
+account:
+  name: "Finance Data"
+  host_url: "https://cloud.getdbt.com"
+
+globals:
+  connections:
+    - key: "snowflake_prod"
+      name: "Snowflake Prod"
+      type: "snowflake"
+  notifications:
+    - key: "slack_ops"
+      type: "slack"
+      target:
+        channel: "#dbt-ops"
+
+projects:
+  - key: "analytics"
+    name: "analytics"
+    repository: "shared_repo"        # references globals.repositories[].key
+    environments:
+      - key: "prod"
+        name: "Production"
+        type: "deployment"
+        connection: "snowflake_prod" # key (or numeric ID/LOOKUP placeholder)
+        credential:
+          token_name: "prod_databricks_token"
+          schema: "analytics_prod"
+          catalog: "production"
+    jobs:
+      - key: "prod_daily"
+        name: "Daily Run"
+        environment_key: "prod"
+        execute_steps:
+          - "dbt run"
+          - "dbt test"
+        triggers:
+          schedule: true
+          github_webhook: false
+          git_provider_webhook: false
+          on_merge: false
+        notification_keys:
+          - "slack_ops"
+
+metadata:
+  placeholders:
+    - id: "LOOKUP:connection.global_snowflake"
+      description: "Fill with target account connection ID or lookup key"
+```
+
 ### IDE Setup
 
 Add this to the top of your `dbt-config.yml`:
