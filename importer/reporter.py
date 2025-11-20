@@ -26,6 +26,11 @@ def generate_summary_report(snapshot: AccountSnapshot) -> str:
         "",
         f"- **Connections:** {len(snapshot.globals.connections)}",
         f"- **Repositories:** {len(snapshot.globals.repositories)}",
+        f"- **Service Tokens:** {len(snapshot.globals.service_tokens)}",
+        f"- **Groups:** {len(snapshot.globals.groups)}",
+        f"- **Notifications:** {len(snapshot.globals.notifications)}",
+        f"- **Webhooks:** {len(snapshot.globals.webhooks)}",
+        f"- **PrivateLink Endpoints:** {len(snapshot.globals.privatelink_endpoints)}",
         "",
         "## Projects Overview",
         "",
@@ -116,13 +121,38 @@ def generate_detailed_outline(snapshot: AccountSnapshot) -> str:
     if snapshot.globals.connections:
         lines.append("### Connections")
         lines.append("")
-        lines.append("| Key | ID | Name | Type |")
-        lines.append("|-----|----|----- |------|")
+        lines.append("| Key | ID | Name | Type | Adapter Version | OAuth | PrivateLink Endpoint |")
+        lines.append("|-----|----|----- |------|-----------------|-------|----------------------|")
         for key, conn in sorted(snapshot.globals.connections.items()):
             conn_id = conn.id or "N/A"
             conn_name = conn.name or "N/A"
             conn_type = conn.type or "N/A"
-            lines.append(f"| `{key}` | {conn_id} | {conn_name} | {conn_type} |")
+            
+            # Extract adapter version from details
+            adapter_version = conn.details.get("adapter_version", "N/A")
+            
+            # Check if OAuth is configured
+            oauth_configured = "Yes" if conn.details.get("is_configured_for_oauth", False) else "No"
+            
+            # Extract PrivateLink endpoint ID
+            privatelink_endpoint_id = conn.details.get("private_link_endpoint_id") or "N/A"
+            
+            lines.append(f"| `{key}` | {conn_id} | {conn_name} | {conn_type} | {adapter_version} | {oauth_configured} | {privatelink_endpoint_id} |")
+        lines.append("")
+
+    # PrivateLink Endpoints
+    if snapshot.globals.privatelink_endpoints:
+        lines.append("### PrivateLink Endpoints")
+        lines.append("")
+        lines.append("| Key | ID | Name | Type | State | CIDR Range |")
+        lines.append("|-----|----|------|------|-------|------------|")
+        for key, endpoint in sorted(snapshot.globals.privatelink_endpoints.items()):
+            endpoint_id = endpoint.id or "N/A"
+            endpoint_name = endpoint.name or "N/A"
+            endpoint_type = endpoint.type or "N/A"
+            endpoint_state = endpoint.state or "N/A"
+            cidr_range = endpoint.cidr_range or "N/A"
+            lines.append(f"| `{key}` | {endpoint_id} | {endpoint_name} | {endpoint_type} | {endpoint_state} | {cidr_range} |")
         lines.append("")
 
     # Repositories
@@ -136,6 +166,123 @@ def generate_detailed_outline(snapshot: AccountSnapshot) -> str:
             remote = repo.remote_url or "N/A"
             clone_strategy = repo.git_clone_strategy or "N/A"
             lines.append(f"| `{key}` | {repo_id} | {remote} | {clone_strategy} |")
+        lines.append("")
+
+    # Service Tokens
+    if snapshot.globals.service_tokens:
+        lines.append("### Service Tokens")
+        lines.append("")
+        lines.append("| Key | ID | Name | State | Permission Sets | Project IDs |")
+        lines.append("|-----|----|------|-------|-----------------|-------------|")
+        for key, token in sorted(snapshot.globals.service_tokens.items()):
+            token_id = token.id or "N/A"
+            token_name = token.name or "N/A"
+            state = "Active" if token.state == 1 else "Inactive" if token.state == 2 else "N/A"
+            
+            # Format permission sets
+            perm_count = len(token.permission_sets)
+            if perm_count > 0:
+                perm_display = ", ".join(f"`{p}`" for p in token.permission_sets)
+            else:
+                perm_display = "All Projects"
+            
+            # Format project IDs
+            proj_count = len(token.project_ids)
+            if proj_count > 0:
+                proj_display = ", ".join(str(p) for p in token.project_ids)
+            else:
+                proj_display = "All"
+            
+            lines.append(f"| `{key}` | {token_id} | {token_name} | {state} | {perm_display} | {proj_display} |")
+        lines.append("")
+
+    # Groups
+    if snapshot.globals.groups:
+        lines.append("### Groups")
+        lines.append("")
+        lines.append("| Key | ID | Name | Assign by Default | Permission Sets | SSO Mappings |")
+        lines.append("|-----|----|------|-------------------|-----------------|--------------|")
+        for key, group in sorted(snapshot.globals.groups.items()):
+            group_id = group.id or "N/A"
+            group_name = group.name or "N/A"
+            assign_default = "Yes" if group.assign_by_default else "No"
+            
+            # Format permission sets
+            perm_count = len(group.permission_sets)
+            if perm_count > 0:
+                perm_display = ", ".join(f"`{p}`" for p in group.permission_sets)
+            else:
+                perm_display = "None"
+            
+            # Format SSO mappings
+            sso_count = len(group.sso_mapping_groups)
+            sso_display = f"{sso_count} mapping(s)" if sso_count > 0 else "None"
+            
+            lines.append(f"| `{key}` | {group_id} | {group_name} | {assign_default} | {perm_display} | {sso_display} |")
+        lines.append("")
+
+    # Notifications
+    if snapshot.globals.notifications:
+        lines.append("### Notifications")
+        lines.append("")
+        lines.append("| Key | ID | Type | Destination | State | Jobs on Success | Jobs on Failure | Jobs on Cancel |")
+        lines.append("|-----|----|------|-------------|-------|-----------------|-----------------|----------------|")
+        for key, notif in sorted(snapshot.globals.notifications.items()):
+            notif_id = notif.id or "N/A"
+            notif_type_map = {1: "Email", 2: "Slack", 3: "Webhook"}
+            notif_type = notif_type_map.get(notif.notification_type, "Unknown")
+            state = "Active" if notif.state == 1 else "Inactive" if notif.state == 2 else "N/A"
+            
+            # Extract destination (email, slack channel, or webhook URL)
+            destination = "N/A"
+            if notif.notification_type == 1:  # Email
+                destination = notif.metadata.get("external_email", "N/A")
+            elif notif.notification_type == 2:  # Slack
+                channel_name = notif.metadata.get("slack_channel_name", "")
+                if channel_name:
+                    destination = channel_name
+                else:
+                    destination = notif.metadata.get("slack_channel_id", "N/A")
+            elif notif.notification_type == 3:  # Webhook
+                destination = notif.metadata.get("url", "N/A")
+            
+            on_success_count = len(notif.on_success)
+            on_failure_count = len(notif.on_failure)
+            on_cancel_count = len(notif.on_cancel)
+            
+            lines.append(f"| `{key}` | {notif_id} | {notif_type} | {destination} | {state} | {on_success_count} | {on_failure_count} | {on_cancel_count} |")
+        lines.append("")
+
+    # Webhooks
+    if snapshot.globals.webhooks:
+        lines.append("### Webhook Subscriptions")
+        lines.append("")
+        lines.append("| Key | ID | Name | Client URL | Event Types | Job IDs | Active |")
+        lines.append("|-----|----|------|------------|-------------|---------|--------|")
+        for key, webhook in sorted(snapshot.globals.webhooks.items()):
+            webhook_id = webhook.id or "N/A"
+            webhook_name = webhook.name or "N/A"
+            client_url = webhook.client_url or "N/A"
+            
+            # Format event types (may be complex objects or strings)
+            event_types_str = "N/A"
+            if webhook.event_types:
+                if isinstance(webhook.event_types, list):
+                    # Handle both string and dict event types
+                    formatted_events = []
+                    for evt in webhook.event_types[:3]:  # Limit to first 3 for readability
+                        if isinstance(evt, dict):
+                            formatted_events.append(evt.get("event_type", str(evt)))
+                        else:
+                            formatted_events.append(str(evt))
+                    event_types_str = ", ".join(formatted_events)
+                    if len(webhook.event_types) > 3:
+                        event_types_str += f" (+{len(webhook.event_types) - 3} more)"
+            
+            job_ids_str = ", ".join(str(jid) for jid in webhook.job_ids) if webhook.job_ids else "All"
+            active_str = "Yes" if webhook.active else "No"
+            
+            lines.append(f"| `{key}` | {webhook_id} | {webhook_name} | {client_url} | {event_types_str} | {job_ids_str} | {active_str} |")
         lines.append("")
 
     lines.extend(["---", "", "## Projects", ""])

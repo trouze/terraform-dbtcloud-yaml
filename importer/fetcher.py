@@ -15,9 +15,14 @@ from .models import (
     Environment,
     EnvironmentVariable,
     Globals,
+    Group,
     Job,
+    Notification,
+    PrivateLinkEndpoint,
     Project,
     Repository,
+    ServiceToken,
+    WebhookSubscription,
 )
 
 log = logging.getLogger(__name__)
@@ -42,6 +47,11 @@ def fetch_account_snapshot(client: DbtCloudClient) -> AccountSnapshot:
     globals_model = Globals(
         connections=_fetch_connections(client),
         repositories=_fetch_repositories(client),
+        service_tokens=_fetch_service_tokens(client),
+        groups=_fetch_groups(client),
+        notifications=_fetch_notifications(client),
+        webhooks=_fetch_webhooks(client),
+        privatelink_endpoints=_fetch_privatelink_endpoints(client),
     )
 
     projects = _fetch_projects(client, globals_model)
@@ -84,6 +94,184 @@ def _fetch_repositories(client: DbtCloudClient) -> Dict[str, Repository]:
             metadata=item,
         )
     return repositories
+
+
+def _fetch_service_tokens(client: DbtCloudClient) -> Dict[str, ServiceToken]:
+    """Fetch service tokens (v3). Secrets are masked by the API."""
+    log.info("Fetching service tokens (v3)")
+    service_tokens = {}
+    try:
+        # Service tokens endpoint doesn't support pagination parameters
+        response = client.get("/service-tokens/", version="v3")
+        data = response.get("data", [])
+        
+        if isinstance(data, list):
+            for item in data:
+                key = slug(item["name"])
+                
+                # Extract permission sets and project IDs from permission_grants
+                permission_sets = []
+                project_ids = []
+                if item.get("permission_grants"):
+                    perm_sets = set()
+                    proj_ids = set()
+                    for grant in item["permission_grants"]:
+                        if grant.get("permission_set"):
+                            perm_sets.add(grant["permission_set"])
+                        if grant.get("project_id"):
+                            proj_ids.add(grant["project_id"])
+                    permission_sets = sorted(list(perm_sets))
+                    project_ids = sorted(list(proj_ids))
+                
+                service_tokens[key] = ServiceToken(
+                    key=key,
+                    id=item.get("id"),
+                    name=item["name"],
+                    state=item.get("state"),
+                    token_string=item.get("token_string"),
+                    permission_sets=permission_sets,
+                    project_ids=project_ids,
+                    metadata=item,
+                )
+        else:
+            log.warning("Unexpected response structure for service tokens: %s", response)
+    except Exception as exc:
+        log.warning("Failed to fetch service tokens (may require Owner permissions): %s", exc)
+    return service_tokens
+
+
+def _fetch_groups(client: DbtCloudClient) -> Dict[str, Group]:
+    """Fetch groups (v3). Requires account admin or owner permissions."""
+    log.info("Fetching groups (v3)")
+    groups = {}
+    try:
+        for item in client.paginate("/groups/", version="v3"):
+            key = slug(item["name"])
+            sso_mappings = []
+            if item.get("sso_mapping_groups"):
+                sso_mappings = item["sso_mapping_groups"]
+            
+            # Extract unique permission sets from group_permissions
+            permission_sets = []
+            if item.get("group_permissions"):
+                perms = set()
+                for perm in item["group_permissions"]:
+                    if perm.get("permission_set"):
+                        perms.add(perm["permission_set"])
+                permission_sets = sorted(list(perms))
+            
+            groups[key] = Group(
+                key=key,
+                id=item.get("id"),
+                name=item["name"],
+                assign_by_default=item.get("assign_by_default"),
+                sso_mapping_groups=sso_mappings,
+                permission_sets=permission_sets,
+                metadata=item,
+            )
+    except Exception as exc:
+        log.warning("Failed to fetch groups (may require Owner permissions): %s", exc)
+    return groups
+
+
+def _fetch_notifications(client: DbtCloudClient) -> Dict[str, Notification]:
+    """Fetch notifications (v2). Returns email, Slack, and webhook notifications."""
+    log.info("Fetching notifications (v2)")
+    notifications = {}
+    try:
+        for item in client.paginate("/notifications/", version="v2"):
+            notif_id = item.get("id", 0)
+            
+            # Determine notification type based on available fields
+            notif_type = 0  # Unknown
+            type_name = "unknown"
+            
+            if item.get("slack_channel_id") or item.get("slack_channel_name"):
+                notif_type = 2
+                type_name = "slack"
+                channel = item.get("slack_channel_name", item.get("slack_channel_id", "unknown"))
+                key = f"slack_{slug(str(channel))}_{notif_id}"
+            elif item.get("external_email"):
+                notif_type = 1
+                type_name = "email"
+                email = item.get("external_email", "unknown")
+                key = f"email_{slug(str(email))}_{notif_id}"
+            elif item.get("url"):
+                notif_type = 3
+                type_name = "webhook"
+                key = f"webhook_{notif_id}"
+            else:
+                key = f"{type_name}_{notif_id}"
+            
+            notifications[key] = Notification(
+                key=key,
+                id=item.get("id"),
+                notification_type=notif_type,
+                state=item.get("state"),
+                user_id=item.get("user_id"),
+                on_success=item.get("on_success", []),
+                on_failure=item.get("on_failure", []),
+                on_cancel=item.get("on_cancel", []),
+                metadata=item,
+            )
+    except Exception as exc:
+        log.warning("Failed to fetch notifications: %s", exc)
+    return notifications
+
+
+def _fetch_webhooks(client: DbtCloudClient) -> Dict[str, WebhookSubscription]:
+    """Fetch webhook subscriptions (v3)."""
+    log.info("Fetching webhook subscriptions (v3)")
+    webhooks = {}
+    try:
+        for item in client.paginate("/webhooks/subscriptions", version="v3"):
+            webhook_id = item.get("id", "unknown")
+            webhook_name = item.get("name") or f"webhook_{webhook_id}"
+            key = slug(webhook_name)
+            
+            # Extract job IDs from event_types if they're job-specific
+            job_ids = []
+            for event_type in item.get("event_types", []):
+                if isinstance(event_type, dict) and event_type.get("job_id"):
+                    job_ids.append(event_type["job_id"])
+            
+            webhooks[key] = WebhookSubscription(
+                key=key,
+                id=item.get("id"),
+                name=item.get("name"),
+                client_url=item.get("client_url"),
+                event_types=item.get("event_types", []),
+                job_ids=job_ids,
+                active=item.get("active", True),
+                metadata=item,
+            )
+    except Exception as exc:
+        log.warning("Failed to fetch webhook subscriptions: %s", exc)
+    return webhooks
+
+
+def _fetch_privatelink_endpoints(client: DbtCloudClient) -> Dict[str, PrivateLinkEndpoint]:
+    """Fetch PrivateLink endpoints (v3)."""
+    log.info("Fetching PrivateLink endpoints (v3)")
+    privatelink_endpoints = {}
+    try:
+        for item in client.paginate("/private-link-endpoints/", version="v3"):
+            endpoint_id = item.get("id", "unknown")
+            endpoint_name = item.get("name") or f"privatelink_{endpoint_id}"
+            key = slug(endpoint_name)
+            
+            privatelink_endpoints[key] = PrivateLinkEndpoint(
+                key=key,
+                id=item.get("id"),
+                name=item.get("name"),
+                type=item.get("type"),
+                state=item.get("state"),
+                cidr_range=item.get("cidr_range"),
+                metadata=item,
+            )
+    except Exception as exc:
+        log.warning("Failed to fetch PrivateLink endpoints: %s", exc)
+    return privatelink_endpoints
 
 
 def _fetch_projects(client: DbtCloudClient, globals_model: Globals) -> List[Project]:

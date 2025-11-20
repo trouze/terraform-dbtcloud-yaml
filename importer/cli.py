@@ -172,6 +172,11 @@ def _print_summary(snapshot) -> None:
     table.add_row("Projects", str(len(snapshot.projects)))
     table.add_row("Connections", str(len(snapshot.globals.connections)))
     table.add_row("Repositories", str(len(snapshot.globals.repositories)))
+    table.add_row("Service Tokens", str(len(snapshot.globals.service_tokens)))
+    table.add_row("Groups", str(len(snapshot.globals.groups)))
+    table.add_row("Notifications", str(len(snapshot.globals.notifications)))
+    table.add_row("Webhooks", str(len(snapshot.globals.webhooks)))
+    table.add_row("PrivateLink Endpoints", str(len(snapshot.globals.privatelink_endpoints)))
     console.print(table)
 
 

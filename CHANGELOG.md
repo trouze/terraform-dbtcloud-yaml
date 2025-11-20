@@ -7,14 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.0-dev] - 2025-11-20
+## [0.3.0-dev] - 2025-11-20
 
 ### Added
+- Importer: Added permission sets column to groups table showing all permission_set values for each group.
+- Importer: Added notifications to global resources (Email, Slack, Webhook types with job trigger counts).
+- Importer: Added permission grants to service tokens table showing permission_set values and project IDs.
+- Importer: Added webhook subscriptions to global resources (v3 `/webhooks/subscriptions` endpoint), including Name, Client URL, Event Types, Job IDs, and Active state.
+- Importer: Added PrivateLink endpoints to global resources (v3 `/private-link-endpoints/` endpoint), including Name, Type, State, and CIDR Range.
+- Importer: Enhanced connections table with Adapter Version, OAuth configuration status, and PrivateLink Endpoint ID columns.
+
+### Changed
+- Importer: Enhanced service tokens display with permission sets and scoped project IDs columns.
+- Importer: Improved notification type detection based on slack_channel_id, external_email, or url fields.
+- Importer: Added destination column to notifications table showing email addresses or Slack channel names.
 - Docs: Introduced `dev_support/versioning.md` outlining module/schema/importer versioning and changelog rules.
 - Importer: Added `importer/VERSION` (now `0.2.0-dev`) to drive build-level logging and future release tagging.
 - Importer: Created initial Python CLI (`python -m importer`) with API client, Pydantic data model, and fetch command for account snapshots (Phase 1). Uses `DBT_SOURCE_*` environment variables for source account credentials, includes retry/backoff/rate-limit handling.
 - Importer: Added run tracking system with sequential run IDs per account stored in `importer_runs.json`. All files from the same run share a common timestamp and zero-padded run ID (e.g., `account_86165_run_001__snapshot__20251119_233918.json`).
 - Importer: Added automatic generation of timestamped summary and detailed outline markdown reports for each fetch operation.
+- Importer: Added service tokens to global resources (masked token values, active/inactive status).
+- Importer: Added groups to global resources (name, assign by default, SSO mappings count).
 - Importer: Formatted global resources (connections, repositories) and jobs as markdown tables in detailed outline for better readability.
 - Importer: Added "Execute Steps" column to job tables showing dbt commands for each job.
 - Importer: Added project separators (`---`) between projects in detailed outline.
@@ -49,6 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Importer: Added capture of project-level default values for environment variables (previously only environment-specific overrides were captured).
 - Importer: Fixed job type detection to use `job_type` field from API instead of inferring from triggers (now correctly shows `ci`, `scheduled`, `merge`, `other` types).
 - Importer: Added account name fetching from API (previously was always null).
+- Importer: Fixed service tokens endpoint to use direct GET instead of pagination (v3 endpoint doesn't support pagination parameters).
 
 ### Removed
 
