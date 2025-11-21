@@ -276,9 +276,62 @@ Jobs reference environments by name (`split("_", each.key)`), but Terraform need
 
 - **Provider surface area**: The official provider (`/Users/operator/Documents/git/dbt-labs/terraform-provider-dbtcloud/docs/`) includes resources for every dbt Cloud object we care about—projects, repositories, project repositories, environments, jobs, environment variables, job overrides, plus warehouse credentials (Snowflake/Databricks/BigQuery/etc.), notifications, service tokens, global/extended connections, PrivateLink endpoints, semantic layer configs, groups/permissions, IP restrictions, lineage integrations, license maps, and more. The matching `dbtcloud_*` data sources mirror those resources so Terraform can look up existing objects by ID.
 - **Using data sources during migration**: When targeting a fresh account, leverage data sources like `dbtcloud_environment`, `dbtcloud_repository`, `dbtcloud_global_connection`, `dbtcloud_group`, and credential-specific sources to fetch IDs for integrations or infrastructure that already exist. Feed these IDs into the YAML (for example via `token_map`, connection IDs, or repository metadata) so Terraform links to the right objects without hard-coding source-account IDs.
-- **Importer workflow (old → YAML → new)**:
-  1. **Extract** metadata from the source account via dbt Cloud APIs (projects, repos, credentials, environments, jobs, env vars, notifications, etc.).
-  2. **Normalize** into the YAML shape enforced by `schemas/v1.json`, dropping/flagging source-specific IDs for resources that must be recreated.
-  3. **Map IDs** for reusable infrastructure by querying the destination account with provider data sources and injecting the resulting IDs into the YAML or Terraform variables.
-  4. **Apply** the existing Terraform module with the generated YAML to create resources in the new account, letting Terraform manage state.
-  5. **Iterate** by exporting the new Terraform state and repeating the workflow for future migrations or expansions.
+- **Importer workflow (Phase 1 + Phase 2)**:
+  1. **Phase 1 - Extract** (via `python -m importer fetch`): Capture metadata from source account via dbt Cloud APIs (projects, repos, credentials, environments, jobs, env vars, notifications, tokens, groups, webhooks, PrivateLink endpoints). Generate JSON export, summary/report markdown, report items, and logs.
+  2. **Phase 2 - Normalize** (via `python -m importer normalize`): Convert JSON export into v2 YAML format using `importer_mapping.yml` configuration. Apply scope filters (all projects, specific projects, account-level only), resource filters (exclude by key/ID), normalization options (ID stripping, placeholder strategy, secret handling). Generate YAML output, lookups manifest (LOOKUP: placeholders), exclusions report (filtered resources), diff JSON (regression testing), and logs.
+  3. **Map IDs**: For resources marked with `LOOKUP:` placeholders (connections, repos, etc. that don't exist in source export), either create them in target account or let Terraform data sources auto-resolve by name.
+  4. **Apply** the Terraform module with generated v2 YAML to create resources in target account. Terraform module detects schema version (v1 vs v2) and routes to appropriate logic.
+  5. **Iterate** by re-running fetch/normalize with updated filters or applying incremental changes via Terraform.
+
+## 18. Phase 2 Normalization & v2 Schema
+
+### v2 Schema Overview
+
+The v2 schema (`schemas/v2.json`) extends v1 with multi-project support:
+- **Root structure**: `version: 2`, `account`, `globals`, `projects[]`, `metadata.placeholders`
+- **Globals**: Reusable account-level resources (connections, repositories, service tokens, groups, notifications, PrivateLink endpoints) referenced by key
+- **Key-based references**: Projects reference globals by slugified key instead of numeric ID (e.g., `connection: "snowflake_prod"`)
+- **LOOKUP placeholders**: When a resource doesn't exist in source export but is needed, emit `LOOKUP:<name>` for Terraform data source resolution
+- **Multi-project**: Single YAML can define multiple projects with shared globals
+
+### Mapping Configuration
+
+`importer_mapping.yml` controls normalization behavior:
+- **Scope**: `all_projects`, `specific_projects` (by key/ID), or `account_level_only`
+- **Resource filters**: Per-type inclusion rules with `exclude_keys`, `exclude_ids`, `include_only_keys` whitelisting
+- **Normalization options**:
+  - `strip_source_ids`: Remove source IDs (default true)
+  - `placeholder_strategy`: How to handle missing refs (`lookup` emits LOOKUP:, `error` fails, `omit` skips)
+  - `name_collision_strategy`: Duplicate key handling (`suffix` adds _2/_3, `error` fails, `skip` omits)
+  - `secret_handling`: Secret redaction (`redact` shows REDACTED, `omit` skips, `placeholder` shows ${var.X})
+  - `multi_project_mode`: `single_file` (one YAML) or `per_project` (split YAMLs)
+  - `include_inactive`: Include soft-deleted/inactive resources (default false)
+
+### Normalization Artifacts
+
+All artifacts follow consistent naming: `account_{ID}_norm_{RUN}__{type}__{TIMESTAMP}.{ext}`
+
+- **YAML**: Terraform-ready v2 configuration
+- **Lookups manifest** (JSON): List of LOOKUP: placeholders with descriptions
+- **Exclusions report** (Markdown): Resources filtered out with reasons (by type, by reason)
+- **Diff JSON**: Sorted, deterministic JSON for regression testing
+- **Logs**: DEBUG-level decisions (filters, placeholders, collisions, secrets)
+
+### Terraform v2 Integration
+
+The root Terraform module will detect `version` field in YAML:
+- **v1 path**: Existing single-project workflow (no changes to current users)
+- **v2 path**: New `modules/projects_v2` that:
+  1. Creates global resources first (connections, repos, tokens, groups)
+  2. Iterates over `projects[]` array
+  3. Resolves key-based references to global resource IDs
+  4. Uses data sources to resolve LOOKUP: placeholders by name
+  5. Creates project-scoped resources (environments, jobs, env vars)
+
+**State migration**: Upgrading v1 → v2 will recreate resources (new module paths) unless using `terraform state mv`.
+
+For complete v2 details:
+- [Phase 2 Normalization Target](phase2_normalization_target.md): Resource mapping, reference resolution, secret handling
+- [Phase 2 Terraform Integration](phase2_terraform_integration.md): Module architecture, schema dispatch, LOOKUP resolution workflow
+- [Importer Mapping Reference](../docs/importer_mapping_reference.md): Full config options with examples
+

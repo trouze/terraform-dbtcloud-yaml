@@ -1,0 +1,106 @@
+# yaml-language-server: $schema=../schemas/importer_mapping.json
+
+# dbt Cloud Importer Mapping Configuration
+# This file controls how the importer normalizes JSON exports into v2 YAML format.
+
+version: 1
+
+# Scope: which projects to include
+scope:
+  mode: all_projects  # Options: all_projects | account_level_only | specific_projects
+  
+  # When mode is 'specific_projects', list project keys or IDs here:
+  # project_keys:
+  #   - analytics
+  #   - marketing
+  # project_ids:
+  #   - 12345
+  #   - 67890
+
+# Resource-level filters: control what gets included in the YAML
+resource_filters:
+  connections:
+    include: true
+    # exclude_keys: []
+    # exclude_ids: []
+  
+  repositories:
+    include: true
+  
+  privatelink_endpoints:
+    include: true
+  
+  service_tokens:
+    include: true
+    # Exclude specific tokens by key or mapping ID:
+    # exclude_keys:
+    #   - legacy_token
+  
+  groups:
+    include: true
+  
+  notifications:
+    include: true
+  
+  webhooks:
+    include: false  # Webhooks are account-managed, not Terraform-manageable
+  
+  projects:
+    include: true
+  
+  environments:
+    include: true
+    # Exclude development environments:
+    # exclude_keys:
+    #   - dev
+    #   - local
+  
+  jobs:
+    include: true
+    # Exclude CI jobs:
+    # exclude_keys:
+    #   - ci_check
+  
+  environment_variables:
+    include: true
+
+# Normalization rules
+normalization_options:
+  # Strip source account IDs (recommended for clean migration)
+  strip_source_ids: true
+  
+  # Keep IDs as comments for reference (requires strip_source_ids: true)
+  preserve_advisory_ids: false
+  
+  # How to handle missing cross-references (e.g., connection not in export)
+  placeholder_strategy: lookup  # Options: lookup | error | omit
+  
+  # How to handle duplicate slugified keys
+  name_collision_strategy: suffix  # Options: suffix | error | skip
+  
+  # How to handle secrets in output
+  secret_handling: redact  # Options: redact | omit | placeholder
+  
+  # Output format: single multi-project file or one file per project
+  multi_project_mode: single_file  # Options: single_file | per_project
+  
+  # Include inactive/soft-deleted resources (include_in_conversion=false)
+  include_inactive: false
+  
+  # YAML formatting preferences
+  yaml_style:
+    indent: 2
+    line_length: 120
+    sort_keys: false
+
+# Output configuration
+output:
+  yaml_file: dbt-config.yml
+  output_directory: dev_support/samples/normalized/
+  
+  # Generate companion manifest files
+  generate_manifests:
+    lookups: true      # List of all LOOKUP placeholders needing manual resolution
+    exclusions: true   # Report of filtered/excluded resources
+    diff_json: true    # Diff-friendly JSON for regression testing
+

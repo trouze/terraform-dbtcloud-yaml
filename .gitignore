@@ -38,11 +38,20 @@ terraform.rc
 .env
 
 # Importer output files (timestamped with run IDs)
-dev_support/samples/account_*_run_*__snapshot__*.json
+dev_support/samples/account_*_run_*__json__*.json
 dev_support/samples/account_*_run_*__summary__*.md
-dev_support/samples/account_*_run_*__details__*.md
+dev_support/samples/account_*_run_*__report__*.md
+dev_support/samples/account_*_run_*__report_items__*.json
 dev_support/samples/account_*_run_*__logs__*.log
 dev_support/samples/importer_runs.json
+
+# Normalization output files (timestamped with normalization run IDs)
+dev_support/samples/normalized/account_*_norm_*__yaml__*.yml
+dev_support/samples/normalized/account_*_norm_*__lookups__*.json
+dev_support/samples/normalized/account_*_norm_*__exclusions__*.md
+dev_support/samples/normalized/account_*_norm_*__diff__*.json
+dev_support/samples/normalized/account_*_norm_*__logs__*.log
+dev_support/samples/normalized/normalization_runs.json
 
 # Python
 __pycache__/

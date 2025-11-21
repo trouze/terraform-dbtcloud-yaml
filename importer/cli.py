@@ -18,6 +18,11 @@ from .client import DbtCloudClient
 from .config import get_settings
 from .element_ids import apply_element_ids
 from .fetcher import fetch_account_snapshot
+from .models import AccountSnapshot
+from .norm_tracker import NormalizationRunTracker
+from .normalizer import MappingConfig, NormalizationContext
+from .normalizer.core import normalize_snapshot
+from .normalizer.writer import YAMLWriter
 from .run_tracker import RunTracker
 from .utils import encode_run_identifier, short_hash, slugify_url
 
@@ -212,6 +217,144 @@ def _print_summary(snapshot) -> None:
     table.add_row("Webhooks", str(len(snapshot.globals.webhooks)))
     table.add_row("PrivateLink Endpoints", str(len(snapshot.globals.privatelink_endpoints)))
     console.print(table)
+
+
+@app.command()
+def normalize(
+    input_json: Path = typer.Argument(
+        ...,
+        help="Path to account JSON export from 'fetch' command.",
+    ),
+    mapping_config: Path = typer.Option(
+        Path("importer_mapping.yml"),
+        "--config",
+        "-c",
+        help="Path to mapping configuration YAML file.",
+    ),
+    output_dir: Optional[Path] = typer.Option(
+        None,
+        "--output-dir",
+        "-o",
+        help="Output directory for normalized YAML and artifacts (defaults to config value).",
+    ),
+) -> None:
+    """Normalize a JSON export into v2 YAML format."""
+    console.log(f"dbtcloud-importer normalize v{get_version()}")
+    
+    # Load mapping configuration
+    if not mapping_config.exists():
+        console.print(f"[red]Error: Mapping config not found at {mapping_config}[/red]")
+        raise typer.Exit(1)
+    
+    try:
+        config = MappingConfig.load(mapping_config)
+        console.log(f"Loaded mapping config from {mapping_config}")
+    except Exception as e:
+        console.print(f"[red]Error loading mapping config: {e}[/red]")
+        raise typer.Exit(1)
+    
+    # Load input JSON
+    if not input_json.exists():
+        console.print(f"[red]Error: Input JSON not found at {input_json}[/red]")
+        raise typer.Exit(1)
+    
+    try:
+        with open(input_json, "r", encoding="utf-8") as f:
+            snapshot_data = json.load(f)
+        
+        # Extract metadata for run tracking
+        metadata = snapshot_data.get("_metadata", {})
+        account_id = metadata.get("account_id") or snapshot_data.get("account_id", 0)
+        fetch_run_id = metadata.get("run_id", 0)
+        
+        # Reconstruct AccountSnapshot from JSON
+        snapshot = AccountSnapshot(**snapshot_data)
+        console.log(f"Loaded snapshot: {len(snapshot.projects)} projects")
+    except Exception as e:
+        console.print(f"[red]Error loading input JSON: {e}[/red]")
+        raise typer.Exit(1)
+    
+    # Initialize normalization run tracking
+    norm_output_dir = output_dir or Path(config.get_output_directory())
+    norm_tracker = NormalizationRunTracker(norm_output_dir / "normalization_runs.json")
+    norm_run_id, timestamp = norm_tracker.start_run(account_id, fetch_run_id)
+    
+    # Setup logging
+    log_filename = f"account_{account_id}_norm_{norm_run_id:03d}__logs__{timestamp}.log"
+    log_file = norm_output_dir / log_filename
+    _setup_logging(log_file)
+    
+    logger = logging.getLogger(__name__)
+    logger.info(f"Starting normalization v{get_version()}")
+    logger.info(f"Normalization Run ID: {norm_run_id:03d}, Timestamp: {timestamp}")
+    logger.info(f"Source Fetch Run ID: {fetch_run_id:03d}")
+    logger.info(f"Mapping config: {mapping_config}")
+    logger.info(f"Scope mode: {config.get_scope_mode()}")
+    
+    # Initialize normalization context
+    context = NormalizationContext(config)
+    
+    # Normalize snapshot to v2 structure
+    console.log("Normalizing account snapshot to v2 YAML structure...")
+    try:
+        normalized_data = normalize_snapshot(snapshot, config, context)
+        logger.info("Normalization complete")
+    except Exception as e:
+        logger.exception("Normalization failed")
+        console.print(f"[red]Error during normalization: {e}[/red]")
+        raise typer.Exit(1)
+    
+    # Write YAML and artifacts
+    writer = YAMLWriter(config, context)
+    try:
+        artifacts = writer.write_all_artifacts(
+            normalized_data,
+            norm_output_dir,
+            norm_run_id,
+            timestamp,
+            account_id,
+        )
+        logger.info("All artifacts written successfully")
+    except Exception as e:
+        logger.exception("Failed to write artifacts")
+        console.print(f"[red]Error writing artifacts: {e}[/red]")
+        raise typer.Exit(1)
+    
+    # Print summary
+    console.print("\n[bold green]Normalization Complete[/bold green]")
+    
+    summary_table = Table(title="Normalization Summary")
+    summary_table.add_column("Metric", justify="left")
+    summary_table.add_column("Value", justify="right")
+    summary_table.add_row("Projects Included", str(len(normalized_data.get("projects", []))))
+    summary_table.add_row("LOOKUP Placeholders", str(len(context.placeholders)))
+    summary_table.add_row("Resources Excluded", str(len(context.exclusions)))
+    
+    # Count collisions across all namespaces
+    total_collisions = sum(
+        sum(1 for count in namespace_counts.values() if count > 1)
+        for namespace_counts in context.collisions.values()
+    )
+    summary_table.add_row("Key Collisions", str(total_collisions))
+    console.print(summary_table)
+    
+    artifacts_table = Table(title="Generated Artifacts")
+    artifacts_table.add_column("Type", justify="left")
+    artifacts_table.add_column("Path", justify="left")
+    for artifact_type, artifact_path in artifacts.items():
+        artifacts_table.add_row(artifact_type, str(artifact_path))
+    artifacts_table.add_row("logs", str(log_file))
+    console.print(artifacts_table)
+    
+    console.log(f"\nLog file: {log_file}")
+    
+    if context.placeholders:
+        console.print(f"\n[yellow]⚠ Warning: {len(context.placeholders)} LOOKUP placeholders need manual resolution.[/yellow]")
+        console.print(f"See {artifacts.get('lookups')} for details.")
+    
+    if context.exclusions:
+        console.print(f"\n[yellow]ℹ Info: {len(context.exclusions)} resources were excluded.[/yellow]")
+        console.print(f"See {artifacts.get('exclusions')} for details.")
 
 
 def run() -> None:

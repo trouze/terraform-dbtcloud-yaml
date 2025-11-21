@@ -7,13 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- Importer: `_metadata` now includes `run_label`, `source_url_hash`, `source_url_slug`, `account_source_hash`, and `unique_run_identifier` (12-char SHA-256) for every export.
-- Importer: Generated `account_{ID}_run_{RUN}__report_items__{TIMESTAMP}.json` containing per-element line items with `element_type_code`, `element_mapping_id`, `line_item_number`, and `include_in_conversion`.
+## [0.3.2-dev] - 2025-11-21
+
+### Fixed
+- Importer: Fixed false collision detection by implementing namespace-scoped collision tracking. Resources in different namespaces (e.g., repository `test` and project `test`) no longer collide since they live in separate YAML sections (`globals.repositories[]` vs `projects[]`).
 
 ### Changed
-- Importer: Renamed file outputs to `__json__` (was `__snapshot__`) and `__report__` (was `__details__`) and updated CLI/docs accordingly.
-- Importer: Added deterministic `element_mapping_id` to every resource and surfaced `include_in_conversion` for honoring inactive/soft-deleted states.
+- Importer: Collision tracking now operates per-namespace (connections, repositories, projects, service_tokens, groups, notifications, privatelink_endpoints, environments, jobs) instead of globally.
+
+## [0.3.1-dev] - 2025-11-21
+
+### Fixed
+- Importer: Fixed PrivateLink endpoint state parsing to handle numeric values from API (now normalizes to string).
+
+### Added
+- **Phase 2 Normalization**: Added `python -m importer normalize` command to convert JSON exports into v2 YAML format
+- Importer: Created `importer/normalizer/` module with core normalization logic, YAML writer, and mapping config support
+- Importer: Added `schemas/importer_mapping.json` schema for normalization configuration with full validation
+- Importer: Added `importer_mapping.yml` sample configuration file with documented options
+- Importer: Normalization generates timestamped artifacts: YAML output, lookups manifest (JSON), exclusions report (Markdown), diff JSON, and logs
+- Importer: Added normalization run tracking (`normalization_runs.json`) with sequential norm run IDs separate from fetch run IDs
+- Importer: Added scope filtering (all projects, specific projects, account-level only) and per-resource-type filters
+- Importer: Added normalization options: ID stripping, placeholder strategy (LOOKUP/error/omit), name collision handling, secret redaction, multi-project mode
+- Importer: Normalization artifacts follow Phase 1 patterns: `account_{ID}_norm_{RUN}__{type}__{TIMESTAMP}.{ext}`
+- Importer: Added comprehensive logging for normalization decisions (placeholders, collisions, exclusions, secret handling) at DEBUG level
+- Schema: Finalized `schemas/v2.json` schema for multi-project/account-aware configurations with globals, key-based references, and LOOKUP placeholders
+- Docs: Added `dev_support/phase2_normalization_target.md` documenting v2 YAML structure and resource mapping
+- Docs: Added `dev_support/phase2_terraform_integration.md` documenting Terraform v2 module architecture and migration workflow
+- Docs: Added `docs/importer_mapping_reference.md` comprehensive guide to mapping configuration options with examples
+- Tests: Added `test/test_normalizer.py` with unit tests for normalization (scope filtering, resource exclusion, collision handling, secrets)
+- Importer: `_metadata` now includes `run_label`, `source_url_hash`, `source_url_slug`, `account_source_hash`, and `unique_run_identifier` (12-char SHA-256) for every export
+- Importer: Generated `account_{ID}_run_{RUN}__report_items__{TIMESTAMP}.json` containing per-element line items with `element_type_code`, `element_mapping_id`, `line_item_number`, and `include_in_conversion`
+
+### Changed
+- Importer: Renamed file outputs to `__json__` (was `__snapshot__`) and `__report__` (was `__details__`) and updated CLI/docs accordingly
+- Importer: Added deterministic `element_mapping_id` to every resource and surfaced `include_in_conversion` for honoring inactive/soft-deleted states
+- Importer: Updated `importer/README.md` with full Phase 2 workflow documentation (fetch → normalize → apply)
+- Importer: Added PyYAML dependency to requirements.txt
 
 ## [0.3.0-dev] - 2025-11-20
 

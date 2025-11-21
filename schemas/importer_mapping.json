@@ -1,0 +1,200 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/trouze/terraform-dbtcloud-yaml/refs/heads/main/schemas/importer_mapping.json",
+  "title": "dbt Cloud Importer Mapping Configuration Schema",
+  "description": "Defines how to normalize a dbt Cloud account JSON export into v2 YAML format.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "Mapping config schema version. Must be 1."
+    },
+    "scope": {
+      "type": "object",
+      "description": "Controls which projects and resources to include in normalization.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["all_projects", "account_level_only", "specific_projects"],
+          "default": "all_projects",
+          "description": "Scope mode: include all projects, account-level globals only, or a filtered project list."
+        },
+        "project_keys": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "When mode is 'specific_projects', list of project keys to include.",
+          "default": []
+        },
+        "project_ids": {
+          "type": "array",
+          "items": { "type": "integer" },
+          "description": "Alternative: specify projects by numeric ID (will be resolved to keys).",
+          "default": []
+        }
+      },
+      "required": ["mode"],
+      "additionalProperties": false
+    },
+    "resource_filters": {
+      "type": "object",
+      "description": "Per-resource-type inclusion rules.",
+      "properties": {
+        "connections": { "$ref": "#/$defs/resourceFilter" },
+        "repositories": { "$ref": "#/$defs/resourceFilter" },
+        "privatelink_endpoints": { "$ref": "#/$defs/resourceFilter" },
+        "service_tokens": { "$ref": "#/$defs/resourceFilter" },
+        "groups": { "$ref": "#/$defs/resourceFilter" },
+        "notifications": { "$ref": "#/$defs/resourceFilter" },
+        "webhooks": { "$ref": "#/$defs/resourceFilter" },
+        "projects": { "$ref": "#/$defs/resourceFilter" },
+        "environments": { "$ref": "#/$defs/resourceFilter" },
+        "jobs": { "$ref": "#/$defs/resourceFilter" },
+        "environment_variables": { "$ref": "#/$defs/resourceFilter" }
+      },
+      "additionalProperties": false
+    },
+    "normalization_options": {
+      "type": "object",
+      "description": "Rules for transforming importer data into YAML.",
+      "properties": {
+        "strip_source_ids": {
+          "type": "boolean",
+          "default": true,
+          "description": "Remove source account IDs from output (recommended for clean migration)."
+        },
+        "preserve_advisory_ids": {
+          "type": "boolean",
+          "default": false,
+          "description": "Keep source IDs as comments or separate metadata for reference."
+        },
+        "placeholder_strategy": {
+          "type": "string",
+          "enum": ["lookup", "error", "omit"],
+          "default": "lookup",
+          "description": "How to handle missing cross-references: 'lookup' emits LOOKUP: placeholders, 'error' fails normalization, 'omit' skips the resource."
+        },
+        "name_collision_strategy": {
+          "type": "string",
+          "enum": ["suffix", "error", "skip"],
+          "default": "suffix",
+          "description": "How to handle duplicate keys: 'suffix' appends _2/_3, 'error' fails, 'skip' omits duplicates."
+        },
+        "secret_handling": {
+          "type": "string",
+          "enum": ["redact", "omit", "placeholder"],
+          "default": "redact",
+          "description": "How to handle secrets: 'redact' shows REDACTED, 'omit' skips field, 'placeholder' shows variable reference."
+        },
+        "multi_project_mode": {
+          "type": "string",
+          "enum": ["single_file", "per_project"],
+          "default": "single_file",
+          "description": "Output format: 'single_file' creates one multi-project YAML, 'per_project' splits into separate files."
+        },
+        "include_inactive": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include inactive/soft-deleted resources (marked with include_in_conversion=false)."
+        },
+        "yaml_style": {
+          "type": "object",
+          "description": "YAML formatting preferences.",
+          "properties": {
+            "indent": {
+              "type": "integer",
+              "default": 2,
+              "minimum": 2,
+              "maximum": 4
+            },
+            "line_length": {
+              "type": "integer",
+              "default": 120,
+              "minimum": 80,
+              "maximum": 200
+            },
+            "sort_keys": {
+              "type": "boolean",
+              "default": false,
+              "description": "Alphabetically sort keys within each object."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "description": "Output file and artifact configuration.",
+      "properties": {
+        "yaml_file": {
+          "type": "string",
+          "default": "dbt-config.yml",
+          "description": "Base filename for YAML output (will be timestamped and versioned)."
+        },
+        "output_directory": {
+          "type": "string",
+          "default": "dev_support/samples/normalized/",
+          "description": "Directory for all normalization artifacts."
+        },
+        "generate_manifests": {
+          "type": "object",
+          "properties": {
+            "lookups": {
+              "type": "boolean",
+              "default": true,
+              "description": "Generate manifest of all LOOKUP placeholders."
+            },
+            "exclusions": {
+              "type": "boolean",
+              "default": true,
+              "description": "Generate report of excluded/filtered resources."
+            },
+            "diff_json": {
+              "type": "boolean",
+              "default": true,
+              "description": "Generate diff-friendly JSON for regression testing."
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["version", "scope"],
+  "additionalProperties": false,
+  "$defs": {
+    "resourceFilter": {
+      "type": "object",
+      "description": "Filter configuration for a specific resource type.",
+      "properties": {
+        "include": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether to include this resource type at all."
+        },
+        "exclude_keys": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "List of resource keys to explicitly exclude."
+        },
+        "exclude_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "List of element_mapping_ids to exclude."
+        },
+        "include_only_keys": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "If non-empty, include ONLY these keys (whitelist mode)."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
+
