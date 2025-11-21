@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Importer: `_metadata` now includes `run_label`, `source_url_hash`, `source_url_slug`, `account_source_hash`, and `unique_run_identifier` (12-char SHA-256) for every export.
+- Importer: Generated `account_{ID}_run_{RUN}__report_items__{TIMESTAMP}.json` containing per-element line items with `element_type_code`, `element_mapping_id`, `line_item_number`, and `include_in_conversion`.
+
+### Changed
+- Importer: Renamed file outputs to `__json__` (was `__snapshot__`) and `__report__` (was `__details__`) and updated CLI/docs accordingly.
+- Importer: Added deterministic `element_mapping_id` to every resource and surfaced `include_in_conversion` for honoring inactive/soft-deleted states.
+
 ## [0.3.0-dev] - 2025-11-20
 
 ### Added

@@ -12,6 +12,7 @@ This document tracks which dbt Cloud resources are currently captured by the imp
 ### Account-Level
 - [x] **Account Name** - Fetched from `/` endpoint
 - [x] **Account ID** - From configuration
+- [x] **Run Metadata & Hashes** - `_metadata` now captures `run_label`, `source_url_hash`, `source_url_slug`, `account_source_hash`, and `unique_run_identifier` for traceability.
 
 ### Global Resources
 - [x] **Connections** - v3 `/connections/` endpoint
@@ -30,6 +31,7 @@ This document tracks which dbt Cloud resources are currently captured by the imp
 - [x] **PrivateLink Endpoints** - v3 `/private-link-endpoints/` endpoint (v0.3.0-dev)
   - Captures: ID, name, type, state, CIDR range
   - Referenced by connections via `private_link_endpoint_id`
+- [x] **Report Line Items** - Derived export listing every element with `element_type_code`, `element_mapping_id`, `line_item_number` (default start `1001`, configurable via `DBT_REPORT_LINE_ITEM_START`), and `include_in_conversion` flag.
 
 ### Project-Level
 - [x] **Projects** - v2 `/projects/` endpoint

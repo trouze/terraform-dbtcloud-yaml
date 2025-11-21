@@ -1,14 +1,15 @@
-# Account Snapshot Samples
+# Account JSON Samples
 
-This directory contains sanitized JSON snapshots captured by the importer from real dbt Cloud accounts. These samples feed Phase 2 normalization + YAML generation and serve as test fixtures.
+This directory contains sanitized JSON exports captured by the importer from real dbt Cloud accounts. These samples feed Phase 2 normalization + YAML generation and serve as test fixtures.
 
 ## Files
 
 The importer generates timestamped files for each run:
 
-- **`account_{ID}_snapshot__{timestamp}.json`** – Full account snapshot with all resources
+- **`account_{ID}_json__{timestamp}.json`** – Full account export with all resources plus per-element `element_mapping_id`
 - **`account_{ID}_summary__{timestamp}.md`** – High-level summary with counts by resource type
-- **`account_{ID}_details__{timestamp}.md`** – Detailed tree showing IDs and names
+- **`account_{ID}_report__{timestamp}.md`** – Detailed tree showing IDs and names
+- **`account_{ID}_report_items__{timestamp}.json`** – Line-item JSON array (starting at line number 1001) with `element_type_code`, `element_mapping_id`, and `include_in_conversion` flag for each resource
 
 The latest snapshot contains 17 projects, 3 connections, and 15 repositories, including:
   - Globals: connections, repositories
@@ -17,7 +18,7 @@ The latest snapshot contains 17 projects, 3 connections, and 15 repositories, in
 
 ## Structure
 
-The snapshot JSON follows the `AccountSnapshot` Pydantic model defined in `importer/models.py`:
+The JSON export follows the `AccountSnapshot` Pydantic model defined in `importer/models.py`:
 
 ```json
 {
@@ -59,8 +60,8 @@ To regenerate after code changes:
 ```bash
 cd /path/to/repo
 source .venv/bin/activate
-python -m importer fetch --output dev_support/samples/snapshot.json --reports-dir dev_support/samples
+python -m importer fetch --output dev_support/samples/account.json --reports-dir dev_support/samples
 ```
 
-The importer will automatically generate timestamped snapshot, summary, and details files.
+The importer will automatically generate timestamped json, summary, report, and report-items files.
 

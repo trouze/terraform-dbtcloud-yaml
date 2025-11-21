@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime as dt
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -15,9 +16,10 @@ from rich.table import Table
 from . import get_version
 from .client import DbtCloudClient
 from .config import get_settings
+from .element_ids import apply_element_ids
 from .fetcher import fetch_account_snapshot
-from .reporter import write_reports
 from .run_tracker import RunTracker
+from .utils import encode_run_identifier, short_hash, slugify_url
 
 app = typer.Typer(add_completion=False)
 console = Console()
@@ -59,12 +61,22 @@ def _setup_logging(log_file: Path) -> None:
     importer_logger.setLevel(logging.INFO)
 
 
+def _line_item_start_value() -> int:
+    raw = os.getenv("DBT_REPORT_LINE_ITEM_START")
+    if raw is None:
+        return 1001
+    try:
+        return int(raw)
+    except ValueError:
+        return 1001
+
+
 @app.command()
 def fetch(
     output: Optional[Path] = typer.Option(
         None,
         "--output",
-        help="Path to write the account snapshot JSON (defaults to stdout).",
+        help="Path to write the account JSON export (defaults to stdout).",
     ),
     compact: bool = typer.Option(
         False,
@@ -75,7 +87,7 @@ def fetch(
     reports_dir: Optional[Path] = typer.Option(
         None,
         "--reports-dir",
-        help="Directory to write summary/details markdown reports (defaults to same dir as output).",
+        help="Directory to write summary/report markdown files (defaults to same dir as output).",
     ),
     auto_timestamp: bool = typer.Option(
         True,
@@ -83,7 +95,7 @@ def fetch(
         help="Automatically add timestamp to output filename.",
     ),
 ) -> None:
-    """Fetch an account snapshot via the dbt Cloud API."""
+    """Fetch an account JSON export via the dbt Cloud API."""
     settings = get_settings()
     
     # Initialize run tracker and start a new run
@@ -116,26 +128,39 @@ def fetch(
     payload = snapshot.model_dump(mode="json")
     
     # Add metadata about the importer
+    source_url = settings.host
+    run_label = f"run_{run_id:03d}"
+    timestamp_dt = dt.strptime(timestamp, "%Y%m%d_%H%M%S")
+    source_url_hash = short_hash(source_url)
+    account_source_hash = short_hash(f"{settings.account_id}|{source_url}")
     payload["_metadata"] = {
-        "generated_at": dt.strptime(timestamp, "%Y%m%d_%H%M%S").isoformat() + "Z",
+        "generated_at": timestamp_dt.isoformat() + "Z",
         "importer_version": get_version(),
         "run_id": run_id,
+        "run_label": run_label,
+        "account_id": settings.account_id,
+        "source_url": source_url,
+        "source_url_hash": source_url_hash,
+        "source_url_slug": slugify_url(source_url),
+        "account_source_hash": account_source_hash,
+        "unique_run_identifier": encode_run_identifier(account_source_hash, run_label),
     }
+    line_items = apply_element_ids(payload, start_number=_line_item_start_value())
     
     output_text = json.dumps(payload, indent=None if compact else 2, sort_keys=True)
 
     # Determine output path with run-based naming
     if output:
         if auto_timestamp:
-            snapshot_filename = run_tracker.get_filename(
-                settings.account_id, run_id, timestamp, "snapshot", "json"
+            json_filename = run_tracker.get_filename(
+                settings.account_id, run_id, timestamp, "json", "json"
             )
-            output = output.parent / snapshot_filename
+            output = output.parent / json_filename
         
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(output_text, encoding="utf-8")
-        console.log(f"Wrote snapshot to {output}")
-        logger.info(f"Wrote snapshot JSON to {output}")
+        console.log(f"Wrote account JSON export to {output}")
+        logger.info(f"Wrote account JSON export to {output}")
     else:
         console.print(output_text)
 
@@ -143,24 +168,33 @@ def fetch(
 
     # Generate reports with consistent naming
     report_dir = reports_dir or (output.parent if output else Path("dev_support/samples"))
+    report_dir.mkdir(parents=True, exist_ok=True)
+
     summary_filename = run_tracker.get_filename(
         settings.account_id, run_id, timestamp, "summary", "md"
     )
-    details_filename = run_tracker.get_filename(
-        settings.account_id, run_id, timestamp, "details", "md"
+    report_filename = run_tracker.get_filename(
+        settings.account_id, run_id, timestamp, "report", "md"
+    )
+    line_items_filename = run_tracker.get_filename(
+        settings.account_id, run_id, timestamp, "report_items", "json"
     )
     summary_path = report_dir / summary_filename
-    details_path = report_dir / details_filename
+    report_path = report_dir / report_filename
+    line_items_path = report_dir / line_items_filename
     
     # Write reports (updated signature)
-    from .reporter import generate_summary_report, generate_detailed_outline
+    from .reporter import generate_summary_report, generate_detailed_report
     summary_path.write_text(generate_summary_report(snapshot), encoding="utf-8")
-    details_path.write_text(generate_detailed_outline(snapshot), encoding="utf-8")
+    report_path.write_text(generate_detailed_report(snapshot), encoding="utf-8")
+    line_items_path.write_text(json.dumps(line_items, indent=2), encoding="utf-8")
     
     console.log(f"Wrote summary report to {summary_path}")
-    console.log(f"Wrote detailed report to {details_path}")
+    console.log(f"Wrote detailed report to {report_path}")
+    console.log(f"Wrote report line items to {line_items_path}")
     logger.info(f"Wrote summary report to {summary_path}")
-    logger.info(f"Wrote detailed report to {details_path}")
+    logger.info(f"Wrote detailed report to {report_path}")
+    logger.info(f"Wrote report line items to {line_items_path}")
     logger.info(f"Log file written to {log_file}")
     console.log(f"Log file written to {log_file}")
 

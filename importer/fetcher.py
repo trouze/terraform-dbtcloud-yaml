@@ -259,13 +259,18 @@ def _fetch_privatelink_endpoints(client: DbtCloudClient) -> Dict[str, PrivateLin
             endpoint_id = item.get("id", "unknown")
             endpoint_name = item.get("name") or f"privatelink_{endpoint_id}"
             key = slug(endpoint_name)
+            state_value = item.get("state")
+            if state_value is not None:
+                state = str(state_value)
+            else:
+                state = None
             
             privatelink_endpoints[key] = PrivateLinkEndpoint(
                 key=key,
                 id=item.get("id"),
                 name=item.get("name"),
                 type=item.get("type"),
-                state=item.get("state"),
+                state=state,
                 cidr_range=item.get("cidr_range"),
                 metadata=item,
             )

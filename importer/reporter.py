@@ -98,10 +98,10 @@ def generate_summary_report(snapshot: AccountSnapshot) -> str:
     return "\n".join(lines)
 
 
-def generate_detailed_outline(snapshot: AccountSnapshot) -> str:
-    """Generate a detailed tree outline showing IDs and names."""
+def generate_detailed_report(snapshot: AccountSnapshot) -> str:
+    """Generate a detailed report showing IDs, names, and nested structure."""
     lines = [
-        "# dbt Cloud Account Detailed Outline",
+        "# dbt Cloud Account Detailed Report",
         "",
         f"**Generated:** {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}",
         f"**Importer Version:** {get_version()}",
@@ -435,10 +435,10 @@ def write_reports(snapshot: AccountSnapshot, output_dir: Path) -> tuple[Path, Pa
     account_id = snapshot.account_id
 
     summary_path = output_dir / f"account_{account_id}_summary__{timestamp}.md"
-    detailed_path = output_dir / f"account_{account_id}_outline__{timestamp}.md"
+    report_path = output_dir / f"account_{account_id}_report__{timestamp}.md"
 
     summary_path.write_text(generate_summary_report(snapshot), encoding="utf-8")
-    detailed_path.write_text(generate_detailed_outline(snapshot), encoding="utf-8")
+    report_path.write_text(generate_detailed_report(snapshot), encoding="utf-8")
 
-    return summary_path, detailed_path
+    return summary_path, report_path
 

@@ -232,6 +232,38 @@ Jobs reference environments by name (`split("_", each.key)`), but Terraform need
 - **YAML parsing issues**: Use `yamldecode()` to derive structures—malformed YAML will surface as Terraform errors before provider calls.
 - **Terratest failures**: Look at `test/terraform_test.go` to understand the expectations and fixtures used.
 
+## 16. Importer Metadata & Hashing Reference
+
+- Every importer run writes enriched metadata to `_metadata` inside the JSON export:
+  | Field | Example | Notes |
+  | --- | --- | --- |
+  | `run_label` | `run_034` | Zero-padded run counter from `importer_runs.json`. |
+  | `source_url_hash` | `0f3a2bc19d21` | First 12 chars of `sha256(host)` for privacy. |
+  | `source_url_slug` | `cloud_getdbt_com` | Snake-case host, easier to read in reports. |
+  | `account_source_hash` | `c7ee2a913b40` | `sha256("{account_id}|{host}")[:12]` to identify the source pairing. |
+  | `unique_run_identifier` | `YzdlZTJhOTEzYjQwX3J1bl8wMzQ` | URL-safe base64 of `{account_source_hash}_{run_label}`. |
+
+- Each resource gains an `element_mapping_id = sha256("{TYPE}:{name_or_id}")[:12]` plus `include_in_conversion` (false for inactive/soft-deleted states). Type codes currently include:
+
+  | Code | Element | Identifier Source |
+  | --- | --- | --- |
+  | `ACC` | Account root | `account_id` |
+  | `CON` | Connections | `id` ➜ `name` ➜ `key` |
+  | `REP` | Repositories | `id` ➜ `name` |
+  | `TOK` | Service Tokens | `id` ➜ `name` |
+  | `GRP` | Groups | `id` ➜ `name` |
+  | `NOT` | Notifications | `id` ➜ `name` |
+  | `WEB` | Webhook subscriptions | `id` ➜ `name` |
+  | `PLE` | PrivateLink endpoints | `id` ➜ `name` |
+  | `PRJ` | Projects | `id` ➜ `name` ➜ `key` |
+  | `ENV` | Environments | `id` ➜ `name` ➜ `key` |
+  | `JOB` | Jobs | `id` ➜ `name` |
+  | `VAR` | Environment variables | `name` |
+
+- A new machine-readable export `account_{ACCOUNT_ID}_run_{RUN}__report_items__{TIMESTAMP}.json` lists every element with `line_item_number` (default `1001`, configurable via `DBT_REPORT_LINE_ITEM_START`), `element_type_code`, `element_mapping_id`, and a boolean `include_in_conversion`. Downstream tooling can filter by this flag to skip soft-deleted/inactive resources without mutating the source JSON export.
+
+- Human-readable markdown reports now rely on the same hashes and slugs, so docs and automation share a consistent identifier scheme going into Phase 2.
+
 ## API Reference Directory
 
 - `dev_support/api_reference/` exists to store up-to-date API specifications:
@@ -240,7 +272,7 @@ Jobs reference environments by name (`split("_", each.key)`), but Terraform need
   - **Other dependencies**: SSH key authorship, GitHub/GitLab/Azure DevOps webhook requirements, or database credential APIs should go here.
 - Keep both `dbt_api_v2.yaml` and `dbt_api_v2 with references.yaml` in this directory. Use the clean OpenAPI file when you need a minimal, machine-readable contract (e.g., tooling or client generation), and rely on the “with references” version when you are planning, understanding, or writing enhancements because it adds prose, usage guidance, and links back to canonical dbt docs.
 
-## 16. Provider Capabilities & Migration Strategy
+## 17. Provider Capabilities & Migration Strategy
 
 - **Provider surface area**: The official provider (`/Users/operator/Documents/git/dbt-labs/terraform-provider-dbtcloud/docs/`) includes resources for every dbt Cloud object we care about—projects, repositories, project repositories, environments, jobs, environment variables, job overrides, plus warehouse credentials (Snowflake/Databricks/BigQuery/etc.), notifications, service tokens, global/extended connections, PrivateLink endpoints, semantic layer configs, groups/permissions, IP restrictions, lineage integrations, license maps, and more. The matching `dbtcloud_*` data sources mirror those resources so Terraform can look up existing objects by ID.
 - **Using data sources during migration**: When targeting a fresh account, leverage data sources like `dbtcloud_environment`, `dbtcloud_repository`, `dbtcloud_global_connection`, `dbtcloud_group`, and credential-specific sources to fetch IDs for integrations or infrastructure that already exist. Feed these IDs into the YAML (for example via `token_map`, connection IDs, or repository metadata) so Terraform links to the right objects without hard-coding source-account IDs.

@@ -88,7 +88,7 @@ class RunTracker:
             account_id: Account ID
             run_id: Run ID (will be zero-padded to 3 digits)
             timestamp: Timestamp string (YYYYMMDD_HHMMSS format)
-            file_type: Type of file (snapshot, summary, outline, logs)
+            file_type: Type of file (json, summary, report, logs)
             extension: File extension (e.g., 'json', 'md', 'log')
         
         Returns:
