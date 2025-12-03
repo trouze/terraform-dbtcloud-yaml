@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "../../.."
+		},
+		{
+			"path": "../../../../terraform-provider-dbtcloud"
+		},
+		{
+			"path": "../../../../dbtcloud-terraforming"
+		}
+	],
+	"settings": {}
+}
