@@ -1,3 +1,3 @@
 output "project_id" {
-    value = dbtcloud_project.project.id
+  value = dbtcloud_project.project.id
 }

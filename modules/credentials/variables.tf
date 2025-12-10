@@ -1,6 +1,6 @@
 variable "environments_data" {
   description = "List of environment configurations, including credentials"
-  type = any
+  type        = any
 }
 
 variable "project_id" {
@@ -9,7 +9,7 @@ variable "project_id" {
 }
 
 variable "token_map" {
-    type = map(string)
-    description = "Mapping of token names to credential"
-    sensitive = true
+  type        = map(string)
+  description = "Mapping of token names to credential"
+  sensitive   = true
 }

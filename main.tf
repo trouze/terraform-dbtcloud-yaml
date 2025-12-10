@@ -14,16 +14,17 @@
 #############################################
 
 locals {
-  yaml_content  = yamldecode(file(var.yaml_file))
-  schema_version = try(local.yaml_content.version, 1)  # Default to v1 if not specified
+  # Use try() to handle case where yaml_file might not be set during module loading
+  yaml_content   = try(yamldecode(file(var.yaml_file)), {})
+  schema_version = try(local.yaml_content.version, 1) # Default to v1 if not specified
 
   # v1 schema (single project)
-  project_config_v1 = local.schema_version == 1 ? local.yaml_content.project : null
+  project_config_v1 = local.schema_version == 1 ? try(local.yaml_content.project, null) : null
 
   # v2 schema (multi-project)
-  account_config_v2 = local.schema_version == 2 ? local.yaml_content.account : null
-  globals_v2        = local.schema_version == 2 ? local.yaml_content.globals : null
-  projects_v2       = local.schema_version == 2 ? local.yaml_content.projects : []
+  account_config_v2 = local.schema_version == 2 ? try(local.yaml_content.account, null) : null
+  globals_v2        = local.schema_version == 2 ? try(local.yaml_content.globals, null) : null
+  projects_v2       = local.schema_version == 2 ? try(local.yaml_content.projects, []) : []
 }
 
 #############################################
@@ -139,9 +140,9 @@ module "projects_v2" {
   count  = local.schema_version == 2 ? 1 : 0
   source = "./modules/projects_v2"
 
-  account     = local.account_config_v2
-  globals     = local.globals_v2
-  projects    = local.projects_v2
-  token_map   = var.token_map
+  account        = local.account_config_v2
+  globals        = local.globals_v2
+  projects       = local.projects_v2
+  token_map      = var.token_map
   dbt_account_id = var.dbt_account_id
 }

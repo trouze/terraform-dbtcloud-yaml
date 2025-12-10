@@ -57,7 +57,7 @@ variable "repository_data" {
       }
   EOT
   type        = any
-  
+
   validation {
     condition     = can(var.repository_data.remote_url) && var.repository_data.remote_url != ""
     error_message = "repository_data must contain a non-empty 'remote_url' field."

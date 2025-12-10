@@ -44,7 +44,7 @@ resource "dbtcloud_repository" "repositories" {
   # Git clone strategy (auto-detect if not specified)
   git_clone_strategy = try(
     local.resolve_repository[each.key].git_clone_strategy,
-    null  # Let Terraform/provider auto-detect
+    null # Let Terraform/provider auto-detect
   )
 
   is_active = try(local.resolve_repository[each.key].is_active, true)

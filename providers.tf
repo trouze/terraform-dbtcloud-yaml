@@ -8,6 +8,8 @@ terraform {
   }
 }
 
+# Provider configuration - only used when this is the root module
+# When used as a module, providers are inherited from the calling context
 provider "dbtcloud" {
   account_id = var.dbt_account_id
   token      = var.dbt_token
@@ -18,5 +20,5 @@ provider "dbtcloud" {
   alias      = "pat_provider"
   host_url   = var.dbt_host_url
   account_id = var.dbt_account_id
-  token      = var.dbt_pat
+  token      = var.dbt_pat != "" ? var.dbt_pat : var.dbt_token
 }

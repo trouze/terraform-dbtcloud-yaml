@@ -10,5 +10,5 @@ variable "job_ids" {
 
 variable "environments_data" {
   description = "List of environment configurations, including credentials, overrides"
-  type = any
+  type        = any
 }

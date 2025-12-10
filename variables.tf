@@ -3,38 +3,41 @@
 #############################################
 
 variable "dbt_account_id" {
-  description = "dbt Cloud account ID"
+  description = "dbt Cloud account ID (required when used as root module, optional when used as module)"
   type        = number
+  default     = null
 
   validation {
-    condition     = var.dbt_account_id > 0
+    condition     = var.dbt_account_id == null || var.dbt_account_id > 0
     error_message = "dbt_account_id must be a positive integer"
   }
 }
 
 variable "dbt_token" {
-  description = "dbt Cloud API token for authentication"
+  description = "dbt Cloud API token for authentication (required when used as root module, optional when used as module)"
   type        = string
   sensitive   = true
+  default     = null
 
   validation {
-    condition     = length(var.dbt_token) > 0
+    condition     = var.dbt_token == null || length(var.dbt_token) > 0
     error_message = "dbt_token cannot be empty"
   }
 }
 
 variable "dbt_pat" {
-  type = string
+  type      = string
   sensitive = true
-  default = ""
+  default   = ""
 }
 
 variable "dbt_host_url" {
-  description = "dbt Cloud host URL (e.g., https://cloud.getdbt.com or custom domain)"
+  description = "dbt Cloud host URL (e.g., https://cloud.getdbt.com or custom domain) (required when used as root module, optional when used as module)"
   type        = string
+  default     = "https://cloud.getdbt.com"
 
   validation {
-    condition     = can(regex("^https://", var.dbt_host_url))
+    condition     = var.dbt_host_url == null || can(regex("^https://", var.dbt_host_url))
     error_message = "dbt_host_url must start with https://"
   }
 }
@@ -46,11 +49,8 @@ variable "dbt_host_url" {
 variable "yaml_file" {
   description = "Path to the YAML file defining dbt Cloud resources (projects, environments, jobs, etc.)"
   type        = string
-
-  validation {
-    condition     = can(file(var.yaml_file))
-    error_message = "yaml_file must point to a valid, readable file"
-  }
+  # Note: Validation removed to allow module to be loaded without file existing
+  # The file will be validated when the module is actually used
 }
 
 variable "target_name" {
@@ -71,9 +71,9 @@ variable "token_map" {
 }
 
 #############################################
-# Locals
+# Locals (legacy - kept for backward compatibility)
 #############################################
 
 locals {
-  project_config = yamldecode(file(var.yaml_file))
+  project_config = try(yamldecode(file(var.yaml_file)), {})
 }

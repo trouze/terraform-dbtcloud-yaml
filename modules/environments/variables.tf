@@ -5,11 +5,11 @@ variable "project_id" {
 
 variable "environments_data" {
   description = "List of environment configurations, including credentials"
-  type = any
+  type        = any
 }
 
 variable "credential_ids" {
   description = "A map of environment names to their corresponding credential IDs"
-  type = map(string)
-  default = {}
+  type        = map(string)
+  default     = {}
 }

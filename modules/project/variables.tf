@@ -1,9 +1,9 @@
 variable "project_name" {
   description = "Project name"
-  type = string
+  type        = string
 }
 
 variable "target_name" {
   description = "Target CI or Production"
-  type = string
+  type        = string
 }

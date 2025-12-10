@@ -1,7 +1,7 @@
 terraform {
   required_providers {
     dbtcloud = {
-      source  = "dbt-labs/dbtcloud"
+      source = "dbt-labs/dbtcloud"
     }
     null = {
       source = "hashicorp/null"
@@ -27,7 +27,7 @@ locals {
 
   # Extract git_clone_strategy from input, or auto-detect based on provider
   git_clone_strategy_explicit = try(var.repository_data.git_clone_strategy, null)
-  
+
   git_clone_strategy = local.git_clone_strategy_explicit != null ? local.git_clone_strategy_explicit : (
     local.detected_provider == "github" ? "github_app" :
     local.detected_provider == "gitlab" ? "deploy_token" :
@@ -47,48 +47,48 @@ locals {
 
   # Validation: Check for required fields based on clone strategy
   github_app_missing_id = (
-    local.git_clone_strategy == "github_app" && 
+    local.git_clone_strategy == "github_app" &&
     (try(var.repository_data.github_installation_id, null) == null)
   )
 
   gitlab_deploy_token_missing_id = (
-    local.git_clone_strategy == "deploy_token" && 
+    local.git_clone_strategy == "deploy_token" &&
     (try(var.repository_data.gitlab_project_id, null) == null)
   )
 
   azure_missing_project_id = (
-    local.git_clone_strategy == "azure_active_directory_app" && 
+    local.git_clone_strategy == "azure_active_directory_app" &&
     (try(var.repository_data.azure_active_directory_project_id, null) == null)
   )
 
   azure_missing_repo_id = (
-    local.git_clone_strategy == "azure_active_directory_app" && 
+    local.git_clone_strategy == "azure_active_directory_app" &&
     (try(var.repository_data.azure_active_directory_repository_id, null) == null)
   )
 
   # Validation: Check for provider-specific fields that don't match the provider
   github_id_on_non_github = (
-    local.detected_provider != "github" && 
+    local.detected_provider != "github" &&
     (try(var.repository_data.github_installation_id, null) != null)
   )
 
   gitlab_id_on_non_gitlab = (
-    local.detected_provider != "gitlab" && 
+    local.detected_provider != "gitlab" &&
     (try(var.repository_data.gitlab_project_id, null) != null)
   )
 
   azure_project_id_on_non_azure = (
-    local.detected_provider != "azure_devops" && 
+    local.detected_provider != "azure_devops" &&
     (try(var.repository_data.azure_active_directory_project_id, null) != null)
   )
 
   azure_repo_id_on_non_azure = (
-    local.detected_provider != "azure_devops" && 
+    local.detected_provider != "azure_devops" &&
     (try(var.repository_data.azure_active_directory_repository_id, null) != null)
   )
 
   azure_webhook_bypass_on_non_azure = (
-    local.detected_provider != "azure_devops" && 
+    local.detected_provider != "azure_devops" &&
     (try(var.repository_data.azure_bypass_webhook_registration_failure, false) != false)
   )
 
@@ -140,7 +140,7 @@ locals {
 resource "null_resource" "validation" {
   lifecycle {
     precondition {
-      condition     = !local.has_critical_errors
+      condition = !local.has_critical_errors
       error_message = join("\n", concat(
         local.validation_errors,
         [
@@ -197,6 +197,6 @@ resource "dbtcloud_repository" "repository" {
   )
 
   # Optional common fields
-  private_link_endpoint_id = try(var.repository_data.private_link_endpoint_id, null)
+  private_link_endpoint_id  = try(var.repository_data.private_link_endpoint_id, null)
   pull_request_url_template = try(var.repository_data.pull_request_url_template, null)
 }

@@ -16,12 +16,9 @@ provider "dbtcloud" {
 module "dbt_cloud" {
   source = "../../"
 
-  dbt_account_id = var.dbt_account_id
-  dbt_token      = var.dbt_token
-  dbt_host_url   = var.dbt_host_url
-  yaml_file      = "${path.module}/dbt-config.yml"
-  target_name    = var.target_name
-  token_map      = var.token_map
+  yaml_file   = "${path.module}/dbt-config.yml"
+  target_name = var.target_name
+  token_map   = var.token_map
 }
 
 output "v2_project_ids" {

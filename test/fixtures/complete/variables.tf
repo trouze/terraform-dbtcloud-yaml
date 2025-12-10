@@ -26,9 +26,9 @@ variable "token_map" {
   type        = map(string)
   description = "Map of token names to warehouse tokens"
   default = {
-    "dev_token"   = "test-token-dev"
+    "dev_token"     = "test-token-dev"
     "staging_token" = "test-token-staging"
-    "prod_token"  = "test-token-prod"
+    "prod_token"    = "test-token-prod"
   }
   sensitive = true
 }

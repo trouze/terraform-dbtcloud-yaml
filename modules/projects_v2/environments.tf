@@ -43,7 +43,7 @@ locals {
       # This is a simplified approach - you may need to check connection details
       lookup(local.connections_map, try(item.env_data.connection, ""), {}) != {} ?
       lookup(local.connections_map, item.env_data.connection, {}).type :
-      "databricks"  # Default fallback
+      "databricks" # Default fallback
     )
   }
 }
@@ -85,7 +85,7 @@ resource "dbtcloud_environment" "environments" {
   dbt_version                = try(each.value.env_data.dbt_version, null)
   enable_model_query_history = try(each.value.env_data.enable_model_query_history, null)
   custom_branch              = try(each.value.env_data.custom_branch, null)
-  target_name                = try(each.value.env_data.target_name, null)
+  # Note: target_name is not a valid argument for dbtcloud_environment resource
   use_custom_branch          = try(each.value.env_data.custom_branch, null) != null
 }
 

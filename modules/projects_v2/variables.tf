@@ -1,7 +1,7 @@
 terraform {
   required_providers {
     dbtcloud = {
-      source  = "dbt-labs/dbtcloud"
+      source = "dbt-labs/dbtcloud"
     }
     null = {
       source = "hashicorp/null"
@@ -21,19 +21,19 @@ variable "account" {
 variable "globals" {
   description = "Global resources (connections, repositories, service tokens, groups, notifications, PrivateLink endpoints)"
   type = object({
-    connections          = optional(list(any), [])
-    repositories         = optional(list(any), [])
-    service_tokens       = optional(list(any), [])
-    groups               = optional(list(any), [])
-    notifications        = optional(list(any), [])
+    connections           = optional(list(any), [])
+    repositories          = optional(list(any), [])
+    service_tokens        = optional(list(any), [])
+    groups                = optional(list(any), [])
+    notifications         = optional(list(any), [])
     privatelink_endpoints = optional(list(any), [])
   })
   default = {
-    connections          = []
-    repositories         = []
-    service_tokens       = []
-    groups               = []
-    notifications        = []
+    connections           = []
+    repositories          = []
+    service_tokens        = []
+    groups                = []
+    notifications         = []
     privatelink_endpoints = []
   }
 }
@@ -41,13 +41,13 @@ variable "globals" {
 variable "projects" {
   description = "List of projects to create"
   type = list(object({
-    key         = string
-    name        = string
-    repository  = any  # Can be string (key) or object (inline)
-    environments = list(any)
-    jobs         = optional(list(any), [])
+    key                   = string
+    name                  = string
+    repository            = any # Can be string (key) or object (inline)
+    environments          = list(any)
+    jobs                  = optional(list(any), [])
     environment_variables = optional(list(any), [])
-    notifications = optional(list(any), [])
+    notifications         = optional(list(any), [])
   }))
 }
 

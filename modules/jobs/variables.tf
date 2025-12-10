@@ -10,5 +10,5 @@ variable "environment_ids" {
 
 variable "environments_data" {
   description = "List of environment configurations, including credentials"
-  type = any
+  type        = any
 }

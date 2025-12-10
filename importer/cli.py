@@ -99,8 +99,19 @@ def fetch(
         "--auto-timestamp/--no-auto-timestamp",
         help="Automatically add timestamp to output filename.",
     ),
+    interactive: bool = typer.Option(
+        False,
+        "--interactive",
+        "-i",
+        help="Run in interactive mode with guided prompts.",
+        is_flag=True,
+    ),
 ) -> None:
     """Fetch an account JSON export via the dbt Cloud API."""
+    if interactive:
+        from .interactive import run_fetch_interactive
+        run_fetch_interactive()
+        return
     settings = get_settings()
     
     # Initialize run tracker and start a new run

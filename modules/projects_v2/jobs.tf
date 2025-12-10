@@ -45,32 +45,15 @@ locals {
   }
 
   # Helper to resolve deferring job ID by key
+  # Note: deferring_job_id cannot be resolved at plan time due to circular dependency.
+  # If deferring_job_key is specified, deferring_job_id will be null initially.
+  # Jobs with deferral should reference existing jobs by numeric ID, or deferral
+  # can be configured after initial creation via Terraform update.
   resolve_deferring_job_id = {
     for key, item in local.jobs_map :
-    key => (
-      try(item.job_data.deferring_job_key, null) != null ?
-      lookup(
-        local.jobs_map,
-        "${item.project_key}_${item.job_data.deferring_environment_key}_${item.job_data.deferring_job_key}",
-        null
-      ) != null ?
-      dbtcloud_job.jobs["${item.project_key}_${item.job_data.deferring_environment_key}_${item.job_data.deferring_job_key}"].id :
-      null : null
-    )
+    key => null # Set to null - deferring_job_id requires job to exist first (circular dependency)
   }
 
-  # Helper to resolve notification IDs by keys
-  resolve_notification_ids = {
-    for key, item in local.jobs_map :
-    key => [
-      for notif_key in try(item.job_data.notification_keys, []) :
-      # Check global notifications first
-      try(dbtcloud_notification.notifications[notif_key].id, null) != null ?
-      dbtcloud_notification.notifications[notif_key].id :
-      # Then check project-scoped notifications (if implemented)
-      null
-    ]
-  }
 }
 
 # Create jobs
@@ -84,26 +67,26 @@ resource "dbtcloud_job" "jobs" {
   triggers       = each.value.job_data.triggers
 
   # Optional fields
-  description                = try(each.value.job_data.description, null)
-  dbt_version                = try(each.value.job_data.dbt_version, null)
-  deferring_environment_id   = local.resolve_deferring_environment_id[each.key]
-  deferring_job_id           = local.resolve_deferring_job_id[each.key]
-  errors_on_lint_failure     = try(each.value.job_data.errors_on_lint_failure, true)
-  generate_docs              = try(each.value.job_data.generate_docs, false)
-  is_active                  = try(each.value.job_data.is_active, true)
-  num_threads                = try(each.value.job_data.num_threads, 4)
-  run_compare_changes        = try(each.value.job_data.run_compare_changes, false)
-  run_generate_sources       = try(each.value.job_data.run_generate_sources, false)
-  run_lint                   = try(each.value.job_data.run_lint, false)
-  schedule_cron              = try(each.value.job_data.schedule_cron, null)
-  schedule_days              = try(each.value.job_data.schedule_days, null)
-  schedule_hours             = try(each.value.job_data.schedule_hours, null)
-  schedule_interval          = try(each.value.job_data.schedule_interval, null)
-  schedule_type              = try(each.value.job_data.schedule_type, null)
-  target_name                = try(each.value.job_data.target_name, null)
-  timeout_seconds            = try(each.value.job_data.timeout_seconds, 0)
-  triggers_on_draft_pr       = try(each.value.job_data.triggers_on_draft_pr, false)
-  self_deferring              = try(each.value.job_data.self_deferring, null)
+  description              = try(each.value.job_data.description, null)
+  dbt_version              = try(each.value.job_data.dbt_version, null)
+  deferring_environment_id = local.resolve_deferring_environment_id[each.key]
+  deferring_job_id         = local.resolve_deferring_job_id[each.key]
+  errors_on_lint_failure   = try(each.value.job_data.errors_on_lint_failure, true)
+  generate_docs            = try(each.value.job_data.generate_docs, false)
+  is_active                = try(each.value.job_data.is_active, true)
+  num_threads              = try(each.value.job_data.num_threads, 4)
+  run_compare_changes      = try(each.value.job_data.run_compare_changes, false)
+  run_generate_sources     = try(each.value.job_data.run_generate_sources, false)
+  run_lint                 = try(each.value.job_data.run_lint, false)
+  schedule_cron            = try(each.value.job_data.schedule_cron, null)
+  schedule_days            = try(each.value.job_data.schedule_days, null)
+  schedule_hours           = try(each.value.job_data.schedule_hours, null)
+  schedule_interval        = try(each.value.job_data.schedule_interval, null)
+  schedule_type            = try(each.value.job_data.schedule_type, null)
+  target_name              = try(each.value.job_data.target_name, null)
+  timeout_seconds          = try(each.value.job_data.timeout_seconds, 0)
+  triggers_on_draft_pr     = try(each.value.job_data.triggers_on_draft_pr, false)
+  self_deferring           = try(each.value.job_data.self_deferring, null)
 }
 
 # Note: Notification job associations are handled in globals.tf
