@@ -11,14 +11,35 @@ terraform {
 }
 
 provider "dbtcloud" {
-  # Credentials from environment:
-  # DBT_TARGET_ACCOUNT_ID (mapped to TF_VAR_dbt_account_id)
-  # DBT_TARGET_API_TOKEN (mapped to TF_VAR_dbt_token)
-  # DBT_TARGET_HOST_URL (mapped to TF_VAR_dbt_host_url)
+  account_id = var.dbt_account_id
+  token      = var.dbt_token
+  host_url   = var.dbt_host_url
+}
+
+variable "dbt_account_id" {
+  description = "dbt Cloud account ID"
+  type        = number
+}
+
+variable "dbt_token" {
+  description = "dbt Cloud API token"
+  type        = string
+  sensitive   = true
+}
+
+variable "dbt_host_url" {
+  description = "dbt Cloud host URL"
+  type        = string
+  default     = "https://cloud.getdbt.com/api"
 }
 
 module "dbt_cloud" {
   source = "../.."
+
+  # Pass credentials to the module
+  dbt_account_id = var.dbt_account_id
+  dbt_token      = var.dbt_token
+  dbt_host_url   = var.dbt_host_url
 
   yaml_file   = "${path.module}/dbt-cloud-config.yml"
   target_name = "e2e_test"

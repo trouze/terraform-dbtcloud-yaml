@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2025-12-20
+
+### Fixed
+- **Terraform Provider Connection**: Fixed "Unsupported Authorization Type" error in E2E test
+  - Root cause: Test fixture (`test/e2e_test/main.tf`) wasn't passing `dbt_account_id`, `dbt_token`, and `dbt_host_url` variables to the module
+  - Module's provider was using default `https://cloud.getdbt.com` instead of actual instance URL (e.g., `https://iq919.us1.dbt.com/api`)
+  - Added variable definitions to test fixture and explicitly passed credentials to module
+  - Provider now correctly connects to custom domain instances for multi-tenant deployments
+- **E2E Test Script**: Cleaned up debug instrumentation from provider connection debugging session
+
+### Changed
+- **E2E Test Configuration**: Enhanced test fixture to properly configure Terraform provider
+  - Added `dbt_account_id`, `dbt_token`, and `dbt_host_url` variables to `test/e2e_test/main.tf`
+  - Provider block now uses variables instead of empty configuration
+  - Module call explicitly passes credentials to ensure proper provider inheritance
+
+### Technical Details
+- Updated `test/e2e_test/main.tf` to define and pass credential variables to module
+- Removed debug instrumentation from `test/run_e2e_test.sh` (curl diagnostics, logging statements)
+- Provider configuration now correctly inherits from root module to child modules
+
 ## [0.5.2] - 2025-12-20
 
 ### Fixed
