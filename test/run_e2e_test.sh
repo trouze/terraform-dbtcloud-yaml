@@ -648,13 +648,36 @@ phase3_validate() {
     cd "$TEST_DIR"
     
     # Map DBT_TARGET_* to Terraform provider variables
+    # Normalize host URL: ensure single /api suffix for custom domains
+    local base_host="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
+    base_host="${base_host%/}"
+    local host_url="$base_host"
+    if [[ "$base_host" != *"/api" ]]; then
+        host_url="${base_host}/api"
+    fi
+
+    # Use API token for default provider; PAT only for pat_provider
+    local token_default="${DBT_TARGET_API_TOKEN}"
+    local token_pat=""  # disable PAT for apply path
+
     export TF_VAR_dbt_account_id="${DBT_TARGET_ACCOUNT_ID}"
-    export TF_VAR_dbt_token="${DBT_TARGET_API_TOKEN}"
-    export TF_VAR_dbt_host_url="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
+    export TF_VAR_dbt_token="${token_default}"
+    export TF_VAR_dbt_pat="${DBT_TARGET_PAT:-}"
+    export TF_VAR_dbt_host_url="$host_url"
     # Also set DBT_CLOUD_* for provider fallback
     export DBT_CLOUD_ACCOUNT_ID="${DBT_TARGET_ACCOUNT_ID}"
-    export DBT_CLOUD_TOKEN="${DBT_TARGET_API_TOKEN}"
-    export DBT_CLOUD_HOST_URL="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
+    export DBT_CLOUD_TOKEN="${token_default}"
+    export DBT_CLOUD_HOST_URL="$host_url"
+
+    # region agent log
+    printf '{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H1","location":"run_e2e_test.sh:phase3_validate","message":"Computed host_url","data":{"base_host":"%s","host_url":"%s","env_host_url":"%s","uses_pat":%s,"token_default_prefix":"%s","token_pat_prefix":"%s"},"timestamp":%s}\n' \
+      "$base_host" "$host_url" "${DBT_TARGET_HOST_URL:-}" false "${token_default:0:4}" "${token_pat:0:4}" "$(date +%s%3N)" >> /Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log
+    # endregion
+
+    # region agent log
+    printf '{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H1","location":"run_e2e_test.sh:phase3_validate","message":"Computed host_url","data":{"host_url":"%s","env_host_url":"%s","adds_api_suffix":%s},"timestamp":%s}\n' \
+      "$host_url" "${DBT_TARGET_HOST_URL:-}" "$( [[ "$host_url" == *"/api" ]] && echo true || echo false )" "$(date +%s%3N)" >> /Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log
+    # endregion
     
     # Check if YAML has connection provider configs (warning only now)
     if ! grep -q "provider_config:" dbt-cloud-config.yml; then
@@ -681,13 +704,82 @@ phase4_plan() {
     cd "$TEST_DIR"
     
     # Map DBT_TARGET_* to Terraform provider variables
+    # Normalize host URL: ensure single /api suffix for custom domains
+    local base_host="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
+    base_host="${base_host%/}"
+    local host_url="$base_host"
+    if [[ "$base_host" != *"/api" ]]; then
+        host_url="${base_host}/api"
+    fi
+
+    # For diagnostics
+    local api_host="${base_host}/api"
+    
+    # Force service token only; ignore PAT for this run
+    # Strip any accidental "Token " or "Bearer " prefixes from env values
+    local raw_api_token="${DBT_TARGET_API_TOKEN}"
+    raw_api_token="${raw_api_token#Token }"
+    raw_api_token="${raw_api_token#Bearer }"
+    local token_default="${raw_api_token}"
+    local token_pat=""  # disable PAT path
+    
     export TF_VAR_dbt_account_id="${DBT_TARGET_ACCOUNT_ID}"
-    export TF_VAR_dbt_token="${DBT_TARGET_API_TOKEN}"
-    export TF_VAR_dbt_host_url="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
+    export TF_VAR_dbt_token="${token_default}"
+    export TF_VAR_dbt_pat="${DBT_TARGET_PAT:-}"
+    export TF_VAR_dbt_host_url="$host_url"
+    
+    # region agent log
+    printf '{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H1","location":"run_e2e_test.sh:phase4_plan","message":"Computed host_url","data":{"base_host":"%s","host_url":"%s","env_host_url":"%s","uses_pat":%s,"token_default_prefix":"%s","token_pat_prefix":"%s"},"timestamp":%s}\n' \
+      "$base_host" "$host_url" "${DBT_TARGET_HOST_URL:-}" "$( [[ -n "$DBT_TARGET_PAT" ]] && echo true || echo false )" "${token_default:0:4}" "${token_pat:0:4}" "$(date +%s%3N)" >> /Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log
+    # endregion
+    
+    # Diagnostic check: Try both with and without /api to avoid double-appends
+    if [[ "$base_host" != *"cloud.getdbt.com"* ]]; then
+        log_info "Running API diagnostics for custom domain..." >&2
+
+        # region agent log
+        printf '{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H1","location":"run_e2e_test.sh:phase4_plan","message":"Diagnostic hosts","data":{"base_host":"%s","api_host":"%s","uses_pat":%s,"token_default_prefix":"%s","token_pat_prefix":"%s"},"timestamp":%s}\n' \
+      "$base_host" "$api_host" false "${token_default:0:4}" "${token_pat:0:4}" "$(date +%s%3N)" >> /Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log
+        # endregion
+
+        log_info "Testing base host (no /api): $base_host" >&2
+        log_info "  v2 user (Token)..." >&2
+        curl -s -I -H "Authorization: Token $DBT_TARGET_API_TOKEN" "$base_host/v2/user/" | grep HTTP >&2
+
+        log_info "Testing api host (/api): $api_host" >&2
+        log_info "  v2 accounts projects (Token)..." >&2
+        curl -s -I -H "Authorization: Token $DBT_TARGET_API_TOKEN" "$api_host/v2/accounts/$DBT_TARGET_ACCOUNT_ID/projects/" | grep HTTP >&2
+        log_info "  v2 user (Token)..." >&2
+        curl -s -I -H "Authorization: Token $DBT_TARGET_API_TOKEN" "$api_host/v2/user/" | grep HTTP >&2
+        log_info "  v3 accounts (Bearer)..." >&2
+        curl -s -I -H "Authorization: Bearer $DBT_TARGET_API_TOKEN" "$api_host/v3/accounts/" | grep HTTP >&2
+
+        log_info "API diagnostics complete." >&2
+    fi
+
+    # DEBUG: Log variables being sent to Terraform (hiding token)
+    log_info "DEBUG: Terraform Variables for Plan:" >&2
+    log_info "  TF_VAR_dbt_account_id: $TF_VAR_dbt_account_id" >&2
+    log_info "  TF_VAR_dbt_host_url: $TF_VAR_dbt_host_url" >&2
+    if [ -n "$TF_VAR_dbt_token" ]; then
+        log_info "  TF_VAR_dbt_token: [SET]" >&2
+    else
+        log_info "  TF_VAR_dbt_token: [EMPTY]" >&2
+    fi
+    
     # Also set DBT_CLOUD_* for provider fallback
     export DBT_CLOUD_ACCOUNT_ID="${DBT_TARGET_ACCOUNT_ID}"
-    export DBT_CLOUD_TOKEN="${DBT_TARGET_API_TOKEN}"
-    export DBT_CLOUD_HOST_URL="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
+    export DBT_CLOUD_TOKEN="${token_default}"
+    export DBT_CLOUD_HOST_URL="$host_url"
+
+    # region agent log
+    printf '{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H2","location":"run_e2e_test.sh:phase4_plan","message":"Env token export check","data":{"TF_VAR_dbt_token_set":%s,"TF_VAR_dbt_token_len":%s,"TF_VAR_dbt_pat_set":%s,"TF_VAR_dbt_pat_len":%s,"DBT_TARGET_API_TOKEN_set":%s,"DBT_TARGET_PAT_set":%s,"DBT_CLOUD_TOKEN_set":%s,"DBT_CLOUD_TOKEN_len":%s},"timestamp":%s}\n' \
+      "$( [[ -n "$TF_VAR_dbt_token" ]] && echo true || echo false )" "${#TF_VAR_dbt_token}" \
+      "$( [[ -n "$TF_VAR_dbt_pat" ]] && echo true || echo false )" "${#TF_VAR_dbt_pat}" \
+      "$( [[ -n "$DBT_TARGET_API_TOKEN" ]] && echo true || echo false )" "$( [[ -n "$DBT_TARGET_PAT" ]] && echo true || echo false )" \
+      "$( [[ -n "$DBT_CLOUD_TOKEN" ]] && echo true || echo false )" "${#DBT_CLOUD_TOKEN}" \
+      "$(date +%s%3N)" >> /Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log
+    # endregion
     
     log_info "Running terraform plan..."
     if terraform plan -out=tfplan 2>&1 | tee plan_output.txt; then
@@ -722,13 +814,31 @@ phase5_apply() {
     cd "$TEST_DIR"
     
     # Map DBT_TARGET_* to Terraform provider variables
+    # Normalize host URL: ensure single /api suffix for custom domains
+    local base_host="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
+    base_host="${base_host%/}"
+    local host_url="$base_host"
+    if [[ "$base_host" != *"/api" ]]; then
+        host_url="${base_host}/api"
+    fi
+    
+    # Use PAT if provided; fall back to API token
+    local token_default="${DBT_TARGET_PAT:-$DBT_TARGET_API_TOKEN}"
+    local token_pat="${DBT_TARGET_PAT:-$DBT_TARGET_API_TOKEN}"
+    
     export TF_VAR_dbt_account_id="${DBT_TARGET_ACCOUNT_ID}"
-    export TF_VAR_dbt_token="${DBT_TARGET_API_TOKEN}"
-    export TF_VAR_dbt_host_url="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
+    export TF_VAR_dbt_token="${token_default}"
+    export TF_VAR_dbt_pat="${DBT_TARGET_PAT:-}"
+    export TF_VAR_dbt_host_url="$host_url"
     # Also set DBT_CLOUD_* for provider fallback
     export DBT_CLOUD_ACCOUNT_ID="${DBT_TARGET_ACCOUNT_ID}"
-    export DBT_CLOUD_TOKEN="${DBT_TARGET_API_TOKEN}"
-    export DBT_CLOUD_HOST_URL="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
+    export DBT_CLOUD_TOKEN="${token_default}"
+    export DBT_CLOUD_HOST_URL="$host_url"
+
+    # region agent log
+    printf '{"sessionId":"debug-session","runId":"pre-fix","hypothesisId":"H1","location":"run_e2e_test.sh:phase5_apply","message":"Computed host_url","data":{"host_url":"%s","env_host_url":"%s","adds_api_suffix":%s},"timestamp":%s}\n' \
+      "$host_url" "${DBT_TARGET_HOST_URL:-}" "$( [[ "$host_url" == *"/api" ]] && echo true || echo false )" "$(date +%s%3N)" >> /Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log
+    # endregion
     
     log_warning "About to apply Terraform changes to account $DBT_TARGET_ACCOUNT_ID"
     log_warning "Press Ctrl+C within 10 seconds to cancel..."

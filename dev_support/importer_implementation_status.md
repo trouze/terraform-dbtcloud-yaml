@@ -420,14 +420,14 @@ Before starting end-to-end testing with a real account, verify:
 ## Version Tracking
 
 ### Importer Version
-- **Current:** 0.4.1
+- **Current:** 0.5.2
 - **File:** `importer/VERSION`
-- **Last Updated:** 2025-12-19
+- **Last Updated:** 2025-12-20
 
 ### Terraform Module Version
 - **Current:** Supports v1 and v2 schemas
-- **Minimum Terraform:** 1.5+ (tested with 1.14.1)
-- **Provider Version:** dbt-labs/dbtcloud ~> 0.3
+- **Minimum Terraform:** 1.5+ (tested with 1.10.3)
+- **Provider Version:** dbt-labs/dbtcloud ~> 1.5
 
 ### Schema Versions
 - **v1:** Single-project schema (existing, stable)
@@ -447,7 +447,7 @@ Before starting end-to-end testing with a real account, verify:
 - **Installation:** Use `tfenv` (Terraform version manager) instead of Homebrew
   - Homebrew no longer updates Terraform due to HashiCorp BUSL license
   - `tfenv` provides direct access to latest Terraform versions
-- **Provider:** dbt-labs/dbtcloud ~> 0.3
+- **Provider:** dbt-labs/dbtcloud ~> 1.5
 
 ### Go (for testing)
 - **Version:** 1.21+
