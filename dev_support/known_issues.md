@@ -136,67 +136,52 @@ The E2E test script (`test/run_e2e_test.sh`) now detects token type and warns if
 
 ## Cross-Account Migration Limitations
 
-### 5. User ID References in Notifications
+### 5. Notification Migration Limitations
 
 **Status:** Migration Limitation  
 **Severity:** High  
-**Fix Required:** User ID mapping or filtering
+**Fix Status:** ✅ Filtered in Terraform (v0.6.3)
 
 **Issue:**
-Notifications reference user IDs from the source account that don't exist in the target account. The API rejects these notifications.
+Notifications cannot be migrated during initial account migration due to:
+1. **User IDs**: Source account user IDs don't exist in target account
+2. **Job IDs**: Source account job IDs don't exist in target account (jobs not yet created/mapped)
+3. **Slack Integration**: Slack notifications require Slack integration setup in target account
 
-**Error Message:**
+**Error Messages:**
 ```
 Error: Unable to create notification
 User instance with id 103835 does not exist.
-```
 
-**Root Cause:**
-- User IDs are account-specific
-- Notifications from source account reference users that don't exist in target account
-- No automatic mapping exists between source and target user IDs
-
-**Workaround:**
-- Filter out notifications with invalid user IDs
-- Manually map user IDs from source to target account
-- Create notifications manually after migration
-
-**Future Fix:**
-- Add user ID validation/mapping in normalizer
-- Use user email addresses instead of IDs (if API supports it)
-- Skip notifications with cross-account user references
-
----
-
-### 6. Job ID References in Notifications
-
-**Status:** Dependency Ordering Issue  
-**Severity:** Medium  
-**Fix Required:** Dependency ordering or job key references
-
-**Issue:**
-Notifications reference job IDs that don't exist yet (dependency ordering issue) or reference jobs from the source account that don't exist in the target account.
-
-**Error Message:**
-```
 Error: Unable to create notification
-Jobs definition IDs 542963 do not exist
+Jobs definition IDs 526578, 542963, 879560, 577949, 575342 do not exist
 ```
 
-**Root Cause:**
-- Notifications are created before jobs are created
-- Job IDs from source account don't exist in target account
-- No mapping exists between source and target job IDs
+**Notification Types:**
+- **Type 1 (User Email)**: Skipped - requires user migration (not possible via API)
+- **Type 2 (Slack)**: Skipped - requires Slack integration in target account
+- **Type 4 (External Email)**: Only created if no job references (jobs not yet mapped)
 
-**Workaround:**
-- Ensure notifications are created after jobs (already handled via `depends_on`)
-- Filter out notifications with invalid job IDs
-- Use job keys/names instead of IDs in notification references
+**Current Behavior:**
+- All notifications are **fetched and normalized** (preserved in YAML for future use)
+- Only external email notifications (type 4) **without job references** are created during initial migration
+- User notifications, Slack notifications, and job-linked notifications are **skipped** during Terraform apply
 
-**Future Fix:**
-- Add job ID validation/mapping in normalizer
-- Use job keys instead of IDs in notification references
-- Create notifications after all jobs are created
+**Fix:**
+- Added filtering in `modules/projects_v2/globals.tf` to skip incompatible notifications
+- Set `user_id = null` for external email notifications (source user doesn't exist)
+- Filter out notifications with job references (jobs not yet mapped)
+
+**Future Enhancement:**
+A separate `--migrate-notifications` mode will be implemented to:
+- Map source job IDs to target job IDs after jobs are created
+- Detect and configure Slack integrations in target account
+- Handle user notification migration (if user migration becomes possible via API)
+
+**Location:** `modules/projects_v2/globals.tf` (lines 181-204)
+
+**References:**
+- [dbt Cloud Notification API](https://docs.getdbt.com/dbt-cloud/api-v2#/operations/Create%20Notification)
 
 ---
 
@@ -278,8 +263,7 @@ To update the provider version:
 | Empty Environment Variables | API Requirement | Medium | ✅ Fixed |
 | Deprecated dbt Versions | API Limitation | Medium | ✅ Fixed |
 | Service Token vs PAT | API Requirement | High | ⚠️ Documented |
-| User ID References | Migration Limitation | High | ⚠️ Workaround |
-| Job ID References | Dependency Ordering | Medium | ⚠️ Workaround |
+| Notification Migration | Migration Limitation | High | ✅ Fixed (filtered) |
 | Service Token Dependencies | Dependency Cascade | Medium | ✅ Fixed |
 | Group Dependencies | Dependency Cascade | Medium | ✅ Fixed |
 | Provider Version | Configuration | Low | ✅ Fixed |

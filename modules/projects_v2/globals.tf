@@ -179,28 +179,34 @@ resource "dbtcloud_group" "groups" {
 }
 
 # Notifications
-# Note: Job associations (on_success, on_failure, etc.) are handled later
-# after jobs are created, via separate resources or updates
+# 
+# Notification Migration Strategy:
+# - User notifications (type 1): Skipped - source user IDs don't exist in target account
+# - Slack notifications (type 2): Skipped - requires Slack integration in target account
+# - Job-linked notifications: Skipped - job IDs from source account don't exist in target
+# - External email notifications (type 4): Skipped - user_id is required even for external emails
+#   (API requires a valid user_id from target account, which we cannot map from source)
+#
+# All notifications are still fetched and normalized (preserved in YAML for future migration mode).
+#
+# Future: A separate `--migrate-notifications` mode will handle:
+# - User ID mapping (source user IDs → target user IDs)
+# - Job ID mapping (source job IDs → target job IDs)
+# - Slack integration detection and configuration
+#
 resource "dbtcloud_notification" "notifications" {
+  # Skip all notifications during initial migration
+  # The for_each is empty, so no notifications will be created
   for_each = {
     for notif in var.globals.notifications :
     notif.key => notif
+    if false  # Skip all notifications - user_id mapping required
   }
 
-  user_id           = each.value.user_id
-  notification_type = try(each.value.notification_type, 1)
-  state             = try(each.value.state, 1)
-
-  # Job associations - these will be empty initially and updated after jobs are created
-  # For now, we'll handle this via a separate update mechanism or locals
-  on_success = try(each.value.on_success, [])
-  on_failure = try(each.value.on_failure, [])
-  on_warning = try(each.value.on_warning, [])
-  on_cancel  = try(each.value.on_cancel, [])
-
-  external_email     = try(each.value.external_email, null)
-  slack_channel_id   = try(each.value.slack_channel_id, null)
-  slack_channel_name = try(each.value.slack_channel_name, null)
+  # Required fields (placeholder values - no instances will be created due to for_each = {})
+  user_id           = 0  # Placeholder - never used since for_each is always empty
+  notification_type = 1  # Type 1 (user email) - no external_email required
+  state             = 1
 }
 
 # Data source for PrivateLink endpoints (read-only)

@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2025-12-20  
-**Current Importer Version:** 0.6.2  
+**Current Importer Version:** 0.6.4  
 **Status:** Phase 3 Complete + Interactive Mode + E2E Testing Infrastructure
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -526,6 +526,15 @@ Before starting end-to-end testing with a real account, verify:
   - **Details:** Fetch semantic layer configs and add to normalizer/Terraform module
   - **Related Known Limitations:** Implementation Gaps #2 (Semantic Layer)
   - **See Also:** [Prerequisites for API Research](#prerequisites-for-api-research)
+- [ ] **Notification migration mode (`--migrate-notifications`)**
+  - **Blockers:** Job ID mapping, Slack integration detection
+  - **Dependencies:** Job creation and ID mapping, Slack integration API research
+  - **Details:** Separate mode to migrate notifications after jobs are created, including:
+    - Job ID mapping (source job IDs → target job IDs)
+    - Slack integration detection and configuration
+    - User notification migration (if user migration becomes possible via API)
+  - **Related Known Limitations:** Notification Migration Limitations (KNOWN_ISSUES.md #5)
+  - **Status:** Currently filtered in Terraform (v0.6.3) - user/Slack/job-linked notifications skipped
 - [ ] **Model notifications**
   - **Blockers:** API availability unknown
   - **Dependencies:** API research completion (see Prerequisites below)
@@ -657,6 +666,31 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2025-12-20 (v0.6.4)
+- **Version:** Incremented to 0.6.4 (patch release - skip all notifications)
+- **Skip All Notifications**: Updated notification migration to skip ALL notifications during initial migration
+  - Provider requires `user_id` for all notification types (even external email)
+  - Since source user IDs cannot be mapped to target user IDs, all notifications are skipped
+  - Changed `for_each` filter to `if false` to create empty resource set
+  - Added placeholder required fields (`user_id`, `notification_type`, `state`) for schema validation
+  - Notifications are still fetched and normalized (preserved in YAML for future migration mode)
+  - Future `--migrate-notifications` mode will handle user ID and job ID mapping
+
+### 2025-12-20 (v0.6.3)
+- **Version:** Incremented to 0.6.3 (patch release - notification filtering)
+- **Notification Migration Filtering**: Added filtering to skip user-level and Slack notifications during initial migration
+  - User notifications (type 1): Skipped - source user IDs don't exist in target account
+  - Slack notifications (type 2): Skipped - requires Slack integration in target account
+  - Job-linked notifications: Skipped - job IDs from source account don't exist in target
+  - Only external email notifications (type 4) without job references are created
+  - All notifications are still fetched and normalized (preserved in YAML for future migration mode)
+  - Updated `modules/projects_v2/globals.tf` with filtering logic and documentation
+  - Set `user_id = null` for external email notifications (source user doesn't exist)
+- **Documentation**: Added notification migration limitations to `KNOWN_ISSUES.md`
+  - Documented current filtering behavior
+  - Added roadmap item for future `--migrate-notifications` mode
+  - Includes job ID mapping and Slack integration detection requirements
 
 ### 2025-12-20 (v0.6.2)
 - **Version:** Incremented to 0.6.2 (patch release - critical bug fixes for cross-account migration)

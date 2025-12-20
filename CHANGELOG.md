@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.4] - 2025-12-20
+
+### Fixed
+- **Skip All Notifications During Migration**: The dbt Cloud provider requires `user_id` for all notification types
+  - Provider documentation: "we still need the ID of a user in dbt Cloud even though it is not used for sending notifications"
+  - Since source user IDs cannot be mapped to target user IDs, all notifications are now skipped
+  - Notifications are still fetched and normalized (preserved in YAML for future migration mode)
+  - Future `--migrate-notifications` mode will handle user ID and job ID mapping
+
+### Technical Details
+- Terraform changes in `modules/projects_v2/globals.tf`:
+  - Changed `for_each` filter to `if false` to skip all notifications
+  - Added placeholder required fields (`user_id`, `notification_type`, `state`) for schema validation
+  - Provider validates required fields even when `for_each` is empty
+
+## [0.6.3] - 2025-12-20
+
+### Fixed
+- **Notification Migration Filtering**: Added filtering to skip user-level and Slack notifications during initial migration
+  - User notifications (type 1): Skipped - source user IDs don't exist in target account
+  - Slack notifications (type 2): Skipped - requires Slack integration in target account
+  - Job-linked notifications: Skipped - job IDs from source account don't exist in target
+  - External email notifications (type 4): Skipped - `user_id` is still required by provider
+  - All notifications are still fetched and normalized (preserved in YAML for future migration mode)
+
+### Changed
+- **Notification Resource Filtering**: Updated Terraform module to filter notifications at apply time
+  - Added comprehensive filtering logic in `modules/projects_v2/globals.tf`
+  - Added inline documentation explaining filtering strategy
+  - Future: `--migrate-notifications` mode will handle job ID mapping and Slack integration
+
+### Technical Details
+- Terraform changes in `modules/projects_v2/globals.tf`:
+  - Added `for_each` filter to skip incompatible notifications
+  - Filter out notifications with job references (jobs not yet mapped)
+- Documentation updates:
+  - Added notification migration limitations to `dev_support/KNOWN_ISSUES.md`
+  - Added roadmap item for future notification migration mode
+  - Updated `dev_support/importer_implementation_status.md` with notification migration details
+
 ## [0.6.2] - 2025-12-20
 
 ### Fixed
