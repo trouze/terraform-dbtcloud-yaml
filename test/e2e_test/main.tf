@@ -12,8 +12,9 @@ terraform {
 
 provider "dbtcloud" {
   # Credentials from environment:
-  # DBTCLOUD_ACCOUNT_ID
-  # DBTCLOUD_TOKEN
+  # DBT_TARGET_ACCOUNT_ID (mapped to TF_VAR_dbt_account_id)
+  # DBT_TARGET_API_TOKEN (mapped to TF_VAR_dbt_token)
+  # DBT_TARGET_HOST_URL (mapped to TF_VAR_dbt_host_url)
 }
 
 module "dbt_cloud" {

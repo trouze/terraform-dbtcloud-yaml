@@ -101,6 +101,68 @@ service_token_permissions:
 
 ---
 
+### 3. Normalize Notification Object Structures
+
+**Problem Solved:**  
+Notification objects had inconsistent structures:
+- Some had `on_cancel`, `on_failure`, `on_warning` fields, others didn't
+- Some had `external_email` (email notifications), others didn't
+- Some had `slack_channel_id`/`slack_channel_name` (Slack notifications), others didn't
+- This created different tuple types in Terraform, causing "all list elements must have the same type" errors
+
+**Solution:**  
+Normalizer now always includes all optional fields, using empty lists or `null` as defaults when values aren't present.
+
+**Technical Changes:**
+- **File:** `importer/normalizer/core.py`
+- **Notifications** (lines 442-456):
+  - Always includes `on_success`, `on_failure`, `on_cancel`, `on_warning` (empty list if not present)
+  - Always includes `external_email`, `slack_channel_id`, `slack_channel_name` (null if not applicable)
+  - Always includes `user_id`, `notification_type`, `state` (null if not present)
+
+**Before:**
+```yaml
+notifications:
+  - key: "slack_channel_123"
+    notification_type: 2
+    slack_channel_id: "C123456"
+    # Missing: on_cancel, on_failure, on_warning, external_email
+  - key: "email_user@example.com"
+    notification_type: 1
+    external_email: "user@example.com"
+    # Missing: on_cancel, slack fields
+```
+
+**After:**
+```yaml
+notifications:
+  - key: "slack_channel_123"
+    notification_type: 2
+    slack_channel_id: "C123456"
+    slack_channel_name: null
+    external_email: null
+    on_success: []
+    on_failure: []
+    on_cancel: []
+    on_warning: []
+  - key: "email_user@example.com"
+    notification_type: 1
+    external_email: "user@example.com"
+    slack_channel_id: null
+    slack_channel_name: null
+    on_success: []
+    on_failure: []
+    on_cancel: []
+    on_warning: []
+```
+
+**User Impact:**
+- ✅ **Consistent types** across all notification objects
+- ✅ **Terraform validation passes** without type errors
+- ✅ **Terraform plan succeeds** without type mismatches
+
+---
+
 ## Testing & Verification
 
 ### E2E Test Results
@@ -116,7 +178,9 @@ grep -c '"state": 2' export.json
 **Type Consistency Verification:**
 - ✅ All service token permissions have identical structure
 - ✅ All group permissions have identical structure
+- ✅ All notifications have identical structure
 - ✅ Terraform validation passes
+- ✅ Terraform plan succeeds without type errors
 - ✅ No "inconsistent type" errors
 
 ### Test Account Results

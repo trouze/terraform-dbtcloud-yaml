@@ -9,6 +9,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2025-12-20
+
+### Fixed
+- **Environment Variable Naming**: Standardized environment variable names for consistency
+  - Changed target account variables from `DBTCLOUD_*` to `DBT_TARGET_*` to match `DBT_SOURCE_*` pattern
+  - Fixed target token variable to use `DBT_TARGET_API_TOKEN` instead of `DBT_TARGET_TOKEN`
+  - Updated E2E test script and documentation to use consistent naming
+- **Source Account Variables**: Fixed E2E test script to use `DBT_SOURCE_*` variables instead of `DBT_CLOUD_*`
+  - Updated prerequisite checks and references throughout E2E test script
+  - Updated documentation to reflect correct variable names
+
+### Changed
+- **Interactive Connection Configuration**: Replaced nano editor with Python menu-driven prompts
+  - Enhanced `prompt_connection_credentials()` with schema-based field definitions
+  - Added required vs optional field indicators with descriptions
+  - Improved validation and user experience for connection provider_config entry
+  - Supports all connection types: Snowflake, Databricks, BigQuery, Redshift, PostgreSQL, Athena, Fabric, Synapse
+  - Created `CONNECTION_SCHEMAS` dictionary with field requirements and descriptions
+  - Added `prompt_connection_credentials_interactive()` wrapper function that updates YAML automatically
+
+### Technical Details
+- Updated `test/run_e2e_test.sh` to use Python interactive function instead of nano editor
+- Updated `importer/interactive.py` with connection schema definitions and enhanced prompting logic
+- Environment variable mapping: `DBT_TARGET_*` → `TF_VAR_dbt_*` and `DBT_CLOUD_*` for Terraform provider compatibility
+
+## [0.5.0] - 2025-12-20
+
+### Added
+- **Interactive Credential Saving**: Save credentials to `.env` file during interactive mode
+  - After entering credentials in interactive fetch mode, users are prompted to save them to `.env` for future sessions
+  - Supports saving source account credentials (DBT_SOURCE_*)
+  - Supports saving connection provider_config credentials (DBT_CONNECTION_*)
+  - Automatically sets restrictive file permissions (600) and warns about gitignore
+  - Handles existing `.env` files with append/overwrite options
+- **Connection Credential Prompting**: Interactive prompts for connection provider_config during normalization
+  - After normalization, users can configure missing connection provider_configs interactively
+  - Supports all connection types: Snowflake, Databricks, BigQuery, Redshift, PostgreSQL
+  - Type-specific field prompts with validation
+  - Option to save connection credentials to `.env` after configuration
+- **E2E Test Script Enhancement**: Added option to save connection credentials to `.env` after provider_config setup
+  - After adding provider_config (dummy or manual), users can save credentials for future use
+  - Extracts provider_config from YAML and writes to `.env` in standardized format
+
+### Changed
+- **Interactive Mode**: Enhanced credential management workflow
+  - Credentials entered interactively can now be persisted to disk
+  - Better integration between fetch and normalize flows for credential management
+  - Improved user experience with clear prompts and helpful warnings
+
+### Technical Details
+- New utility functions in `importer/interactive.py`:
+  - `save_credentials_to_env()`: Main function for saving credentials with user prompts
+  - `prompt_connection_credentials()`: Interactive prompts for connection provider_config
+  - `_get_env_file_path()`, `_read_existing_env()`, `_write_env_file()`, `_format_env_value()`: Helper utilities
+  - `_check_gitignore()`: Security check for gitignore status
+- Connection credentials stored in `.env` with format: `DBT_CONNECTION_{CONN_KEY}_{FIELD}`
+- File permissions automatically set to 600 (read/write owner only)
+- Gitignore warnings with option to auto-add `.env` to `.gitignore`
+
 ## [0.4.4] - 2025-12-20
 
 ### Fixed
@@ -20,6 +79,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Service token permissions now always include `project_id` and `writable_environment_categories` fields (null/empty if not applicable)
   - Group permissions now always include `project_id` and `writable_environment_categories` fields (null/empty if not applicable)
   - Ensures all permission objects have identical structure regardless of permission scope
+- **Type Consistency**: Normalized notification object structures for consistent Terraform types
+  - Notifications now always include all optional fields (`on_success`, `on_failure`, `on_cancel`, `on_warning`, `external_email`, `slack_channel_id`, `slack_channel_name`) with empty lists or null defaults
+  - Fixes "all list elements must have the same type" errors for notifications
+  - Ensures all notification objects have identical structure regardless of notification type
 
 ### Changed
 - **Fetch Behavior**: Deleted resources (state=2) are now filtered out during fetch phase

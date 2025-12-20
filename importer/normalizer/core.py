@@ -441,38 +441,20 @@ def _normalize_notifications(
         
         notif_data = {
             "key": normalized_key,
+            # Always include all optional fields for type consistency
+            "user_id": notif.user_id if notif.user_id else None,
+            "notification_type": notif.notification_type if notif.notification_type else None,
+            "state": notif.state if notif.state else None,
+            # Always include job trigger lists (empty if not present)
+            "on_success": notif.on_success if notif.on_success else [],
+            "on_failure": notif.on_failure if notif.on_failure else [],
+            "on_cancel": notif.on_cancel if notif.on_cancel else [],
+            "on_warning": notif.on_warning if notif.on_warning else [],
+            # Type-specific fields (null if not applicable)
+            "external_email": notif.external_email if notif.external_email else None,
+            "slack_channel_id": notif.slack_channel_id if notif.slack_channel_id else None,
+            "slack_channel_name": notif.slack_channel_name if notif.slack_channel_name else None,
         }
-        
-        # Add user_id (required by Terraform)
-        if notif.user_id:
-            notif_data["user_id"] = notif.user_id
-        
-        # Add notification_type as numeric (Terraform expects numbers, not strings)
-        if notif.notification_type:
-            notif_data["notification_type"] = notif.notification_type
-        
-        # Add state if present
-        if notif.state:
-            notif_data["state"] = notif.state
-        
-        # Add job trigger lists
-        if notif.on_success:
-            notif_data["on_success"] = notif.on_success
-        if notif.on_failure:
-            notif_data["on_failure"] = notif.on_failure
-        if notif.on_cancel:
-            notif_data["on_cancel"] = notif.on_cancel
-        if notif.on_warning:
-            notif_data["on_warning"] = notif.on_warning
-        
-        # Add type-specific fields
-        if notif.external_email:
-            notif_data["external_email"] = notif.external_email
-        
-        if notif.slack_channel_id:
-            notif_data["slack_channel_id"] = notif.slack_channel_id
-        if notif.slack_channel_name:
-            notif_data["slack_channel_name"] = notif.slack_channel_name
         
         if not config.should_strip_source_ids() and notif.id:
             notif_data["id"] = notif.id

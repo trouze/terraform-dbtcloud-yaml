@@ -139,13 +139,13 @@ check_prerequisites() {
     set +a
     
     # Check required variables
-    if [ -z "$DBT_CLOUD_ACCOUNT_ID" ] || [ -z "$DBT_CLOUD_TOKEN" ]; then
-        log_error "DBT_CLOUD_ACCOUNT_ID and DBT_CLOUD_TOKEN must be set in .env"
+    if [ -z "$DBT_SOURCE_ACCOUNT_ID" ] || [ -z "$DBT_SOURCE_API_TOKEN" ]; then
+        log_error "DBT_SOURCE_ACCOUNT_ID and DBT_SOURCE_API_TOKEN must be set in .env"
         exit 1
     fi
     
-    if [ -z "$DBTCLOUD_ACCOUNT_ID" ] || [ -z "$DBTCLOUD_TOKEN" ]; then
-        log_error "DBTCLOUD_ACCOUNT_ID and DBTCLOUD_TOKEN must be set in .env"
+    if [ -z "$DBT_TARGET_ACCOUNT_ID" ] || [ -z "$DBT_TARGET_API_TOKEN" ]; then
+        log_error "DBT_TARGET_ACCOUNT_ID and DBT_TARGET_API_TOKEN must be set in .env"
         exit 1
     fi
     
@@ -181,7 +181,7 @@ phase1_fetch() {
     
     # Generate output filename (importer will auto-number the run)
     TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-    ACCOUNT_ID="${DBT_CLOUD_ACCOUNT_ID:-unknown}"
+    ACCOUNT_ID="${DBT_SOURCE_ACCOUNT_ID:-unknown}"
     OUTPUT_FILE="$EXPORT_DIR/account_${ACCOUNT_ID}_fetch_${TIMESTAMP}.json"
     
     log_info "Running importer fetch..."
@@ -307,7 +307,7 @@ PYPEOF
     echo "" >&2
     echo "Options:" >&2
     echo "  1) Add dummy/placeholder provider_config for testing (recommended for validation)" >&2
-    echo "  2) Open YAML in editor for manual configuration" >&2
+    echo "  2) Interactive configuration (Python menu-driven prompts)" >&2
     echo "  3) Skip and continue (terraform validate will fail)" >&2
     echo "  4) Abort test" >&2
     echo "" >&2
@@ -317,11 +317,99 @@ PYPEOF
     
     case $choice in
         1) add_dummy_provider_configs "$yaml_file" ;;
-        2) open_editor_and_wait "$yaml_file" ;;
+        2) open_interactive_config "$yaml_file" ;;
         3) log_warning "Skipping provider_config - validation errors expected" >&2 ;;
         4) log_info "Test aborted by user" >&2; exit 0 ;;
         *) log_error "Invalid choice" >&2; exit 1 ;;
     esac
+    
+    # Offer to save connection credentials to .env
+    if grep -q "provider_config:" "$yaml_file"; then
+        echo "" >&2
+        read -p "Save connection credentials to .env file for future use? (y/n) [n]: " save_choice >&2
+        save_choice=${save_choice:-n}
+        
+        if [ "$save_choice" = "y" ] || [ "$save_choice" = "Y" ]; then
+            save_connection_credentials_to_env "$yaml_file"
+        fi
+    fi
+}
+
+save_connection_credentials_to_env() {
+    local yaml_file=$1
+    local env_file="$PROJECT_ROOT/.env"
+    
+    log_info "Extracting connection credentials from YAML..." >&2
+    
+    # Use Python to extract provider_config from YAML and save to .env
+    $PYTHON_CMD - "$yaml_file" "$env_file" <<'PYPEOF'
+import sys
+import yaml
+import os
+from pathlib import Path
+
+yaml_path = sys.argv[1]
+env_path = Path(sys.argv[2])
+
+# Read YAML
+with open(yaml_path) as f:
+    data = yaml.safe_load(f)
+
+# Extract connection configs
+connection_configs = {}
+if 'globals' in data and 'connections' in data['globals']:
+    connections = data['globals']['connections']
+    if isinstance(connections, list):
+        for conn in connections:
+            conn_key = conn.get('key', 'unknown')
+            provider_config = conn.get('provider_config', {})
+            if provider_config:
+                connection_configs[conn_key] = provider_config
+
+if not connection_configs:
+    print("No provider_config found in connections")
+    sys.exit(0)
+
+# Read existing .env if it exists
+existing_lines = []
+if env_path.exists():
+    with open(env_path, 'r') as f:
+        existing_lines = f.readlines()
+
+# Check for existing connection configs
+existing_keys = set()
+for line in existing_lines:
+    if line.strip().startswith('DBT_CONNECTION_'):
+        # Extract connection key from DBT_CONNECTION_CONN_KEY_FIELD format
+        parts = line.split('_', 3)
+        if len(parts) >= 4:
+            conn_key = parts[2].lower()
+            existing_keys.add(conn_key)
+
+# Append connection configs to .env
+with open(env_path, 'a') as f:
+    f.write('\n# Connection Provider Configs (from E2E test)\n')
+    
+    for conn_key, config in sorted(connection_configs.items()):
+        conn_prefix = f"DBT_CONNECTION_{conn_key.upper().replace('-', '_').replace('.', '_')}"
+        f.write(f'\n# Connection: {conn_key}\n')
+        
+        for field, value in sorted(config.items()):
+            env_key = f"{conn_prefix}_{field.upper()}"
+            # Format value (quote if contains spaces)
+            value_str = str(value)
+            if ' ' in value_str or '=' in value_str:
+                value_str = f'"{value_str}"'
+            f.write(f"{env_key}={value_str}\n")
+
+print(f"Connection credentials saved to {env_path}")
+PYPEOF
+
+    if [ $? -eq 0 ]; then
+        log_success "Connection credentials saved to .env" >&2
+    else
+        log_error "Failed to save connection credentials" >&2
+    fi
 }
 
 add_dummy_provider_configs() {
@@ -401,29 +489,21 @@ PYPEOF
     fi
 }
 
-open_editor_and_wait() {
+open_interactive_config() {
     local yaml_file=$1
     
-    log_info "Opening YAML in editor for manual configuration..." >&2
+    log_info "Launching interactive connection configuration..." >&2
     echo "" >&2
-    log_info "Add provider_config to each connection under globals.connections:" >&2
-    echo "" >&2
-    echo "Example for Databricks:" >&2
-    echo "  - key: my_connection" >&2
-    echo "    name: \"My Connection\"" >&2
-    echo "    type: databricks" >&2
-    echo "    provider_config:" >&2
-    echo "      host: \"your-workspace.cloud.databricks.com\"" >&2
-    echo "      http_path: \"/sql/1.0/warehouses/abc123\"" >&2
-    echo "      catalog: \"main\"" >&2
-    echo "" >&2
-    log_info "Press Enter to open editor..." >&2
-    read -r >&2
     
-    # Detect editor
-    EDITOR_CMD="${EDITOR:-${VISUAL:-nano}}"
-    
-    $EDITOR_CMD "$yaml_file"
+    # Call Python interactive function to prompt for connection configs
+    # This will update the YAML file directly
+    $PYTHON_CMD -c "
+from pathlib import Path
+from importer.interactive import prompt_connection_credentials_interactive
+
+yaml_path = Path('$yaml_file')
+prompt_connection_credentials_interactive(yaml_path)
+" >&2
     
     # Verify provider_config was added
     if grep -q "provider_config:" "$yaml_file"; then
@@ -443,6 +523,15 @@ phase3_validate() {
     log_info "=== Phase 3: Terraform Validation ===" >&2
     
     cd "$TEST_DIR"
+    
+    # Map DBT_TARGET_* to Terraform provider variables
+    export TF_VAR_dbt_account_id="${DBT_TARGET_ACCOUNT_ID}"
+    export TF_VAR_dbt_token="${DBT_TARGET_API_TOKEN}"
+    export TF_VAR_dbt_host_url="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
+    # Also set DBT_CLOUD_* for provider fallback
+    export DBT_CLOUD_ACCOUNT_ID="${DBT_TARGET_ACCOUNT_ID}"
+    export DBT_CLOUD_TOKEN="${DBT_TARGET_API_TOKEN}"
+    export DBT_CLOUD_HOST_URL="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
     
     # Check if YAML has connection provider configs (warning only now)
     if ! grep -q "provider_config:" dbt-cloud-config.yml; then
@@ -467,6 +556,15 @@ phase4_plan() {
     log_info "=== Phase 4: Terraform Plan ==="
     
     cd "$TEST_DIR"
+    
+    # Map DBT_TARGET_* to Terraform provider variables
+    export TF_VAR_dbt_account_id="${DBT_TARGET_ACCOUNT_ID}"
+    export TF_VAR_dbt_token="${DBT_TARGET_API_TOKEN}"
+    export TF_VAR_dbt_host_url="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
+    # Also set DBT_CLOUD_* for provider fallback
+    export DBT_CLOUD_ACCOUNT_ID="${DBT_TARGET_ACCOUNT_ID}"
+    export DBT_CLOUD_TOKEN="${DBT_TARGET_API_TOKEN}"
+    export DBT_CLOUD_HOST_URL="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
     
     log_info "Running terraform plan..."
     if terraform plan -out=tfplan 2>&1 | tee plan_output.txt; then
@@ -500,7 +598,16 @@ phase5_apply() {
     
     cd "$TEST_DIR"
     
-    log_warning "About to apply Terraform changes to account $DBTCLOUD_ACCOUNT_ID"
+    # Map DBT_TARGET_* to Terraform provider variables
+    export TF_VAR_dbt_account_id="${DBT_TARGET_ACCOUNT_ID}"
+    export TF_VAR_dbt_token="${DBT_TARGET_API_TOKEN}"
+    export TF_VAR_dbt_host_url="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
+    # Also set DBT_CLOUD_* for provider fallback
+    export DBT_CLOUD_ACCOUNT_ID="${DBT_TARGET_ACCOUNT_ID}"
+    export DBT_CLOUD_TOKEN="${DBT_TARGET_API_TOKEN}"
+    export DBT_CLOUD_HOST_URL="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
+    
+    log_warning "About to apply Terraform changes to account $DBT_TARGET_ACCOUNT_ID"
     log_warning "Press Ctrl+C within 10 seconds to cancel..."
     sleep 10
     
@@ -530,8 +637,8 @@ create_test_summary() {
 **Terraform Version:** $(terraform version -json | jq -r '.terraform_version')
 
 ## Test Account Details
-- **Source Account ID:** $DBT_CLOUD_ACCOUNT_ID
-- **Target Account ID:** $DBTCLOUD_ACCOUNT_ID
+- **Source Account ID:** $DBT_SOURCE_ACCOUNT_ID
+- **Target Account ID:** $DBT_TARGET_ACCOUNT_ID
 
 ## Results
 

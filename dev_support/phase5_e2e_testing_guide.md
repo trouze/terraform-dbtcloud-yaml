@@ -2,7 +2,7 @@
 
 **Version:** 1.1  
 **Date:** 2025-12-20  
-**Importer Version:** 0.4.4  
+**Importer Version:** 0.5.1  
 **Status:** Ready for Execution
 
 ---
@@ -49,14 +49,15 @@ Create a `.env` file in the test directory:
 ```bash
 cat > .env << 'EOF'
 # Source Account (for fetch)
-DBT_CLOUD_ACCOUNT_ID=12345
-DBT_CLOUD_TOKEN=your_source_token_here
-DBT_CLOUD_HOST_URL=https://cloud.getdbt.com
+DBT_SOURCE_ACCOUNT_ID=12345
+DBT_SOURCE_API_TOKEN=your_source_token_here
+DBT_SOURCE_HOST=https://cloud.getdbt.com
 
 # Target Account (for Terraform apply)
 # Can be same as source for testing
-DBTCLOUD_ACCOUNT_ID=12345
-DBTCLOUD_TOKEN=your_target_token_here
+DBT_TARGET_ACCOUNT_ID=12345
+DBT_TARGET_API_TOKEN=your_target_token_here
+DBT_TARGET_HOST_URL=https://cloud.getdbt.com
 
 # Optional: Scope filtering
 # DBT_SCOPE=all_projects
@@ -74,8 +75,8 @@ EOF
 Test source account API access:
 
 ```bash
-curl -H "Authorization: Token $DBT_CLOUD_TOKEN" \
-  https://cloud.getdbt.com/api/v2/accounts/$DBT_CLOUD_ACCOUNT_ID/ | jq .
+curl -H "Authorization: Token $DBT_SOURCE_API_TOKEN" \
+  https://cloud.getdbt.com/api/v2/accounts/$DBT_SOURCE_ACCOUNT_ID/ | jq .
 ```
 
 Expected: JSON response with account details.
@@ -150,7 +151,7 @@ cat > test/e2e_test/test_log.md << EOF
 
 **Test Date:** $(date)
 **Importer Version:** $(python -m importer --version)
-**Source Account ID:** $DBT_CLOUD_ACCOUNT_ID
+**Source Account ID:** $DBT_SOURCE_ACCOUNT_ID
 
 ## Phase 1: Fetch
 
@@ -386,8 +387,9 @@ terraform {
 
 provider "dbtcloud" {
   # Credentials from environment:
-  # DBTCLOUD_ACCOUNT_ID
-  # DBTCLOUD_TOKEN
+  # DBT_TARGET_ACCOUNT_ID (mapped to TF_VAR_dbt_account_id)
+  # DBT_TARGET_API_TOKEN (mapped to TF_VAR_dbt_token)
+  # DBT_TARGET_HOST_URL (mapped to TF_VAR_dbt_host_url)
 }
 
 module "dbt_cloud" {
@@ -506,8 +508,9 @@ EOF
 Ensure target account credentials are set:
 
 ```bash
-export DBTCLOUD_ACCOUNT_ID=12345
-export DBTCLOUD_TOKEN=your_target_token_here
+export DBT_TARGET_ACCOUNT_ID=12345
+export DBT_TARGET_API_TOKEN=your_target_token_here
+export DBT_TARGET_HOST_URL=https://cloud.getdbt.com
 ```
 
 ### Step 4.2: Run Terraform Plan
@@ -727,8 +730,8 @@ cat > test/e2e_test/test_summary.md << EOF
 **Terraform Version:** $(terraform version -json | jq -r '.terraform_version')
 
 ## Test Account Details
-- **Source Account ID:** $DBT_CLOUD_ACCOUNT_ID
-- **Target Account ID:** $DBTCLOUD_ACCOUNT_ID
+- **Source Account ID:** $DBT_SOURCE_ACCOUNT_ID
+- **Target Account ID:** $DBT_TARGET_ACCOUNT_ID
 - **Projects:** [List project names]
 - **Connections:** [List connection types]
 
@@ -784,7 +787,7 @@ EOF
 
 **Error:** `401 Unauthorized`
 - **Cause:** Invalid or expired token
-- **Solution:** Verify `DBT_CLOUD_TOKEN` has correct value and permissions
+- **Solution:** Verify `DBT_SOURCE_API_TOKEN` has correct value and permissions
 
 **Error:** `429 Rate Limit Exceeded`
 - **Cause:** Too many API requests

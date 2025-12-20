@@ -149,10 +149,11 @@ EOF
 python -m importer fetch --interactive
 ```
 
-**Option 2: Enter each time**
+**Option 2: Enter each time (with save option)**
 - Interactive mode will prompt for any missing credentials
-- Credentials are stored in environment variables for the session only
-- They are NOT saved to disk
+- After entering credentials, you'll be asked: "Save credentials to .env file for future sessions?"
+- If yes, credentials are saved to `.env` file at repo root
+- If no, credentials are stored in environment variables for the session only
 
 ### Validation Errors
 

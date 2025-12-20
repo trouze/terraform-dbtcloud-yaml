@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2025-12-20  
-**Current Importer Version:** 0.4.4  
+**Current Importer Version:** 0.5.1  
 **Status:** Phase 3 Complete + Interactive Mode + E2E Testing Infrastructure
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -267,15 +267,16 @@ Before starting end-to-end testing with a real account, verify:
 
 **Environment Setup**
 - [ ] **Test account credentials (source account)**
-  - [ ] `DBT_CLOUD_ACCOUNT_ID` configured in environment or `.env` file
-  - [ ] `DBT_CLOUD_TOKEN` with appropriate permissions:
+  - [ ] `DBT_SOURCE_ACCOUNT_ID` configured in environment or `.env` file
+  - [ ] `DBT_SOURCE_API_TOKEN` with appropriate permissions:
     - Read access to all projects, environments, jobs, and account-level resources
     - Recommended: Account Admin or Developer role
-  - [ ] `DBT_CLOUD_HOST_URL` (if not cloud.getdbt.com) - set for multi-tenant or single-tenant instances
-  - [ ] Verify connectivity: `curl -H "Authorization: Token $DBT_CLOUD_TOKEN" https://cloud.getdbt.com/api/v2/accounts/$DBT_CLOUD_ACCOUNT_ID/`
+  - [ ] `DBT_SOURCE_HOST` (if not cloud.getdbt.com) - set for multi-tenant or single-tenant instances
+  - [ ] Verify connectivity: `curl -H "Authorization: Token $DBT_SOURCE_API_TOKEN" https://cloud.getdbt.com/api/v2/accounts/$DBT_SOURCE_ACCOUNT_ID/`
 - [ ] **Target account credentials (if different)**
-  - [ ] `DBTCLOUD_ACCOUNT_ID` for Terraform provider (target account)
-  - [ ] `DBTCLOUD_TOKEN` for Terraform provider with write permissions
+  - [ ] `DBT_TARGET_ACCOUNT_ID` for Terraform provider (target account)
+  - [ ] `DBT_TARGET_API_TOKEN` for Terraform provider with write permissions
+  - [ ] `DBT_TARGET_HOST_URL` for Terraform provider (defaults to https://cloud.getdbt.com)
   - [ ] Note: For same-account testing, source and target can be identical
 - [ ] **Python environment**
   - [ ] Python 3.9+ installed: `python --version`
@@ -356,7 +357,7 @@ Before starting end-to-end testing with a real account, verify:
   4. [ ] Run: `terraform validate`
   5. [ ] Expected: "Success! The configuration is valid."
 - [ ] **Terraform Plan**
-  1. [ ] Set: `DBTCLOUD_ACCOUNT_ID` and `DBTCLOUD_TOKEN` for target account
+  1. [ ] Set: `DBT_TARGET_ACCOUNT_ID`, `DBT_TARGET_API_TOKEN`, and `DBT_TARGET_HOST_URL` for target account
   2. [ ] Run: `terraform plan -out=tfplan`
   3. [ ] Review: Plan output for expected resource creates
   4. [ ] Verify: No errors in plan (warnings acceptable for deprecations)
@@ -657,6 +658,25 @@ The following items require API endpoint research before implementation can begi
 
 ## Change Log
 
+### 2025-12-20 (v0.5.1)
+- **Version:** Incremented to 0.5.1 (patch release)
+- **Environment Variable Standardization**: Fixed inconsistent environment variable naming
+  - Changed target account variables from `DBTCLOUD_*` to `DBT_TARGET_*` to match `DBT_SOURCE_*` pattern
+  - Fixed target token variable to use `DBT_TARGET_API_TOKEN` instead of `DBT_TARGET_TOKEN`
+  - Fixed E2E test script to use `DBT_SOURCE_*` variables instead of `DBT_CLOUD_*` for source account
+  - Updated all documentation and E2E test script references
+- **Interactive Connection Configuration Enhancement**: Replaced nano editor with Python menu-driven prompts
+  - Enhanced `prompt_connection_credentials()` with schema-based field definitions (`CONNECTION_SCHEMAS`)
+  - Added required vs optional field indicators with helpful descriptions
+  - Improved validation and user experience for connection provider_config entry
+  - Supports all connection types: Snowflake, Databricks, BigQuery, Redshift, PostgreSQL, Athena, Fabric, Synapse
+  - Created `prompt_connection_credentials_interactive()` wrapper that automatically updates YAML file
+  - Updated E2E test script to use Python interactive function instead of nano editor
+- **Technical Details**:
+  - Updated `test/run_e2e_test.sh` with Python interactive function call
+  - Updated `importer/interactive.py` with connection schema definitions and enhanced prompting logic
+  - Environment variable mapping: `DBT_TARGET_*` → `TF_VAR_dbt_*` and `DBT_CLOUD_*` for Terraform provider compatibility
+
 ### 2025-12-19 (v0.4.1)
 - **Version bump:** 0.4.0-dev → 0.4.1
 - Created complete Phase 5 E2E testing infrastructure:
@@ -704,6 +724,27 @@ The following items require API endpoint research before implementation can begi
   - Includes semantic versioning guidelines, step-by-step workflow, and verification commands
   - Referenced in CHANGELOG.md header for easy maintainer access
 - **Documentation**: Created comprehensive RELEASE_NOTES_v0.4.3.md with performance analysis and testing results
+
+### 2025-12-20 (v0.5.0)
+- **Version:** Incremented to 0.5.0 (minor release - new feature)
+- **Interactive Credential Saving**: Added ability to save credentials to `.env` file during interactive mode
+  - After entering credentials in interactive fetch mode, users are prompted to save them for future sessions
+  - Supports saving source account credentials (DBT_SOURCE_*) and connection provider_config credentials (DBT_CONNECTION_*)
+  - Automatically sets restrictive file permissions (600) and warns about gitignore status
+  - Handles existing `.env` files with append/overwrite options
+- **Connection Credential Prompting**: Added interactive prompts for connection provider_config during normalization
+  - After normalization completes, users can configure missing connection provider_configs interactively
+  - Supports all connection types: Snowflake, Databricks, BigQuery, Redshift, PostgreSQL
+  - Type-specific field prompts with validation
+  - Option to save connection credentials to `.env` after configuration
+- **E2E Test Script Enhancement**: Added option to save connection credentials to `.env` after provider_config setup
+  - After adding provider_config (dummy or manual), users can save credentials for future use
+  - Extracts provider_config from YAML and writes to `.env` in standardized format
+- **New Functions**: Added utility functions in `importer/interactive.py`:
+  - `save_credentials_to_env()`: Main function for saving credentials with user prompts
+  - `prompt_connection_credentials()`: Interactive prompts for connection provider_config
+  - Helper utilities: `_get_env_file_path()`, `_read_existing_env()`, `_write_env_file()`, `_format_env_value()`, `_check_gitignore()`
+- **Documentation**: Updated `INTERACTIVE_GUIDE.md` and `README.md` with credential saving feature details
 
 ### 2025-12-20 (v0.4.4)
 - **Version:** Incremented to 0.4.4 (patch release)

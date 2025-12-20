@@ -23,15 +23,23 @@ Both commands support **interactive mode** with form-like terminal prompts for g
 
 3. **Populate `.env`** at the repo root (skip if using interactive mode with manual credential entry):
    ```bash
+   # Source Account Credentials (for fetch)
    DBT_SOURCE_HOST=https://cloud.getdbt.com
    DBT_SOURCE_ACCOUNT_ID=12345
    DBT_SOURCE_API_TOKEN=your_pat_here
+   
+   # Connection Provider Configs (optional, for Terraform)
+   # Connection: snowflake_prod
+   DBT_CONNECTION_SNOWFLAKE_PROD_ACCOUNT=abc12345
+   DBT_CONNECTION_SNOWFLAKE_PROD_DATABASE=prod_db
+   DBT_CONNECTION_SNOWFLAKE_PROD_WAREHOUSE=compute_wh
    ```
    - The PAT must have sufficient scopes to read projects, jobs, environments, connections, service tokens, and groups. Use an Account Admin/Owner token for now.
+   - **Interactive mode can save credentials automatically** - after entering credentials, you'll be prompted to save them to `.env`
    - Optional tuning knobs:
      | Variable | Default | Description |
      |----------|---------|-------------|
-     | `DBT_SOURCE_API_TIMEOUT` | `30` | Client timeout in seconds |
+     | `DBT_SOURCE_API_TIMEOUT` | `90` | Client timeout in seconds |
      | `DBT_SOURCE_API_MAX_RETRIES` | `5` | Max attempts per request on 5xx/429 responses |
      | `DBT_SOURCE_API_BACKOFF_FACTOR` | `1.5` | Multiplier for exponential backoff (sleep = factor * 2^(attempt-1)) |
      | `DBT_SOURCE_API_RETRY_AFTER` | `true` | Honor `Retry-After` header on 429 responses |

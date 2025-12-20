@@ -60,6 +60,9 @@ dev_support/samples/normalized/account_*_norm_*__diff__*.json
 dev_support/samples/normalized/account_*_norm_*__logs__*.log
 dev_support/samples/normalized/normalization_runs.json
 
+# Backup sample directories (created by E2E test script)
+dev_support/samples.backup.*
+
 # Python
 __pycache__/
 *.py[cod]
