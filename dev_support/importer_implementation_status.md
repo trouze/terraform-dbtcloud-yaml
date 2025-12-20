@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2025-12-20  
-**Current Importer Version:** 0.5.2  
+**Current Importer Version:** 0.5.3  
 **Status:** Phase 3 Complete + Interactive Mode + E2E Testing Infrastructure
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -420,7 +420,7 @@ Before starting end-to-end testing with a real account, verify:
 ## Version Tracking
 
 ### Importer Version
-- **Current:** 0.5.2
+- **Current:** 0.5.3
 - **File:** `importer/VERSION`
 - **Last Updated:** 2025-12-20
 
@@ -657,6 +657,33 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2025-12-20 (v0.5.3)
+- **Version:** Incremented to 0.5.3 (patch release)
+- **Terraform Provider Connection Fix**: Fixed "Unsupported Authorization Type" error in E2E test
+  - Root cause: Test fixture wasn't passing credential variables to the module, causing provider to use default `https://cloud.getdbt.com`
+  - Added variable definitions (`dbt_account_id`, `dbt_token`, `dbt_host_url`) to `test/e2e_test/main.tf`
+  - Provider block now uses variables and explicitly passes them to module
+  - Enables proper connection to custom domain instances (e.g., `iq919.us1.dbt.com/api`)
+- **E2E Test Script Cleanup**: Removed debug instrumentation from provider connection debugging session
+  - Removed curl diagnostic calls and debug logging statements
+  - Cleaned up unused token manipulation logic
+- **Technical Details**:
+  - Updated `test/e2e_test/main.tf` to properly configure provider with credential variables
+  - Module now receives credentials via explicit variable passing instead of relying on defaults
+  - Provider configuration correctly inherits from root module to child modules
+
+### 2025-12-20 (v0.5.2)
+- **Version:** Incremented to 0.5.2 (patch release)
+- **Connection Type Detection**: Fixed connections showing as "unknown" type
+  - Added `_extract_connection_type_from_adapter_version()` function to derive connection type from `adapter_version` field
+  - Connection types now correctly display as "databricks", "snowflake", "bigquery", etc.
+- **Bracketed Paste Sequences**: Fixed terminal paste issues in interactive prompts
+  - Added `_strip_bracketed_paste_sequences()` filter to remove escape sequences from pasted input
+- **Terminal Access**: Fixed "Input is not a terminal" warnings in E2E test script
+  - Replaced Python heredoc with standalone `test/configure_connections.py` script
+- **Environment Variable Standardization**: Changed `DBT_SOURCE_HOST` to `DBT_SOURCE_HOST_URL`
+- **E2E Test Script**: Enhanced provider configuration workflow with automatic `.env` injection
 
 ### 2025-12-20 (v0.5.1)
 - **Version:** Incremented to 0.5.1 (patch release)
