@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2025-12-20  
-**Current Importer Version:** 0.5.1  
+**Current Importer Version:** 0.5.2  
 **Status:** Phase 3 Complete + Interactive Mode + E2E Testing Infrastructure
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -762,6 +762,33 @@ The following items require API endpoint research before implementation can begi
   - Normalization remains backwards compatible (handles missing fields gracefully)
   - Element IDs/line items no longer include deleted resources
 - **Testing**: Verified filtering works correctly (0 state=2 resources in new exports, 15 tokens vs 17 before)
+
+### 2025-12-20 (v0.5.2)
+- **Version:** Incremented to 0.5.2 (patch release)
+- **Connection Type Detection**: Fixed connections showing as "unknown" type
+  - Added `_extract_connection_type_from_adapter_version()` function in `importer/fetcher.py`
+  - Extracts connection type from `adapter_version` field (e.g., "databricks_v0" → "databricks")
+  - Handles all connection types: databricks, snowflake, bigquery, redshift, postgres, athena, fabric, synapse, starburst, apache_spark, teradata
+  - Connection types now correctly display in interactive prompts and E2E test output
+- **Bracketed Paste Support**: Fixed terminal paste issues in interactive prompts
+  - Added `_strip_bracketed_paste_sequences()` filter function to remove escape sequences from pasted input
+  - Handles both `\x1b[200~` (escape character) and `^[[200~` (caret notation) formats
+  - Applied to all 23 `inquirer.text()` prompts for seamless paste experience
+- **Terminal Access**: Fixed "Input is not a terminal" warnings in E2E test script
+  - Created standalone `test/configure_connections.py` script to replace Python heredoc
+  - Provides proper terminal access for InquirerPy interactive prompts
+  - Eliminates CPR (cursor position request) warnings and terminal compatibility issues
+- **Environment Variable Standardization**: Standardized source account credential naming
+  - Changed `DBT_SOURCE_HOST` to `DBT_SOURCE_HOST_URL` for consistency with target credentials
+  - Maintains backward compatibility by checking both variable names
+  - Updated `importer/config.py` and `importer/interactive.py` to support both formats
+  - Updated documentation and examples to use new naming convention
+- **E2E Test Enhancement**: Added automatic provider_config injection from .env files
+  - Created `inject_provider_configs_from_env()` function in E2E test script
+  - Automatically reads `DBT_CONNECTION_{CONN_KEY}_{FIELD}` variables from .env files
+  - Injects provider_config into YAML before prompting user, reducing manual configuration
+  - Checks both project root `.env` and test-specific `.env` files
+  - Skips interactive prompts if configs are already available
 
 ### 2025-12-19 (v0.4.2)
 - **Version:** Incremented to 0.4.2 (patch release)

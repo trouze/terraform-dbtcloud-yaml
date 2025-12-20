@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Iterable, List
+import re
+from typing import Any, Dict, Iterable, List, Optional
 
 from slugify import slugify
 
@@ -72,17 +73,81 @@ def fetch_account_snapshot(client: DbtCloudClient) -> AccountSnapshot:
     )
 
 
+def _extract_connection_type_from_adapter_version(adapter_version: Optional[str]) -> Optional[str]:
+    """
+    Extract connection type from adapter_version.
+    
+    The dbt Cloud API v3 returns adapter_version (e.g., "databricks_v0", "snowflake_v0")
+    but the 'type' field is often null. This function extracts the connection type
+    from the adapter_version string.
+    
+    Examples:
+        "databricks_v0" -> "databricks"
+        "snowflake_v0" -> "snowflake"
+        "bigquery_v1" -> "bigquery"
+        "databricks_spark_v0" -> "databricks"
+        "trino_v0" -> "starburst" (Terraform uses "starburst" for Trino/Starburst)
+    
+    Returns None if adapter_version is None or doesn't match expected pattern.
+    """
+    if not adapter_version:
+        return None
+    
+    # Handle special cases first
+    if adapter_version.startswith("databricks"):
+        return "databricks"
+    elif adapter_version.startswith("snowflake"):
+        return "snowflake"
+    elif adapter_version.startswith("bigquery"):
+        return "bigquery"
+    elif adapter_version.startswith("postgres"):
+        return "postgres"
+    elif adapter_version.startswith("redshift"):
+        return "redshift"
+    elif adapter_version.startswith("athena"):
+        return "athena"
+    elif adapter_version.startswith("fabric"):
+        return "fabric"
+    elif adapter_version.startswith("synapse"):
+        return "synapse"
+    elif adapter_version.startswith("trino") or adapter_version.startswith("starburst"):
+        return "starburst"
+    elif adapter_version.startswith("apache_spark"):
+        return "apache_spark"
+    elif adapter_version.startswith("teradata"):
+        return "teradata"
+    else:
+        # Generic fallback: remove _v0, _v1, etc. suffix
+        match = re.match(r"^(.+?)_v\d+$", adapter_version)
+        if match:
+            return match.group(1)
+        return None
+
+
 def _fetch_connections(client: DbtCloudClient) -> Dict[str, Connection]:
     log.info("Fetching connections (v3)")
     connections: Dict[str, Connection] = {}
     for item in client.paginate("/connections/", version="v3"):
         key = item.get("name") or f"connection_{item['id']}"
         connection_key = slug(key)
+        
+        # Extract connection type: prefer API 'type' field, fall back to adapter_version
+        # According to API docs, 'type' is often null, so we derive it from adapter_version
+        conn_type = item.get("type")
+        adapter_version = item.get("adapter_version")
+        
+        if not conn_type and adapter_version:
+            conn_type = _extract_connection_type_from_adapter_version(adapter_version)
+            if conn_type:
+                log.debug(f"Derived connection type '{conn_type}' from adapter_version '{adapter_version}' for connection {connection_key}")
+            else:
+                log.warning(f"Could not extract connection type from adapter_version '{adapter_version}' for connection {connection_key}")
+        
         connections[connection_key] = Connection(
             key=connection_key,
             id=item.get("id"),
             name=item.get("name"),
-            type=item.get("type"),
+            type=conn_type,
             details=item,
         )
     return connections

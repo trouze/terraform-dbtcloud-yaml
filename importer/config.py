@@ -39,14 +39,15 @@ class Settings:
     def from_env(cls) -> "Settings":
         _load_dotenv()
 
-        host = os.getenv(f"{SOURCE_PREFIX}HOST")
+        # Try new _HOST_URL suffix first, fall back to legacy _HOST for backward compatibility
+        host = os.getenv(f"{SOURCE_PREFIX}HOST_URL") or os.getenv(f"{SOURCE_PREFIX}HOST")
         account_id_raw = os.getenv(f"{SOURCE_PREFIX}ACCOUNT_ID")
         api_token = os.getenv(f"{SOURCE_PREFIX}API_TOKEN")
 
         missing = [
             name
             for name, value in {
-                f"{SOURCE_PREFIX}HOST": host,
+                f"{SOURCE_PREFIX}HOST_URL (or {SOURCE_PREFIX}HOST)": host,
                 f"{SOURCE_PREFIX}ACCOUNT_ID": account_id_raw,
                 f"{SOURCE_PREFIX}API_TOKEN": api_token,
             }.items()

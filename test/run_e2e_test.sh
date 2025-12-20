@@ -246,12 +246,129 @@ phase2_normalize() {
     echo "$YAML_FILE"
 }
 
+inject_provider_configs_from_env() {
+    local yaml_file=$1
+    
+    log_info "Checking for connection configs in .env files..." >&2
+    
+    # Try both project root .env and test .env
+    local env_files=("$PROJECT_ROOT/.env" "$TEST_DIR/.env")
+    local found_configs=false
+    
+    for env_file in "${env_files[@]}"; do
+        if [ -f "$env_file" ]; then
+            # Check if any DBT_CONNECTION_ variables exist in the file
+            if grep -q "^DBT_CONNECTION_" "$env_file" 2>/dev/null; then
+                found_configs=true
+                log_info "Found connection configs in $env_file" >&2
+                break
+            fi
+        fi
+    done
+    
+    if [ "$found_configs" = false ]; then
+        log_info "No connection configs found in .env files" >&2
+        return 1
+    fi
+    
+    # Use Python to inject configs from environment variables
+    $PYTHON_CMD - "$yaml_file" <<'PYPEOF' >&2
+import sys
+import os
+import yaml
+from pathlib import Path
+
+yaml_path = Path(sys.argv[1])
+
+# Load YAML
+with open(yaml_path) as f:
+    data = yaml.safe_load(f)
+
+if 'globals' not in data or 'connections' not in data['globals']:
+    print("No connections found in YAML")
+    sys.exit(0)
+
+connections = data['globals']['connections']
+if not isinstance(connections, list):
+    print("Connections is not a list")
+    sys.exit(0)
+
+# Load .env files to get environment variables
+env_files = [
+    Path(sys.argv[1]).resolve().parents[2] / '.env',  # Project root
+    Path(sys.argv[1]).parent / '.env',  # Test dir
+]
+
+env_vars = {}
+for env_file in env_files:
+    if env_file.exists():
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    env_vars[key] = value
+
+# Inject provider_config from environment variables
+configs_added = 0
+for conn in connections:
+    if 'provider_config' in conn:
+        continue  # Skip if already has config
+    
+    conn_key = conn.get('key', '')
+    prefix = f"DBT_CONNECTION_{conn_key.upper()}_"
+    
+    # Find all env vars for this connection
+    conn_env_vars = {k: v for k, v in env_vars.items() if k.startswith(prefix)}
+    
+    if conn_env_vars:
+        # Build provider_config from env vars
+        provider_config = {}
+        for env_key, env_value in conn_env_vars.items():
+            # Remove prefix and convert to lowercase
+            field_name = env_key[len(prefix):].lower()
+            
+            # Parse value (handle booleans, numbers, quoted strings)
+            value = env_value.strip().strip('"').strip("'")
+            if value.lower() == 'true':
+                value = True
+            elif value.lower() == 'false':
+                value = False
+            elif value.isdigit():
+                value = int(value)
+            
+            provider_config[field_name] = value
+        
+        if provider_config:
+            conn['provider_config'] = provider_config
+            configs_added += 1
+            print(f"✓ Added provider_config for {conn.get('name', conn_key)} from .env")
+
+if configs_added > 0:
+    # Write back to YAML
+    with open(yaml_path, 'w') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    print(f"\n✓ Injected {configs_added} provider_config(s) from .env into YAML")
+else:
+    print("No matching connection configs found in .env")
+PYPEOF
+    
+    if [ $? -eq 0 ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 configure_provider_configs() {
     log_info "=== Provider Configuration Check ==="
     
     local yaml_file="$TEST_DIR/dbt-cloud-config.yml"
     
-    # Check if provider_config already exists
+    # First, try to inject provider_config from .env files
+    inject_provider_configs_from_env "$yaml_file"
+    
+    # Check if provider_config already exists (either from previous step or already in YAML)
     if grep -q "provider_config:" "$yaml_file"; then
         log_success "provider_config found in YAML - skipping configuration"
         return 0
@@ -495,15 +612,21 @@ open_interactive_config() {
     log_info "Launching interactive connection configuration..." >&2
     echo "" >&2
     
-    # Call Python interactive function to prompt for connection configs
-    # This will update the YAML file directly
-    $PYTHON_CMD -c "
-from pathlib import Path
-from importer.interactive import prompt_connection_credentials_interactive
-
-yaml_path = Path('$yaml_file')
-prompt_connection_credentials_interactive(yaml_path)
-" >&2
+    # Use standalone script for proper terminal access (not stdin/heredoc)
+    # This avoids "Input is not a terminal" warnings and CPR issues
+    cd "$PROJECT_ROOT" || exit 1
+    
+    # Set PYTHONPATH to ensure importer module is found
+    export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
+    
+    # Call script with absolute path to avoid path resolution issues
+    $PYTHON_CMD "$PROJECT_ROOT/test/configure_connections.py" "$yaml_file" 2>&1
+    local exit_code=$?
+    
+    if [ $exit_code -ne 0 ]; then
+        log_error "Interactive configuration failed with exit code $exit_code" >&2
+        exit 1
+    fi
     
     # Verify provider_config was added
     if grep -q "provider_config:" "$yaml_file"; then
