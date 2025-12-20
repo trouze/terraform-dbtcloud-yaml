@@ -37,6 +37,13 @@ override.tf.json
 terraform.rc
 .env
 
+# End-to-end test outputs
+test/e2e_test/dbt-cloud-config.yml
+test/e2e_test/test_log.md
+test/e2e_test/test_summary.md
+test/e2e_test/plan_output.txt
+test/e2e_test/tfplan
+
 # Importer output files (timestamped with run IDs)
 dev_support/samples/account_*_run_*__json__*.json
 dev_support/samples/account_*_run_*__summary__*.md

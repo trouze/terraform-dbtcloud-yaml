@@ -8,6 +8,8 @@ The importer consists of two main commands:
 1. **`fetch`**: Extracts account data via dbt Cloud API → JSON export + reports
 2. **`normalize`**: Converts JSON export → v2 YAML + manifests (Terraform-ready)
 
+Both commands support **interactive mode** with form-like terminal prompts for guided configuration. See [Interactive Mode Guide](INTERACTIVE_GUIDE.md) for detailed keyboard shortcuts and navigation help.
+
 ## Setup
 
 1. **Create a virtualenv** (or reuse the repo-level `.venv`):
@@ -16,7 +18,10 @@ The importer consists of two main commands:
    source .venv/bin/activate
    pip install -r importer/requirements.txt
    ```
-2. **Populate `.env`** at the repo root:
+
+2. **Interactive Mode** (Optional): The importer includes an interactive mode powered by InquirerPy that provides form-like prompts similar to `dbtcloud-terraforming`. Use `--interactive` or `-i` flag with any command to launch guided prompts. If not using interactive mode, you'll need to configure credentials via `.env`.
+
+3. **Populate `.env`** at the repo root (skip if using interactive mode with manual credential entry):
    ```bash
    DBT_SOURCE_HOST=https://cloud.getdbt.com
    DBT_SOURCE_ACCOUNT_ID=12345
@@ -41,9 +46,24 @@ Extract account data from dbt Cloud API.
 
 ### Usage
 
+**Command-line mode:**
 ```bash
 python -m importer fetch --output dev_support/samples/account.json --reports-dir dev_support/samples
 ```
+
+**Interactive mode:**
+```bash
+python -m importer fetch --interactive
+# or
+python -m importer fetch -i
+```
+
+**Interactive mode features:**
+- Guided prompts for all options with validation
+- Prompts for missing credentials if not in `.env`
+- File browser for easy path selection
+- Confirmation screen before execution
+- See [Interactive Mode Guide](INTERACTIVE_GUIDE.md) for keyboard shortcuts and navigation help
 
 ### Flags
 
@@ -53,6 +73,7 @@ python -m importer fetch --output dev_support/samples/account.json --reports-dir
 | `--compact` | Emit compact JSON instead of pretty-printed output. |
 | `--reports-dir PATH` | Directory to write summary/report markdown files (defaults to same directory as output). |
 | `--auto-timestamp / --no-auto-timestamp` | Automatically add timestamp to output filename (default: enabled). |
+| `--interactive` / `-i` | Run in interactive mode with guided prompts (prompts for credentials if missing, then options). |
 
 ### Output Files
 
@@ -73,23 +94,38 @@ All files from the same run share the same run ID and timestamp. Run IDs are tra
 
 ---
 
-## Phase 2: Normalize Command
+## Phase 2: Normalize Fetch to dbt Cloud Terraform Module YAML format
 
-Convert JSON export into Terraform-ready v2 YAML format.
+Convert JSON export into Terraform-ready v2 YAML format (Normalize Fetch to dbt Cloud Terraform Module YAML format).
 
 ### Usage
 
+**Command-line mode:**
 ```bash
 python -m importer normalize dev_support/samples/account_86165_run_001__json__20251121_120000.json
 ```
+
+**Interactive mode:**
+```bash
+python -m importer normalize --interactive
+# or
+python -m importer normalize -i
+```
+
+**Interactive mode features:**
+- Shows list of recent JSON files with browse option
+- Validates file paths and formats
+- Confirmation screen before execution
+- See [Interactive Mode Guide](INTERACTIVE_GUIDE.md) for keyboard shortcuts and navigation help
 
 ### Flags
 
 | Flag | Description |
 |------|-------------|
-| `input_json` | **Required**: Path to JSON export from `fetch` command. |
+| `input_json` | **Required** (unless `--interactive`): Path to JSON export from `fetch` command. |
 | `--config PATH` / `-c` | Path to mapping configuration YAML (default: `importer_mapping.yml`). |
 | `--output-dir PATH` / `-o` | Output directory for YAML and artifacts (overrides config value). |
+| `--interactive` / `-i` | Run in interactive mode with guided prompts (file browser, config selection). |
 
 ### Configuration
 

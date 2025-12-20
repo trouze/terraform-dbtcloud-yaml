@@ -1,8 +1,8 @@
 # Importer Implementation Status & Tracking
 
-**Last Updated:** 2025-01-27  
-**Current Importer Version:** 0.3.4-dev  
-**Status:** Phase 3 Complete
+**Last Updated:** 2025-12-19  
+**Current Importer Version:** 0.4.0-dev  
+**Status:** Phase 3 Complete + Interactive Mode
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
 > 
@@ -25,7 +25,8 @@
 | **Phase 2** - YAML Normalization | ✅ Complete | 2024-11-21 | Normalizer implemented, v2 YAML generation working |
 | **Phase 3** - Target Account Preparation | ✅ Complete | 2025-01-27 | Terraform v2 module implemented |
 | **Phase 4** - Implementation | ✅ Complete | 2024-11 | CLI tool (`fetch` + `normalize`) implemented |
-| **Phase 5** - Testing & Validation | 🔄 In Progress | - | Basic tests complete, end-to-end testing pending |
+| **Phase 4+** - Interactive Mode | ✅ Complete | 2025-12-10 | InquirerPy-based interactive UI for fetch/normalize |
+| **Phase 5** - Testing & Validation | 🔄 In Progress | - | Terratest coverage complete, end-to-end testing pending |
 
 ---
 
@@ -195,6 +196,50 @@
 
 ---
 
+### Phase 4+ – Interactive Mode ✅
+
+**Status:** Complete  
+**Completion Date:** 2025-12-10
+
+#### Completed Tasks
+- [x] Implemented InquirerPy-based interactive UI (`importer/interactive.py`)
+- [x] Added `--interactive` / `-i` flag to `fetch` command
+- [x] Added `--interactive` / `-i` flag to `normalize` command
+- [x] Credential prompting (only for missing values)
+- [x] File browser with recent files list
+- [x] Post-fetch normalization prompt
+- [x] Confirmation screens before execution
+- [x] Comprehensive keyboard navigation guide
+
+#### Deliverables
+- ✅ Interactive fetch mode with guided prompts
+- ✅ Interactive normalize mode with file selection
+- ✅ `INTERACTIVE_GUIDE.md` - Complete user guide with keyboard shortcuts
+- ✅ `QUICKSTART.md` - Quick reference for getting started
+- ✅ `.env.example` - Credential template
+
+#### Features
+- ✅ Form-like terminal UI similar to `dbtcloud-terraforming`
+- ✅ Smart credential detection (only prompts for missing values)
+- ✅ Recent files browser (shows up to 10 most recent JSON exports)
+- ✅ Input validation with helpful error messages
+- ✅ Secret input for API tokens (hidden with ***)
+- ✅ Post-fetch option to immediately run normalization
+- ✅ Keyboard shortcuts: Arrow keys, Tab, Enter, Ctrl+C, Ctrl+U
+
+#### Terminology
+- Updated normalize terminology to "Normalize Fetch to dbt Cloud Terraform Module YAML format"
+- Consistent messaging across interactive and CLI modes
+
+#### Dependencies Added
+- `InquirerPy>=0.3.0,<0.4` - Interactive terminal UI library
+
+#### Version
+- **Importer Version:** 0.4.0-dev
+- See `importer/VERSION` and `CHANGELOG.md` for details
+
+---
+
 ### Phase 5 – Testing & Validation 🔄
 
 **Status:** In Progress  
@@ -203,30 +248,180 @@
 #### Completed Tasks
 - [x] Basic Terratest coverage for v1 schema
 - [x] Terratest coverage for v2 schema (basic and complete)
-- [x] YAML parsing validation tests
-- [x] Output validation tests
+- [x] YAML parsing validation tests (`TestV2YAMLParsing`)
+- [x] Output validation tests (`TestV2Outputs`)
 - [x] Schema validation tests
+- [x] v2 Basic configuration test (`TestV2BasicConfiguration`)
+- [x] v2 Complete configuration test (`TestV2CompleteConfiguration`)
+- [x] Interactive mode import/execution tests
+
+#### Test Coverage Summary
+- ✅ **Unit tests**: YAML parsing, normalization logic, schema validation
+- ✅ **Integration tests**: Terratest for v1 and v2 schemas (4 v2 test functions)
+- ✅ **Test fixtures**: `test/fixtures/v2_basic/`, `test/fixtures/v2_complete/`
+- ⚠️ **End-to-end tests**: Pending real account testing
+
+#### End-to-End Testing Readiness Checklist
+
+Before starting end-to-end testing with a real account, verify:
+
+**Environment Setup**
+- [ ] **Test account credentials (source account)**
+  - [ ] `DBT_CLOUD_ACCOUNT_ID` configured in environment or `.env` file
+  - [ ] `DBT_CLOUD_TOKEN` with appropriate permissions:
+    - Read access to all projects, environments, jobs, and account-level resources
+    - Recommended: Account Admin or Developer role
+  - [ ] `DBT_CLOUD_HOST_URL` (if not cloud.getdbt.com) - set for multi-tenant or single-tenant instances
+  - [ ] Verify connectivity: `curl -H "Authorization: Token $DBT_CLOUD_TOKEN" https://cloud.getdbt.com/api/v2/accounts/$DBT_CLOUD_ACCOUNT_ID/`
+- [ ] **Target account credentials (if different)**
+  - [ ] `DBTCLOUD_ACCOUNT_ID` for Terraform provider (target account)
+  - [ ] `DBTCLOUD_TOKEN` for Terraform provider with write permissions
+  - [ ] Note: For same-account testing, source and target can be identical
+- [ ] **Python environment**
+  - [ ] Python 3.9+ installed: `python --version`
+  - [ ] Virtual environment created: `python -m venv venv` (recommended)
+  - [ ] Dependencies installed: `pip install -r importer/requirements.txt`
+  - [ ] Verify importer version: `python -m importer --version` (should show 0.4.0-dev)
+- [ ] **Terraform environment**
+  - [ ] Terraform 1.5+ installed (recommend 1.14.1 via tfenv): `terraform version`
+  - [ ] tfenv installation: `brew install tfenv && tfenv install 1.14.1 && tfenv use 1.14.1`
+  - [ ] dbt Cloud provider configured in test directory
+  - [ ] Provider initialized: `terraform init` in test directory
+
+**Test Account Characteristics**
+- [ ] **Account contains representative data:**
+  - [ ] Multiple projects (2-5 recommended for manageable testing)
+  - [ ] Various resource types:
+    - [ ] At least 1 connection (with credentials)
+    - [ ] At least 2 environments per project (dev + prod/staging)
+    - [ ] At least 2 jobs (1 scheduled, 1 CI job recommended)
+  - [ ] Global resources:
+    - [ ] At least 1 service token (if available)
+    - [ ] At least 1 group with permissions (if available)
+    - [ ] At least 1 notification (if available)
+  - [ ] Environment variables with project and environment overrides (if available)
+- [ ] **Account is non-production or test-safe**
+  - [ ] NOT a production account with live data
+  - [ ] Acceptable to export and document configuration
+  - [ ] Target account (if different) is empty or can be safely overwritten
+- [ ] **Account data can be safely exported/documented**
+  - [ ] No sensitive connection strings or credentials in resource names
+  - [ ] Acceptable to create JSON/YAML exports for testing
+
+**Pre-Flight Validation**
+- [ ] **Importer version verified**
+  - [ ] Run: `python -m importer --version`
+  - [ ] Expected output: `0.4.0-dev`
+- [ ] **API connectivity test**
+  - [ ] Interactive mode: `python -m importer fetch --interactive`
+  - [ ] OR: Non-interactive with env vars: `python -m importer fetch --dry-run` (if available)
+  - [ ] Verify account name is displayed correctly
+- [ ] **Clean workspace**
+  - [ ] No existing `importer_export/` directory (or delete: `rm -rf importer_export/`)
+  - [ ] No existing `importer_runs.json` (or backup: `mv importer_runs.json importer_runs.json.bak`)
+  - [ ] Fresh working directory for Terraform testing
+- [ ] **Terraform backend configured**
+  - [ ] Use `-backend=false` for testing: `terraform init -backend=false`
+  - [ ] OR: Configure local backend in test fixtures
+
+**Test Execution Plan**
+- [ ] **Fetch Phase**
+  1. [ ] Run: `python -m importer fetch` (or with `--interactive`)
+  2. [ ] Verify: Check terminal output for completion message
+  3. [ ] Verify: `importer_export/` directory created with JSON files
+  4. [ ] Inspect: Open account JSON export and spot-check for expected projects
+- [ ] **Verify Fetch Results**
+  1. [ ] Open: `importer_export/account_{ACCOUNT_ID}_run_{RUN}__{TIMESTAMP}.json`
+  2. [ ] Check: `projects` array contains expected projects
+  3. [ ] Check: `connections` array contains expected connections
+  4. [ ] Check: `global_groups`, `global_service_tokens`, `global_notifications` populated (if applicable)
+  5. [ ] Review: `importer_export/account_{ACCOUNT_ID}_run_{RUN}__summary_report.md`
+- [ ] **Normalize Phase**
+  1. [ ] Run: `python -m importer normalize` with exported JSON path
+  2. [ ] OR: Interactive mode: `python -m importer normalize --interactive`
+  3. [ ] Verify: Terminal shows normalization progress
+  4. [ ] Verify: YAML file generated in output directory
+- [ ] **Review Normalized YAML**
+  1. [ ] Open: Generated YAML file (e.g., `dbt-cloud-config.yml`)
+  2. [ ] Check: `version: 2` present at top
+  3. [ ] Check: `globals` section present with connections, tokens, etc.
+  4. [ ] Check: `projects` section contains expected projects
+  5. [ ] Check: LOOKUP placeholders present (e.g., `LOOKUP[connection:...]`)
+  6. [ ] Review: Exclusions report (if generated)
+  7. [ ] Review: Lookups manifest JSON
+- [ ] **Terraform Validate**
+  1. [ ] Copy: YAML file to test directory (e.g., `test/fixtures/e2e_test/`)
+  2. [ ] Create: `main.tf` that references root module with `yaml_file = "dbt-cloud-config.yml"`
+  3. [ ] Run: `terraform init -backend=false`
+  4. [ ] Run: `terraform validate`
+  5. [ ] Expected: "Success! The configuration is valid."
+- [ ] **Terraform Plan**
+  1. [ ] Set: `DBTCLOUD_ACCOUNT_ID` and `DBTCLOUD_TOKEN` for target account
+  2. [ ] Run: `terraform plan -out=tfplan`
+  3. [ ] Review: Plan output for expected resource creates
+  4. [ ] Verify: No errors in plan (warnings acceptable for deprecations)
+  5. [ ] Count: Resources to be created match expected count
+- [ ] **Terraform Apply (Optional)**
+  1. [ ] **CAUTION:** Only run in empty test account or with `-target` for specific resources
+  2. [ ] Dry-run option: Use `terraform plan` repeatedly, do NOT apply
+  3. [ ] If applying: `terraform apply tfplan`
+  4. [ ] Monitor: Apply progress and check for errors
+  5. [ ] Verify: Resources created in dbt Cloud UI
+  6. [ ] Cleanup: `terraform destroy` when done (if testing in disposable account)
+
+**Success Criteria**
+- [ ] **Fetch completes without errors**
+  - No API errors or rate limit issues
+  - All expected projects and resources fetched
+- [ ] **All expected resources captured in JSON export**
+  - Project count matches source account
+  - Connection count matches source account
+  - Global resources present (tokens, groups, notifications)
+- [ ] **Normalize completes without errors**
+  - YAML generation successful
+  - LOOKUP placeholders generated correctly
+  - No Python exceptions or warnings
+- [ ] **Generated YAML is valid**
+  - Schema validation passes (version 2)
+  - Well-formed YAML (no syntax errors)
+  - All required fields present
+- [ ] **Terraform validate passes**
+  - No configuration errors
+  - Module loads correctly
+  - Variables recognized
+- [ ] **Terraform plan shows expected resources**
+  - No errors (warnings for deprecations acceptable)
+  - Resource count reasonable and expected
+  - No unexpected data source errors
+- [ ] **(Optional) Terraform apply succeeds in target account**
+  - All resources created successfully
+  - No errors during apply
+  - Resources visible in dbt Cloud UI
+
+**Known Risks & Mitigations**
+- **Connection provider configs**: Not exported by API → **Mitigation:** Manually add `provider_config` to YAML before apply
+- **Credential secrets**: Not exported → **Mitigation:** Provide via `token_map` variable in Terraform
+- **PrivateLink endpoints**: Read-only → **Mitigation:** Ensure endpoints exist in target account before apply
+- **Module variable recognition**: See [Known Issues](known_issues.md) → **Mitigation:** Use direct module references, not root as module
+- **Rate limiting**: API may throttle requests → **Mitigation:** Importer has built-in retry/backoff logic
+- **Large accounts**: May take 5-10+ minutes to fetch → **Mitigation:** Use `--scope` flag to filter projects if needed
 
 #### Pending Tasks
-- [ ] End-to-end test with real account export
+- [ ] End-to-end test with real account export (fetch → normalize → apply)
 - [ ] Dry-run against non-production account
 - [ ] Terraform apply validation on clean workspace
 - [ ] Edge case testing (empty jobs, archived resources, disabled integrations)
 - [ ] Performance testing with large accounts (100+ projects)
-
-#### Test Coverage
-- ✅ Unit tests: YAML parsing, normalization logic
-- ✅ Integration tests: Terratest for v1 and v2 schemas
-- ⚠️ End-to-end tests: Pending real account testing
+- [ ] Interactive mode edge cases (cancellation, validation errors, file not found)
 
 ---
 
 ## Version Tracking
 
 ### Importer Version
-- **Current:** 0.3.4-dev
+- **Current:** 0.4.0-dev
 - **File:** `importer/VERSION`
-- **Last Updated:** 2024-11-21
+- **Last Updated:** 2025-12-10
 
 ### Terraform Module Version
 - **Current:** Supports v1 and v2 schemas
@@ -244,11 +439,13 @@
 ### Python
 - **Version:** 3.9+
 - **Dependencies:** See `importer/requirements.txt`
-  - httpx, python-dotenv, pydantic, rich, typer, python-slugify, PyYAML
+  - httpx, python-dotenv, pydantic, rich, typer, python-slugify, PyYAML, InquirerPy
 
 ### Terraform
-- **Version:** 1.5+ (recommended: 1.14.1+)
+- **Version:** 1.5+ (tested with 1.14.1)
 - **Installation:** Use `tfenv` (Terraform version manager) instead of Homebrew
+  - Homebrew no longer updates Terraform due to HashiCorp BUSL license
+  - `tfenv` provides direct access to latest Terraform versions
 - **Provider:** dbt-labs/dbtcloud ~> 0.3
 
 ### Go (for testing)
@@ -274,29 +471,126 @@
 2. **PrivateLink Endpoints**: Read-only, must exist in target account.
 3. **Notification Updates**: Job associations not dynamically updated after job creation.
 
+### Known Issues
+1. **Module Variable Recognition**: When root module is used as a child module from test fixtures, Terraform doesn't recognize variables. See `dev_support/known_issues.md` for details and workarounds.
+2. **Databricks Credential Deprecation**: `adapter_type` field generates deprecation warning but is still required by provider.
+
 ---
 
 ## Next Steps & Roadmap
 
 ### Immediate (Next Sprint)
-- [ ] End-to-end testing with real account
-- [ ] User-facing migration guide
-- [ ] Connection config templates for common providers
+
+#### Critical Path
+- [ ] **End-to-end testing with real account** (Phase 5)
+  - **Blockers:** Access to test account, test data preparation
+  - **Dependencies:** None
+  - **Details:** Complete fetch → normalize → apply workflow validation
+- [ ] **User-facing migration guide**
+  - **Blockers:** End-to-end testing results
+  - **Dependencies:** End-to-end testing completion
+  - **Details:** Step-by-step guide for source → target account migration
+
+#### Parallel Work
+- [ ] **Connection config templates for common providers**
+  - **Blockers:** None (can start immediately)
+  - **Dependencies:** None
+  - **Details:** Templates for Snowflake, BigQuery, Redshift, Databricks, PostgreSQL
 
 ### Short-Term (Next Month)
-- [ ] Support for non-Databricks credential types
-- [ ] State migration helpers/tooling
-- [ ] Performance optimization for large accounts
+- [ ] **Support for non-Databricks credential types**
+  - **Blockers:** Terraform provider support for each credential type
+  - **Dependencies:** Connection config templates
+  - **Details:** Extend normalizer and Terraform module for Snowflake, BigQuery, etc.
+  - **Related Known Limitations:** Implementation Gaps #1 (Credential Types)
+- [ ] **State migration helpers/tooling**
+  - **Blockers:** Understanding common v1→v2 migration patterns
+  - **Dependencies:** User feedback from migrations
+  - **Details:** Scripts or guides for `terraform state mv` operations
+  - **Related Known Limitations:** Terraform Limitations #1 (State Migration)
+- [ ] **Performance optimization for large accounts**
+  - **Blockers:** Access to large account (100+ projects) for testing
+  - **Dependencies:** Performance baseline from Phase 5 testing
+  - **Details:** Pagination optimization, parallel fetching, memory management
+- [ ] **Bug Fix: Module variable recognition issue**
+  - **Blockers:** Root cause analysis
+  - **Dependencies:** None
+  - **Details:** See [Known Issues](known_issues.md#module-variable-recognition-issue)
+  - **Related Known Issues:** #1 (Module Variable Recognition)
 
 ### Medium-Term (Next Quarter)
-- [ ] Semantic Layer support
-- [ ] Model notifications (if API available)
-- [ ] Enhanced error messages and validation
+- [ ] **Semantic Layer support**
+  - **Blockers:** API endpoint research, Terraform provider support
+  - **Dependencies:** API research completion (see Prerequisites below)
+  - **Details:** Fetch semantic layer configs and add to normalizer/Terraform module
+  - **Related Known Limitations:** Implementation Gaps #2 (Semantic Layer)
+  - **See Also:** [Prerequisites for API Research](#prerequisites-for-api-research)
+- [ ] **Model notifications**
+  - **Blockers:** API availability unknown
+  - **Dependencies:** API research completion (see Prerequisites below)
+  - **Details:** If API available, add to fetcher and normalizer
+  - **Related Known Limitations:** Implementation Gaps #3 (Model Notifications)
+  - **See Also:** [Prerequisites for API Research](#prerequisites-for-api-research)
+- [ ] **Enhanced error messages and validation**
+  - **Blockers:** None
+  - **Dependencies:** User feedback from migrations
+  - **Details:** Improve validation, better error messages, pre-flight checks
 
 ### Long-Term (Future)
-- [ ] Multi-account orchestration
-- [ ] Incremental sync capabilities
-- [ ] Web UI for importer (optional)
+- [ ] **Multi-account orchestration**
+  - **Details:** Manage migrations across multiple source/target accounts
+- [ ] **Incremental sync capabilities**
+  - **Details:** Sync only changed resources instead of full export
+- [ ] **Web UI for importer (optional)**
+  - **Details:** Optional web interface for non-technical users
+
+---
+
+## Prerequisites for API Research
+
+The following items require API endpoint research before implementation can begin:
+
+### Semantic Layer Support
+- **Status:** Documented but not implemented
+- **API Endpoint:** v3 `/semantic-layer-credentials/` (assumed)
+- **Research Needed:**
+  - [ ] Confirm endpoint availability and authentication requirements
+  - [ ] Document request/response schema
+  - [ ] Verify Terraform provider support for semantic layer credentials
+  - [ ] Identify project-level semantic layer configuration fields
+- **Target Timeline:** Medium-Term (Next Quarter)
+- **Related Roadmap Item:** [Medium-Term: Semantic Layer support](#medium-term-next-quarter)
+
+### Model Notifications
+- **Status:** Not yet implemented
+- **API Endpoint:** Unknown (may be part of dbt Cloud Discovery or Exposures)
+- **Research Needed:**
+  - [ ] Discover if API exists for model-level notifications
+  - [ ] Check dbt Cloud API documentation for freshness/test notifications
+  - [ ] Verify if feature is available via Metadata API or separate endpoint
+  - [ ] Document schema if endpoint exists
+- **Target Timeline:** Medium-Term (Next Quarter)
+- **Related Roadmap Item:** [Medium-Term: Model notifications](#medium-term-next-quarter)
+
+### License Maps / Seats (Optional)
+- **Status:** Not documented
+- **API Endpoint:** TBD (may be v3 `/license/` or `/seats/`)
+- **Research Needed:**
+  - [ ] Identify license/seat management endpoints
+  - [ ] Determine if data is read-only or manageable via Terraform
+  - [ ] Document schema for informational reporting
+- **Target Timeline:** Future / As Needed
+- **Priority:** Low (read-only informational)
+
+### Account Features / Feature Flags (Optional)
+- **Status:** Not documented
+- **API Endpoint:** TBD (may be embedded in account response)
+- **Research Needed:**
+  - [ ] Check if feature flags are exposed via API
+  - [ ] Document available features (Unity Catalog, etc.)
+  - [ ] Determine if flags are read-only or configurable
+- **Target Timeline:** Future / As Needed
+- **Priority:** Low (informational only)
 
 ---
 
@@ -353,12 +647,34 @@
 - [Phase 2 Normalization](phase2_normalization_target.md) - v2 schema and normalization rules
 - [Phase 2 Terraform Integration](phase2_terraform_integration.md) - Module architecture design
 - [Phase 3 Changelog](phase3_implementation_changelog.md) - Implementation details
+- [Phase 5 E2E Testing Guide](phase5_e2e_testing_guide.md) - Complete end-to-end testing procedure
+- [Interactive Mode Implementation](interactive_mode_implementation.md) - Interactive UI implementation details
+- [Known Issues](known_issues.md) - Current known issues and workarounds
 - [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md) - Complete project reference
 - [CHANGELOG.md](../CHANGELOG.md) - Detailed version history
 
 ---
 
 ## Change Log
+
+### 2025-12-19
+- Enhanced Next Steps & Roadmap section with explicit blockers, dependencies, and related limitations
+- Added "Prerequisites for API Research" section for items requiring endpoint discovery
+- Aligned Semantic Layer timeline across documents (Medium-Term / Next Quarter)
+- Linked Known Issues to relevant roadmap items
+- Significantly expanded End-to-End Testing Readiness Checklist with:
+  - Detailed step-by-step instructions for each testing phase
+  - Specific commands and expected outputs
+  - Success criteria with clear verification steps
+  - Enhanced known risks and mitigations
+
+### 2025-12-10
+- Updated version to 0.4.0-dev
+- Added Phase 4+ (Interactive Mode) section
+- Updated testing section with completed Terratest coverage
+- Updated dependencies (InquirerPy, tfenv installation method)
+- Added known issues section
+- Updated terminology to "Normalize Fetch to dbt Cloud Terraform Module YAML format"
 
 ### 2025-01-27
 - Created initial status document

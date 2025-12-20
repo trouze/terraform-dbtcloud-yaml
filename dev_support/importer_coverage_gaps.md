@@ -114,8 +114,10 @@ This document tracks which dbt Cloud resources are currently captured by the imp
 3. ~~**Notifications**~~ - ✅ Added to global resources with destinations and job triggers
 4. ~~**Webhook Subscriptions**~~ - ✅ Added to global resources with event types and job IDs
 
-### Near-Term (0.4.0-dev)
+### Near-Term (Next Quarter)
 1. **Semantic Layer Configs** - Add to project-level resources
+   - API research required (see `importer_implementation_status.md` Prerequisites section)
+   - Target timeline aligned with Medium-Term roadmap
 
 ### Future / As Needed
 2. **License Maps** - Add as read-only metadata in summary report

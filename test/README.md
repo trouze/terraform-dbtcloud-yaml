@@ -1,30 +1,119 @@
-# Test Suite Overview
+# Testing Guide
 
-This repository now contains both Go-based Terratest coverage and Python-based schema validation checks:
+This directory contains test fixtures, utilities, and documentation for testing the terraform-dbtcloud-yaml module.
 
-- `go test ./test` &rightarrow; Runs the existing Terratest matrix to ensure the Terraform module plans successfully with the provided fixtures.
-- `python -m unittest test/schema_validation_test.py` &rightarrow; Validates representative YAML files against `schemas/v1.json` and `schemas/v2.json`. Use this to guard importer work and schema changes.
+## Test Structure
 
-## Running the Python Schema Tests
+### Unit Tests (Terratest)
 
-1. Create a virtual environment (recommended):
-   ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
-   ```
-2. Install the requirements:
-   ```bash
-   pip install -r test/requirements.txt
-   ```
-3. Execute the suite:
-   ```bash
-   python -m unittest test/schema_validation_test.py
-   ```
+Located in Go test files:
+- Test fixtures for v1 and v2 schemas
+- YAML parsing validation
+- Output validation
+- Schema validation
 
-The Python tests currently validate:
-- `test/fixtures/basic/dbt-config.yml` (v1 schema)
-- `test/fixtures/complete/dbt-config.yml` (v1 schema)
-- `test/fixtures/v2_full/dbt-config.yml` (v2 schema)
+### End-to-End Tests
 
-Add additional fixtures/tests as schema features evolve to keep both versions covered.
+Located in `e2e_test/`:
+- Complete workflow testing (fetch → normalize → apply)
+- Real account integration testing
+- See [Phase 5 E2E Testing Guide](../dev_support/phase5_e2e_testing_guide.md)
 
+## Running Tests
+
+### Quick Start: Automated E2E Test
+
+The easiest way to run end-to-end testing:
+
+```bash
+# 1. Set up credentials
+cd test/e2e_test
+cp env.example .env
+# Edit .env with your credentials
+
+# 2. Run automated test (plan only)
+cd ..
+./run_e2e_test.sh
+
+# 3. (Optional) Run with apply
+./run_e2e_test.sh --apply
+```
+
+The script will:
+- ✅ Check prerequisites
+- ✅ Clean workspace
+- ✅ Run fetch
+- ✅ Run normalize
+- ✅ Validate Terraform
+- ✅ Generate plan
+- ✅ (Optional) Apply changes
+- ✅ Create test summary
+
+### Manual E2E Testing
+
+For step-by-step testing, follow the [Phase 5 E2E Testing Guide](../dev_support/phase5_e2e_testing_guide.md).
+
+### Unit Tests (Terratest)
+
+```bash
+cd test
+go test -v -timeout 30m
+```
+
+## Test Fixtures
+
+### v1 Schema Tests
+
+- `fixtures/basic/` - Basic v1 schema test
+- Legacy single-project format
+
+### v2 Schema Tests
+
+- `fixtures/v2_basic/` - Basic v2 schema with minimal resources
+- `fixtures/v2_complete/` - Complete v2 schema with all resource types
+
+### E2E Test Fixture
+
+- `e2e_test/` - End-to-end testing environment
+- Uses real account data
+- Includes automated test script
+
+## Test Checklist
+
+Before running end-to-end tests:
+
+- [ ] Python 3.9+ installed with dependencies
+- [ ] Terraform 1.5+ installed (recommend 1.14.1)
+- [ ] Source account credentials configured
+- [ ] Target account credentials configured
+- [ ] Test account has representative data
+- [ ] Clean workspace (no existing exports)
+
+See full checklist: [End-to-End Testing Readiness Checklist](../dev_support/importer_implementation_status.md#end-to-end-testing-readiness-checklist)
+
+## Test Results
+
+After running tests, results are saved to:
+
+- `e2e_test/test_summary.md` - Test results summary
+- `e2e_test/test_log.md` - Detailed test log (if manually testing)
+- `e2e_test/plan_output.txt` - Terraform plan output
+
+## Troubleshooting
+
+See [Phase 5 E2E Testing Guide - Troubleshooting](../dev_support/phase5_e2e_testing_guide.md#troubleshooting) for common issues and solutions.
+
+## Documentation
+
+- [Phase 5 E2E Testing Guide](../dev_support/phase5_e2e_testing_guide.md) - Complete testing procedure
+- [Importer Implementation Status](../dev_support/importer_implementation_status.md) - Current testing status
+- [Known Issues](../dev_support/known_issues.md) - Known limitations and workarounds
+
+## Contributing
+
+When adding new tests:
+
+1. Create test fixture in `fixtures/` directory
+2. Add test case to appropriate test file
+3. Document test purpose and expected results
+4. Update this README with test coverage information

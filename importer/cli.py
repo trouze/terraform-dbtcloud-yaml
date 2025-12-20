@@ -232,9 +232,9 @@ def _print_summary(snapshot) -> None:
 
 @app.command()
 def normalize(
-    input_json: Path = typer.Argument(
-        ...,
-        help="Path to account JSON export from 'fetch' command.",
+    input_json: Optional[Path] = typer.Argument(
+        None,
+        help="Path to account JSON export from 'fetch' command (required unless --interactive).",
     ),
     mapping_config: Path = typer.Option(
         Path("importer_mapping.yml"),
@@ -248,8 +248,23 @@ def normalize(
         "-o",
         help="Output directory for normalized YAML and artifacts (defaults to config value).",
     ),
+    interactive: bool = typer.Option(
+        False,
+        "--interactive",
+        "-i",
+        help="Run in interactive mode with guided prompts.",
+        is_flag=True,
+    ),
 ) -> None:
     """Normalize a JSON export into v2 YAML format."""
+    if interactive:
+        from .interactive import run_normalize_interactive
+        run_normalize_interactive()
+        return
+    
+    if input_json is None:
+        console.print("[red]Error: input_json is required unless using --interactive mode[/red]")
+        raise typer.Exit(1)
     console.log(f"dbtcloud-importer normalize v{get_version()}")
     
     # Load mapping configuration
@@ -306,7 +321,7 @@ def normalize(
     context = NormalizationContext(config)
     
     # Normalize snapshot to v2 structure
-    console.log("Normalizing account snapshot to v2 YAML structure...")
+    console.log("Normalize Fetch to dbt Cloud Terraform Module YAML format...")
     try:
         normalized_data = normalize_snapshot(snapshot, config, context)
         logger.info("Normalization complete")
@@ -332,9 +347,9 @@ def normalize(
         raise typer.Exit(1)
     
     # Print summary
-    console.print("\n[bold green]Normalization Complete[/bold green]")
+    console.print("\n[bold green]Normalize Fetch to dbt Cloud Terraform Module YAML format — Complete[/bold green]")
     
-    summary_table = Table(title="Normalization Summary")
+    summary_table = Table(title="Normalize Fetch Summary")
     summary_table.add_column("Metric", justify="left")
     summary_table.add_column("Value", justify="right")
     summary_table.add_row("Projects Included", str(len(normalized_data.get("projects", []))))
@@ -349,7 +364,7 @@ def normalize(
     summary_table.add_row("Key Collisions", str(total_collisions))
     console.print(summary_table)
     
-    artifacts_table = Table(title="Generated Artifacts")
+    artifacts_table = Table(title="Generated Artifacts (Normalize Fetch)")
     artifacts_table.add_column("Type", justify="left")
     artifacts_table.add_column("Path", justify="left")
     for artifact_type, artifact_path in artifacts.items():
