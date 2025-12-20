@@ -110,6 +110,7 @@ resource "dbtcloud_global_connection" "connections" {
 }
 
 # Service Tokens
+# Ensure projects exist before creating service tokens with project-specific permissions
 resource "dbtcloud_service_token" "service_tokens" {
   for_each = {
     for token in var.globals.service_tokens :
@@ -131,9 +132,14 @@ resource "dbtcloud_service_token" "service_tokens" {
       )
     }
   }
+
+  depends_on = [
+    dbtcloud_project.projects
+  ]
 }
 
 # Groups
+# Ensure projects exist before creating groups with project-specific permissions
 resource "dbtcloud_group" "groups" {
   for_each = {
     for group in var.globals.groups :
@@ -156,6 +162,10 @@ resource "dbtcloud_group" "groups" {
       )
     }
   }
+
+  depends_on = [
+    dbtcloud_project.projects
+  ]
 }
 
 # Notifications

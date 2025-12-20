@@ -75,10 +75,12 @@ resource "dbtcloud_databricks_credential" "credentials" {
 }
 
 # Create environments
+# Filter out environments with deprecated dbt versions (e.g., latest-fusion)
 resource "dbtcloud_environment" "environments" {
   for_each = {
     for item in local.all_environments :
     "${item.project_key}_${item.env_key}" => item
+    if !can(regex("latest-fusion|fusion", try(item.env_data.dbt_version, "")))
   }
 
   project_id    = each.value.project_id
