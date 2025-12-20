@@ -47,6 +47,10 @@ def normalize_snapshot(
     """
     log.info("Starting normalization of account snapshot")
     
+    # FIRST PASS: Build project ID -> key mapping before normalizing service tokens/groups
+    # This is needed because service tokens and groups reference projects by ID
+    _build_project_id_mapping(snapshot, config, context)
+    
     # Build v2 root structure
     v2_data: Dict[str, Any] = {
         "version": 2,
@@ -336,11 +340,18 @@ def _normalize_service_tokens(
         permission_grants = token.metadata.get("permission_grants", [])
         if permission_grants:
             for grant in permission_grants:
+                source_project_id = grant.get("project_id")
+                # Convert source project_id to project_key for cross-account migration
+                project_key = context.resolve_project_id_to_key(source_project_id) if source_project_id else None
+                
                 perm = {
                     "permission_set": grant["permission_set"],
-                    "all_projects": grant["project_id"] is None,
-                    # Always include project_id for type consistency (null if all_projects=True)
-                    "project_id": grant.get("project_id"),
+                    "all_projects": source_project_id is None,
+                    # Use project_key instead of project_id for Terraform to resolve to target project
+                    "project_key": project_key,
+                    # Keep project_id for type consistency but note it's the SOURCE ID (for reference only)
+                    # Terraform should use project_key to look up the target project_id
+                    "project_id": None,  # Don't use source ID - it won't exist in target
                     # Always include writable_environment_categories for type consistency (empty list if not present)
                     "writable_environment_categories": grant.get("writable_environment_categories", []),
                 }
@@ -397,11 +408,17 @@ def _normalize_groups(
         group_permissions = group.metadata.get("group_permissions", [])
         if group_permissions:
             for perm in group_permissions:
+                source_project_id = perm.get("project_id")
+                # Convert source project_id to project_key for cross-account migration
+                project_key = context.resolve_project_id_to_key(source_project_id) if source_project_id else None
+                
                 perm_data = {
                     "permission_set": perm["permission_set"],
-                    "all_projects": perm["project_id"] is None,
-                    # Always include project_id for type consistency (null if all_projects=True)
-                    "project_id": perm.get("project_id"),
+                    "all_projects": source_project_id is None,
+                    # Use project_key instead of project_id for Terraform to resolve to target project
+                    "project_key": project_key,
+                    # Keep project_id for type consistency but set to None (source IDs don't exist in target)
+                    "project_id": None,
                     # Always include writable_environment_categories for type consistency (empty list if not present)
                     "writable_environment_categories": perm.get("writable_environment_categories", []),
                 }
@@ -464,6 +481,46 @@ def _normalize_notifications(
     return result
 
 
+def _build_project_id_mapping(
+    snapshot: AccountSnapshot,
+    config: MappingConfig,
+    context: NormalizationContext,
+) -> None:
+    """
+    Pre-pass: Build mapping of project IDs to project keys.
+    
+    This must run before normalizing service tokens and groups,
+    as they reference projects by ID and need to convert to keys.
+    """
+    scope_mode = config.get_scope_mode()
+    if scope_mode == "account_level_only":
+        return
+    
+    scope_project_keys = set(config.get_project_keys())
+    scope_project_ids = set(config.get_project_ids())
+    exclude_keys = config.get_exclude_keys("projects")
+    exclude_ids = config.get_exclude_ids("projects")
+    
+    for project in snapshot.projects:
+        # Apply same filters as _normalize_projects
+        if scope_mode == "specific_projects":
+            if project.key not in scope_project_keys and project.id not in scope_project_ids:
+                continue
+        
+        if project.key in exclude_keys or _get_element_id(project) and _get_element_id(project) in exclude_ids:
+            continue
+        
+        if not _should_include(project, config):
+            continue
+        
+        # Register project ID -> key mapping
+        if project.id:
+            normalized_key = context.resolve_collision(project.key, namespace="projects_prepass")
+            context.register_project(project.id, normalized_key)
+    
+    log.info(f"Built project ID mapping with {len(context.project_id_to_key)} projects")
+
+
 def _normalize_projects(
     snapshot: AccountSnapshot,
     config: MappingConfig,
@@ -504,6 +561,10 @@ def _normalize_projects(
         normalized_key = context.resolve_collision(project.key, namespace="projects")
         if _get_element_id(project):
             context.register_element(_get_element_id(project), normalized_key)
+        
+        # Register project ID -> key mapping for permission resolution
+        if project.id:
+            context.register_project(project.id, normalized_key)
         
         project_data = {
             "key": normalized_key,

@@ -125,7 +125,12 @@ resource "dbtcloud_service_token" "service_tokens" {
     content {
       permission_set = service_token_permissions.value.permission_set
       all_projects   = try(service_token_permissions.value.all_projects, false)
-      project_id     = try(service_token_permissions.value.project_id, null)
+      # Resolve project_key to target project_id, or use explicit project_id if provided
+      project_id = (
+        try(service_token_permissions.value.project_key, null) != null
+        ? try(dbtcloud_project.projects[service_token_permissions.value.project_key].id, null)
+        : try(service_token_permissions.value.project_id, null)
+      )
       writable_environment_categories = try(
         service_token_permissions.value.writable_environment_categories,
         []
@@ -155,7 +160,12 @@ resource "dbtcloud_group" "groups" {
     content {
       permission_set = group_permissions.value.permission_set
       all_projects   = try(group_permissions.value.all_projects, false)
-      project_id     = try(group_permissions.value.project_id, null)
+      # Resolve project_key to target project_id, or use explicit project_id if provided
+      project_id = (
+        try(group_permissions.value.project_key, null) != null
+        ? try(dbtcloud_project.projects[group_permissions.value.project_key].id, null)
+        : try(group_permissions.value.project_id, null)
+      )
       writable_environment_categories = try(
         group_permissions.value.writable_environment_categories,
         []

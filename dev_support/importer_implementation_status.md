@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2025-12-20  
-**Current Importer Version:** 0.6.1  
+**Current Importer Version:** 0.6.2  
 **Status:** Phase 3 Complete + Interactive Mode + E2E Testing Infrastructure
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -657,6 +657,21 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2025-12-20 (v0.6.2)
+- **Version:** Incremented to 0.6.2 (patch release - critical bug fixes for cross-account migration)
+- **Service Token Permission Grants**: Fixed provider to use `permission_grants.permission_set` during service token creation
+  - API expects `permission_grants` array in creation request, not `service_token_permissions`
+  - Updated `CreateServiceToken()` in provider with correct request structure
+  - Added `ServiceTokenPermissionGrant` struct with proper JSON tags
+  - Fixed `writable_environment_categories` serialization to include empty arrays (not omit them)
+- **Cross-Account Project ID Resolution**: Fixed service token and group permissions to use `project_key` instead of source `project_id`
+  - Source account project IDs don't exist in target account, causing 404 errors
+  - Added `project_id_to_key` mapping in normalizer to convert source IDs to project keys
+  - Added `_build_project_id_mapping()` pre-pass before normalizing permissions
+  - Updated `_normalize_service_tokens()` and `_normalize_groups()` to output `project_key` instead of `project_id`
+  - Updated Terraform module to resolve `project_key` → target `project_id` at apply time
+  - Affects: `service_token_permissions` and `group_permissions` with project-specific access
 
 ### 2025-12-20 (v0.6.1)
 - **Version:** Incremented to 0.6.1 (patch release - bug fixes and stability improvements)

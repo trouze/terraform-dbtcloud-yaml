@@ -126,6 +126,7 @@ class NormalizationContext:
         self.exclusions: List[Dict[str, Any]] = []
         self.collisions: Dict[str, Dict[str, int]] = {}  # namespace -> (key -> count)
         self.element_id_to_key: Dict[str, str] = {}  # element_mapping_id -> key
+        self.project_id_to_key: Dict[int, str] = {}  # numeric project ID -> project key
 
     def add_placeholder(self, lookup_id: str, description: str) -> None:
         """Record a LOOKUP placeholder."""
@@ -177,4 +178,18 @@ class NormalizationContext:
         if not element_id:
             return None
         return self.element_id_to_key.get(element_id)
+
+    def register_project(self, project_id: int, key: str) -> None:
+        """Register a numeric project ID to its normalized key."""
+        self.project_id_to_key[project_id] = key
+        log.debug(f"Registered project ID {project_id} -> key '{key}'")
+
+    def resolve_project_id_to_key(self, project_id: Optional[int]) -> Optional[str]:
+        """Resolve a numeric project ID to its normalized key."""
+        if project_id is None:
+            return None
+        key = self.project_id_to_key.get(project_id)
+        if key is None:
+            log.warning(f"Project ID {project_id} not found in mapping - may cause apply errors")
+        return key
 

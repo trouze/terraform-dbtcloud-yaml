@@ -1,0 +1,1490 @@
+[DEBUG] ServiceToken Create - Sending permission_grants to API for token 'job_runner':
+[
+  {
+    "permission_set": "job_runner",
+    "writable_environment_categories": []
+  }
+]
+[DEBUG] CreateServiceToken - JSON payload for token 'job_runner':
+{"name":"job_runner","permission_grants":[{"permission_set":"job_runner","writable_environment_categories":[]}]}
+[DEBUG] ServiceToken Create - Sending permission_grants to API for token 'gtok_admin':
+[
+  {
+    "permission_set": "account_admin",
+    "writable_environment_categories": []
+  }
+]
+[DEBUG] CreateServiceToken - JSON payload for token 'gtok_admin':
+{"name":"gtok_admin","permission_grants":[{"permission_set":"account_admin","writable_environment_categories":[]}]}
+[DEBUG] ServiceToken Create - Sending permission_grants to API for token 'getting_to_ok_account_admin':
+[
+  {
+    "permission_set": "account_admin",
+    "writable_environment_categories": []
+  }
+]
+[DEBUG] CreateServiceToken - JSON payload for token 'getting_to_ok_account_admin':
+{"name":"getting_to_ok_account_admin","permission_grants":[{"permission_set":"account_admin","writable_environment_categories":[]}]}
+[DEBUG] ServiceToken Create - Sending permission_grants to API for token 'test_analysit':
+[
+  {
+    "permission_set": "analyst",
+    "writable_environment_categories": []
+  }
+]
+[DEBUG] ServiceToken Create - Sending permission_grants to API for token 'account_admin':
+[
+  {
+    "permission_set": "account_admin",
+    "writable_environment_categories": []
+  }
+]
+[DEBUG] CreateServiceToken - JSON payload for token 'test_analysit':
+{"name":"test_analysit","permission_grants":[{"permission_set":"analyst","writable_environment_categories":[]}]}
+[DEBUG] CreateServiceToken - JSON payload for token 'account_admin':
+{"name":"account_admin","permission_grants":[{"permission_set":"account_admin","writable_environment_categories":[]}]}
+[DEBUG] CreateServiceToken - Raw API response for token 'account_admin':
+{"status":{"code":201,"is_success":true,"user_message":"Success!","developer_message":""},"data":{"id":2733782,"created_at":"2025-12-20 18:31:05.115672+00:00","updated_at":"2025-12-20 18:31:05.115686+00:00","account_id":725,"uid":"0AJAmpg","name":"account_admin","state":1,"permission_grants":[{"permission_set":"account_admin","project_id":null,"writable_environment_categories":[]}],"last_used":null,"semantic_layer_credentials":null,"metadata_only":false,"webhooks_only":false,"token":"DNxw9VKdE7Kz7mUlboHuYbZQ6F42f6m7EQ18ePNVuVk","token_string":"dbtc_0AJAmpgDNxw9VKdE7Kz7mUlboHuYbZQ6F42f6m7EQ18ePNVuVk","last_identify":null,"user_id":null,"user":null,"type":null,"expires_at":null,"service_token_permissions":[{"id":3193708,"account_id":725,"service_token_id":2733782,"project_id":null,"all_projects":true,"permission_set":"account_admin","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:05.184617+00:00","updated_at":"2025-12-20 18:31:05.184630+00:00"}]},"extra":{},"error_code":null}
+[DEBUG] CreateServiceToken - Raw API response for token 'getting_to_ok_account_admin':
+{"status":{"code":201,"is_success":true,"user_message":"Success!","developer_message":""},"data":{"id":2733784,"created_at":"2025-12-20 18:31:05.118053+00:00","updated_at":"2025-12-20 18:31:05.118066+00:00","account_id":725,"uid":"CrTcOUg","name":"getting_to_ok_account_admin","state":1,"permission_grants":[{"permission_set":"account_admin","project_id":null,"writable_environment_categories":[]}],"last_used":null,"semantic_layer_credentials":null,"metadata_only":false,"webhooks_only":false,"token":"WuqU4x6McSAdd_CmOc2wnsIWczs0weAw_0hM76yky0I","token_string":"dbtc_CrTcOUgWuqU4x6McSAdd_CmOc2wnsIWczs0weAw_0hM76yky0I","last_identify":null,"user_id":null,"user":null,"type":null,"expires_at":null,"service_token_permissions":[{"id":3193709,"account_id":725,"service_token_id":2733784,"project_id":null,"all_projects":true,"permission_set":"account_admin","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:05.190547+00:00","updated_at":"2025-12-20 18:31:05.190559+00:00"}]},"extra":{},"error_code":null}
+[DEBUG] ServiceToken Create - API creation response for token 'account_admin' (ID: 2733782):
+{
+  "id": 2733782,
+  "account_id": 725,
+  "uid": "0AJAmpg",
+  "name": "account_admin",
+  "token_string": "dbtc_0AJAmpgDNxw9VKdE7Kz7mUlboHuYbZQ6F42f6m7EQ18ePNVuVk",
+  "state": 1,
+  "service_token_permissions": [
+    {
+      "id": 3193708,
+      "account_id": 725,
+      "service_token_id": 2733782,
+      "all_projects": true,
+      "state": 1,
+      "permission_set": "account_admin"
+    }
+  ]
+}
+[DEBUG] ServiceToken Create - API creation response for token 'getting_to_ok_account_admin' (ID: 2733784):
+{
+  "id": 2733784,
+  "account_id": 725,
+  "uid": "CrTcOUg",
+  "name": "getting_to_ok_account_admin",
+  "token_string": "dbtc_CrTcOUgWuqU4x6McSAdd_CmOc2wnsIWczs0weAw_0hM76yky0I",
+  "state": 1,
+  "service_token_permissions": [
+    {
+      "id": 3193709,
+      "account_id": 725,
+      "service_token_id": 2733784,
+      "all_projects": true,
+      "state": 1,
+      "permission_set": "account_admin"
+    }
+  ]
+}
+[DEBUG] CreateServiceToken - Raw API response for token 'test_analysit':
+{"status":{"code":201,"is_success":true,"user_message":"Success!","developer_message":""},"data":{"id":2733786,"created_at":"2025-12-20 18:31:05.124414+00:00","updated_at":"2025-12-20 18:31:05.124427+00:00","account_id":725,"uid":"WmEWIDg","name":"test_analysit","state":1,"permission_grants":[{"permission_set":"analyst","project_id":null,"writable_environment_categories":[]}],"last_used":null,"semantic_layer_credentials":null,"metadata_only":false,"webhooks_only":false,"token":"kVHWgtWP6IYan3XEu6cqJxfhw4Txzgq0kgtG0mQsZMw","token_string":"dbtc_WmEWIDgkVHWgtWP6IYan3XEu6cqJxfhw4Txzgq0kgtG0mQsZMw","last_identify":null,"user_id":null,"user":null,"type":null,"expires_at":null,"service_token_permissions":[{"id":3193711,"account_id":725,"service_token_id":2733786,"project_id":null,"all_projects":true,"permission_set":"analyst","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:05.201403+00:00","updated_at":"2025-12-20 18:31:05.201415+00:00"}]},"extra":{},"error_code":null}
+[DEBUG] ServiceToken Create - API creation response for token 'test_analysit' (ID: 2733786):
+{
+  "id": 2733786,
+  "account_id": 725,
+  "uid": "WmEWIDg",
+  "name": "test_analysit",
+  "token_string": "dbtc_WmEWIDgkVHWgtWP6IYan3XEu6cqJxfhw4Txzgq0kgtG0mQsZMw",
+  "state": 1,
+  "service_token_permissions": [
+    {
+      "id": 3193711,
+      "account_id": 725,
+      "service_token_id": 2733786,
+      "all_projects": true,
+      "state": 1,
+      "permission_set": "analyst"
+    }
+  ]
+}
+[DEBUG] CreateServiceToken - Raw API response for token 'gtok_admin':
+{"status":{"code":201,"is_success":true,"user_message":"Success!","developer_message":""},"data":{"id":2733783,"created_at":"2025-12-20 18:31:05.117478+00:00","updated_at":"2025-12-20 18:31:05.117491+00:00","account_id":725,"uid":"Tc15LJQ","name":"gtok_admin","state":1,"permission_grants":[{"permission_set":"account_admin","project_id":null,"writable_environment_categories":[]}],"last_used":null,"semantic_layer_credentials":null,"metadata_only":false,"webhooks_only":false,"token":"AagqlSi7hJEDLXSBM19NhJNvu5sLciWwlei-_qbub-c","token_string":"dbtc_Tc15LJQAagqlSi7hJEDLXSBM19NhJNvu5sLciWwlei-_qbub-c","last_identify":null,"user_id":null,"user":null,"type":null,"expires_at":null,"service_token_permissions":[{"id":3193710,"account_id":725,"service_token_id":2733783,"project_id":null,"all_projects":true,"permission_set":"account_admin","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:05.191399+00:00","updated_at":"2025-12-20 18:31:05.191414+00:00"}]},"extra":{},"error_code":null}
+[DEBUG] ServiceToken Create - API creation response for token 'gtok_admin' (ID: 2733783):
+{
+  "id": 2733783,
+  "account_id": 725,
+  "uid": "Tc15LJQ",
+  "name": "gtok_admin",
+  "token_string": "dbtc_Tc15LJQAagqlSi7hJEDLXSBM19NhJNvu5sLciWwlei-_qbub-c",
+  "state": 1,
+  "service_token_permissions": [
+    {
+      "id": 3193710,
+      "account_id": 725,
+      "service_token_id": 2733783,
+      "all_projects": true,
+      "state": 1,
+      "permission_set": "account_admin"
+    }
+  ]
+}
+[DEBUG] CreateServiceToken - Raw API response for token 'job_runner':
+{"status":{"code":201,"is_success":true,"user_message":"Success!","developer_message":""},"data":{"id":2733785,"created_at":"2025-12-20 18:31:05.123250+00:00","updated_at":"2025-12-20 18:31:05.123259+00:00","account_id":725,"uid":"0RCopPk","name":"job_runner","state":1,"permission_grants":[{"permission_set":"job_runner","project_id":null,"writable_environment_categories":[]}],"last_used":null,"semantic_layer_credentials":null,"metadata_only":false,"webhooks_only":false,"token":"uBrQydVEGqFJTpqMtMjVuKCs97MikwLJWU-uzyDsRXY","token_string":"dbtc_0RCopPkuBrQydVEGqFJTpqMtMjVuKCs97MikwLJWU-uzyDsRXY","last_identify":null,"user_id":null,"user":null,"type":null,"expires_at":null,"service_token_permissions":[{"id":3193712,"account_id":725,"service_token_id":2733785,"project_id":null,"all_projects":true,"permission_set":"job_runner","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:05.204679+00:00","updated_at":"2025-12-20 18:31:05.204691+00:00"}]},"extra":{},"error_code":null}
+[DEBUG] ServiceToken Create - API creation response for token 'job_runner' (ID: 2733785):
+{
+  "id": 2733785,
+  "account_id": 725,
+  "uid": "0RCopPk",
+  "name": "job_runner",
+  "token_string": "dbtc_0RCopPkuBrQydVEGqFJTpqMtMjVuKCs97MikwLJWU-uzyDsRXY",
+  "state": 1,
+  "service_token_permissions": [
+    {
+      "id": 3193712,
+      "account_id": 725,
+      "service_token_id": 2733785,
+      "all_projects": true,
+      "state": 1,
+      "permission_set": "job_runner"
+    }
+  ]
+}
+[DEBUG] GetServiceTokenPermissions - Raw API response for token ID 2733784:
+  Permission 0: {"id":3193709,"account_id":725,"service_token_id":2733784,"project_id":null,"all_projects":true,"permission_set":"account_admin","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:05.190547+00:00","updated_at":"2025-12-20 18:31:05.190559+00:00"}
+[DEBUG] GetServiceTokenPermissions - Parsed permissions for token ID 2733784:
+[
+  {
+    "id": 3193709,
+    "account_id": 725,
+    "service_token_id": 2733784,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_admin"
+  }
+]
+[DEBUG] ServiceToken Create - Fetched permissions from API for token 'getting_to_ok_account_admin' (ID: 2733784):
+[
+  {
+    "id": 3193709,
+    "account_id": 725,
+    "service_token_id": 2733784,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_admin"
+  }
+]
+[DEBUG] ServiceToken Create - Plan permissions for token 'getting_to_ok_account_admin':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Actual permissions (converted) for token 'getting_to_ok_account_admin':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] GetServiceTokenPermissions - Raw API response for token ID 2733783:
+  Permission 0: {"id":3193710,"account_id":725,"service_token_id":2733783,"project_id":null,"all_projects":true,"permission_set":"account_admin","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:05.191399+00:00","updated_at":"2025-12-20 18:31:05.191414+00:00"}
+[DEBUG] GetServiceTokenPermissions - Raw API response for token ID 2733786:
+  Permission 0: {"id":3193711,"account_id":725,"service_token_id":2733786,"project_id":null,"all_projects":true,"permission_set":"analyst","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:05.201403+00:00","updated_at":"2025-12-20 18:31:05.201415+00:00"}
+[DEBUG] GetServiceTokenPermissions - Parsed permissions for token ID 2733783:
+[
+  {
+    "id": 3193710,
+    "account_id": 725,
+    "service_token_id": 2733783,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_admin"
+  }
+]
+[DEBUG] GetServiceTokenPermissions - Raw API response for token ID 2733782:
+[DEBUG] GetServiceTokenPermissions - Parsed permissions for token ID 2733786:
+[
+  {
+    "id": 3193711,
+    "account_id": 725,
+    "service_token_id": 2733786,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "analyst"
+  }
+]
+  Permission 0: {"id":3193708,"account_id":725,"service_token_id":2733782,"project_id":null,"all_projects":true,"permission_set":"account_admin","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:05.184617+00:00","updated_at":"2025-12-20 18:31:05.184630+00:00"}
+[DEBUG] ServiceToken Create - Fetched permissions from API for token 'test_analysit' (ID: 2733786):
+[
+  {
+    "id": 3193711,
+    "account_id": 725,
+    "service_token_id": 2733786,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "analyst"
+  }
+]
+[DEBUG] ServiceToken Create - Fetched permissions from API for token 'gtok_admin' (ID: 2733783):
+[
+  {
+    "id": 3193710,
+    "account_id": 725,
+    "service_token_id": 2733783,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_admin"
+  }
+]
+[DEBUG] GetServiceTokenPermissions - Parsed permissions for token ID 2733782:
+[
+  {
+    "id": 3193708,
+    "account_id": 725,
+    "service_token_id": 2733782,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_admin"
+  }
+]
+[DEBUG] ServiceToken Create - Fetched permissions from API for token 'account_admin' (ID: 2733782):
+[
+  {
+    "id": 3193708,
+    "account_id": 725,
+    "service_token_id": 2733782,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_admin"
+  }
+]
+[DEBUG] ServiceToken Create - Plan permissions for token 'gtok_admin':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Actual permissions (converted) for token 'gtok_admin':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Plan permissions for token 'test_analysit':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Actual permissions (converted) for token 'test_analysit':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Plan permissions for token 'account_admin':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Actual permissions (converted) for token 'account_admin':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] GetServiceTokenPermissions - Raw API response for token ID 2733785:
+  Permission 0: {"id":3193712,"account_id":725,"service_token_id":2733785,"project_id":null,"all_projects":true,"permission_set":"job_runner","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:05.204679+00:00","updated_at":"2025-12-20 18:31:05.204691+00:00"}
+[DEBUG] GetServiceTokenPermissions - Parsed permissions for token ID 2733785:
+[
+  {
+    "id": 3193712,
+    "account_id": 725,
+    "service_token_id": 2733785,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "job_runner"
+  }
+]
+[DEBUG] ServiceToken Create - Fetched permissions from API for token 'job_runner' (ID: 2733785):
+[
+  {
+    "id": 3193712,
+    "account_id": 725,
+    "service_token_id": 2733785,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "job_runner"
+  }
+]
+[DEBUG] ServiceToken Create - Plan permissions for token 'job_runner':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Actual permissions (converted) for token 'job_runner':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Sending permission_grants to API for token 'team_dev':
+[
+  {
+    "permission_set": "team_admin",
+    "project_id": 13984,
+    "writable_environment_categories": [
+      "staging"
+    ]
+  },
+  {
+    "permission_set": "account_viewer",
+    "writable_environment_categories": []
+  }
+]
+[DEBUG] CreateServiceToken - JSON payload for token 'team_dev':
+{"name":"team_dev","permission_grants":[{"permission_set":"team_admin","project_id":13984,"writable_environment_categories":["staging"]},{"permission_set":"account_viewer","writable_environment_categories":[]}]}
+[DEBUG] ServiceToken Create - Sending permission_grants to API for token 'terraforming_admin':
+[
+  {
+    "permission_set": "account_admin",
+    "writable_environment_categories": []
+  }
+]
+[DEBUG] CreateServiceToken - JSON payload for token 'terraforming_admin':
+{"name":"terraforming_admin","permission_grants":[{"permission_set":"account_admin","writable_environment_categories":[]}]}
+[DEBUG] ServiceToken Create - Sending permission_grants to API for token 'team_prod':
+[
+  {
+    "permission_set": "team_admin",
+    "project_id": 13984,
+    "writable_environment_categories": [
+      "production"
+    ]
+  },
+  {
+    "permission_set": "account_viewer",
+    "writable_environment_categories": []
+  }
+]
+[DEBUG] CreateServiceToken - JSON payload for token 'team_prod':
+{"name":"team_prod","permission_grants":[{"permission_set":"team_admin","project_id":13984,"writable_environment_categories":["production"]},{"permission_set":"account_viewer","writable_environment_categories":[]}]}
+[DEBUG] ServiceToken Create - Sending permission_grants to API for token 'test':
+[]
+[DEBUG] CreateServiceToken - JSON payload for token 'test':
+{"name":"test"}
+[DEBUG] CreateServiceToken - Raw API response for token 'terraforming_admin':
+{"status":{"code":201,"is_success":true,"user_message":"Success!","developer_message":""},"data":{"id":2733788,"created_at":"2025-12-20 18:31:05.745703+00:00","updated_at":"2025-12-20 18:31:05.745716+00:00","account_id":725,"uid":"vqkPKqg","name":"terraforming_admin","state":1,"permission_grants":[{"permission_set":"account_admin","project_id":null,"writable_environment_categories":[]}],"last_used":null,"semantic_layer_credentials":null,"metadata_only":false,"webhooks_only":false,"token":"R86lSwRi6g7VHsMz9v0WplQ8LT06zC4dLq8rn7InO0g","token_string":"dbtc_vqkPKqgR86lSwRi6g7VHsMz9v0WplQ8LT06zC4dLq8rn7InO0g","last_identify":null,"user_id":null,"user":null,"type":null,"expires_at":null,"service_token_permissions":[{"id":3193714,"account_id":725,"service_token_id":2733788,"project_id":null,"all_projects":true,"permission_set":"account_admin","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:05.814894+00:00","updated_at":"2025-12-20 18:31:05.814906+00:00"}]},"extra":{},"error_code":null}
+[DEBUG] ServiceToken Create - API creation response for token 'terraforming_admin' (ID: 2733788):
+{
+  "id": 2733788,
+  "account_id": 725,
+  "uid": "vqkPKqg",
+  "name": "terraforming_admin",
+  "token_string": "dbtc_vqkPKqgR86lSwRi6g7VHsMz9v0WplQ8LT06zC4dLq8rn7InO0g",
+  "state": 1,
+  "service_token_permissions": [
+    {
+      "id": 3193714,
+      "account_id": 725,
+      "service_token_id": 2733788,
+      "all_projects": true,
+      "state": 1,
+      "permission_set": "account_admin"
+    }
+  ]
+}
+[DEBUG] CreateServiceToken - Raw API response for token 'team_dev':
+{"status":{"code":201,"is_success":true,"user_message":"Success!","developer_message":""},"data":{"id":2733787,"created_at":"2025-12-20 18:31:05.716349+00:00","updated_at":"2025-12-20 18:31:05.716362+00:00","account_id":725,"uid":"AF9IU50","name":"team_dev","state":1,"permission_grants":[{"permission_set":"team_admin","project_id":13984,"writable_environment_categories":["staging"]},{"permission_set":"account_viewer","project_id":null,"writable_environment_categories":[]}],"last_used":null,"semantic_layer_credentials":null,"metadata_only":false,"webhooks_only":false,"token":"Q-rhHFbz0iNO-EG1S6fid1BdojxH_-gw7yEYecjeXRE","token_string":"dbtc_AF9IU50Q-rhHFbz0iNO-EG1S6fid1BdojxH_-gw7yEYecjeXRE","last_identify":null,"user_id":null,"user":null,"type":null,"expires_at":null,"service_token_permissions":[{"id":3193713,"account_id":725,"service_token_id":2733787,"project_id":13984,"all_projects":false,"permission_set":"team_admin","state":1,"writable_environment_categories":["staging"],"created_at":"2025-12-20 18:31:05.785213+00:00","updated_at":"2025-12-20 18:31:05.785225+00:00"},{"id":3193715,"account_id":725,"service_token_id":2733787,"project_id":null,"all_projects":true,"permission_set":"account_viewer","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:05.824003+00:00","updated_at":"2025-12-20 18:31:05.824013+00:00"}]},"extra":{},"error_code":null}
+[DEBUG] ServiceToken Create - API creation response for token 'team_dev' (ID: 2733787):
+{
+  "id": 2733787,
+  "account_id": 725,
+  "uid": "AF9IU50",
+  "name": "team_dev",
+  "token_string": "dbtc_AF9IU50Q-rhHFbz0iNO-EG1S6fid1BdojxH_-gw7yEYecjeXRE",
+  "state": 1,
+  "service_token_permissions": [
+    {
+      "id": 3193713,
+      "account_id": 725,
+      "service_token_id": 2733787,
+      "project_id": 13984,
+      "all_projects": false,
+      "state": 1,
+      "permission_set": "team_admin",
+      "writable_environment_categories": [
+        "staging"
+      ]
+    },
+    {
+      "id": 3193715,
+      "account_id": 725,
+      "service_token_id": 2733787,
+      "all_projects": true,
+      "state": 1,
+      "permission_set": "account_viewer"
+    }
+  ]
+}
+[DEBUG] ServiceToken Create - Sending permission_grants to API for token 'tf_migrate_service12':
+[
+  {
+    "permission_set": "account_admin",
+    "writable_environment_categories": []
+  }
+]
+[DEBUG] CreateServiceToken - JSON payload for token 'tf_migrate_service12':
+{"name":"tf_migrate_service12","permission_grants":[{"permission_set":"account_admin","writable_environment_categories":[]}]}
+[DEBUG] GetServiceTokenPermissions - Raw API response for token ID 2733788:
+  Permission 0: {"id":3193714,"account_id":725,"service_token_id":2733788,"project_id":null,"all_projects":true,"permission_set":"account_admin","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:05.814894+00:00","updated_at":"2025-12-20 18:31:05.814906+00:00"}
+[DEBUG] GetServiceTokenPermissions - Parsed permissions for token ID 2733788:
+[
+  {
+    "id": 3193714,
+    "account_id": 725,
+    "service_token_id": 2733788,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_admin"
+  }
+]
+[DEBUG] ServiceToken Create - Fetched permissions from API for token 'terraforming_admin' (ID: 2733788):
+[
+  {
+    "id": 3193714,
+    "account_id": 725,
+    "service_token_id": 2733788,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_admin"
+  }
+]
+[DEBUG] ServiceToken Create - Plan permissions for token 'terraforming_admin':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Actual permissions (converted) for token 'terraforming_admin':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Sending permission_grants to API for token 'discoveryAPI':
+[
+  {
+    "permission_set": "metadata_only",
+    "writable_environment_categories": []
+  },
+  {
+    "permission_set": "readonly",
+    "writable_environment_categories": []
+  }
+]
+[DEBUG] CreateServiceToken - JSON payload for token 'discoveryAPI':
+{"name":"discoveryAPI","permission_grants":[{"permission_set":"metadata_only","writable_environment_categories":[]},{"permission_set":"readonly","writable_environment_categories":[]}]}
+[DEBUG] GetServiceTokenPermissions - Raw API response for token ID 2733787:
+  Permission 0: {"id":3193713,"account_id":725,"service_token_id":2733787,"project_id":13984,"all_projects":false,"permission_set":"team_admin","state":1,"writable_environment_categories":["staging"],"created_at":"2025-12-20 18:31:05.785213+00:00","updated_at":"2025-12-20 18:31:05.785225+00:00"}
+  Permission 1: {"id":3193715,"account_id":725,"service_token_id":2733787,"project_id":null,"all_projects":true,"permission_set":"account_viewer","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:05.824003+00:00","updated_at":"2025-12-20 18:31:05.824013+00:00"}
+[DEBUG] GetServiceTokenPermissions - Parsed permissions for token ID 2733787:
+[
+  {
+    "id": 3193713,
+    "account_id": 725,
+    "service_token_id": 2733787,
+    "project_id": 13984,
+    "all_projects": false,
+    "state": 1,
+    "permission_set": "team_admin",
+    "writable_environment_categories": [
+      "staging"
+    ]
+  },
+  {
+    "id": 3193715,
+    "account_id": 725,
+    "service_token_id": 2733787,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_viewer"
+  }
+]
+[DEBUG] ServiceToken Create - Fetched permissions from API for token 'team_dev' (ID: 2733787):
+[
+  {
+    "id": 3193713,
+    "account_id": 725,
+    "service_token_id": 2733787,
+    "project_id": 13984,
+    "all_projects": false,
+    "state": 1,
+    "permission_set": "team_admin",
+    "writable_environment_categories": [
+      "staging"
+    ]
+  },
+  {
+    "id": 3193715,
+    "account_id": 725,
+    "service_token_id": 2733787,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_viewer"
+  }
+]
+[DEBUG] ServiceToken Create - Plan permissions for token 'team_dev':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  },
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Actual permissions (converted) for token 'team_dev':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  },
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] CreateServiceToken - Raw API response for token 'test':
+{"status":{"code":201,"is_success":true,"user_message":"Success!","developer_message":""},"data":{"id":2733790,"created_at":"2025-12-20 18:31:06.068178+00:00","updated_at":"2025-12-20 18:31:06.068191+00:00","account_id":725,"uid":"WM5WP88","name":"test","state":1,"permission_grants":[],"last_used":null,"semantic_layer_credentials":null,"metadata_only":false,"webhooks_only":false,"token":"JrveXbFdByY_zbtYnAqH9wtMCZEMT4zO1uYh4DPTFq8","token_string":"dbtc_WM5WP88JrveXbFdByY_zbtYnAqH9wtMCZEMT4zO1uYh4DPTFq8","last_identify":null,"user_id":null,"user":null,"type":null,"expires_at":null,"service_token_permissions":[]},"extra":{},"error_code":null}
+[DEBUG] ServiceToken Create - API creation response for token 'test' (ID: 2733790):
+{
+  "id": 2733790,
+  "account_id": 725,
+  "uid": "WM5WP88",
+  "name": "test",
+  "token_string": "dbtc_WM5WP88JrveXbFdByY_zbtYnAqH9wtMCZEMT4zO1uYh4DPTFq8",
+  "state": 1
+}
+[DEBUG] ServiceToken Create - Sending permission_grants to API for token 'team_general':
+[
+  {
+    "permission_set": "team_admin",
+    "project_id": 13984,
+    "writable_environment_categories": [
+      "other"
+    ]
+  },
+  {
+    "permission_set": "account_viewer",
+    "writable_environment_categories": []
+  }
+]
+[DEBUG] CreateServiceToken - JSON payload for token 'team_general':
+{"name":"team_general","permission_grants":[{"permission_set":"team_admin","project_id":13984,"writable_environment_categories":["other"]},{"permission_set":"account_viewer","writable_environment_categories":[]}]}
+[DEBUG] ServiceToken Create - Sending permission_grants to API for token 'tf-migrator':
+[
+  {
+    "permission_set": "account_admin",
+    "writable_environment_categories": []
+  }
+]
+[DEBUG] CreateServiceToken - JSON payload for token 'tf-migrator':
+{"name":"tf-migrator","permission_grants":[{"permission_set":"account_admin","writable_environment_categories":[]}]}
+[DEBUG] ServiceToken Create - Sending permission_grants to API for token 'tf_dev_team_admin':
+[
+  {
+    "permission_set": "team_admin",
+    "project_id": 13984,
+    "writable_environment_categories": [
+      "staging"
+    ]
+  },
+  {
+    "permission_set": "account_viewer",
+    "writable_environment_categories": []
+  }
+]
+[DEBUG] CreateServiceToken - JSON payload for token 'tf_dev_team_admin':
+{"name":"tf_dev_team_admin","permission_grants":[{"permission_set":"team_admin","project_id":13984,"writable_environment_categories":["staging"]},{"permission_set":"account_viewer","writable_environment_categories":[]}]}
+[DEBUG] CreateServiceToken - Raw API response for token 'tf_migrate_service12':
+{"status":{"code":201,"is_success":true,"user_message":"Success!","developer_message":""},"data":{"id":2733791,"created_at":"2025-12-20 18:31:06.117731+00:00","updated_at":"2025-12-20 18:31:06.117744+00:00","account_id":725,"uid":"3OcJvaQ","name":"tf_migrate_service12","state":1,"permission_grants":[{"permission_set":"account_admin","project_id":null,"writable_environment_categories":[]}],"last_used":null,"semantic_layer_credentials":null,"metadata_only":false,"webhooks_only":false,"token":"COVOj3ljRGfmBM6PM6LFWBHAyGGlx_r_gXAnPW5bX3A","token_string":"dbtc_3OcJvaQCOVOj3ljRGfmBM6PM6LFWBHAyGGlx_r_gXAnPW5bX3A","last_identify":null,"user_id":null,"user":null,"type":null,"expires_at":null,"service_token_permissions":[{"id":3193716,"account_id":725,"service_token_id":2733791,"project_id":null,"all_projects":true,"permission_set":"account_admin","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.180556+00:00","updated_at":"2025-12-20 18:31:06.180570+00:00"}]},"extra":{},"error_code":null}
+[DEBUG] ServiceToken Create - API creation response for token 'tf_migrate_service12' (ID: 2733791):
+{
+  "id": 2733791,
+  "account_id": 725,
+  "uid": "3OcJvaQ",
+  "name": "tf_migrate_service12",
+  "token_string": "dbtc_3OcJvaQCOVOj3ljRGfmBM6PM6LFWBHAyGGlx_r_gXAnPW5bX3A",
+  "state": 1,
+  "service_token_permissions": [
+    {
+      "id": 3193716,
+      "account_id": 725,
+      "service_token_id": 2733791,
+      "all_projects": true,
+      "state": 1,
+      "permission_set": "account_admin"
+    }
+  ]
+}
+[DEBUG] ServiceToken Create - Sending permission_grants to API for token 'postman_20250416':
+[
+  {
+    "permission_set": "account_admin",
+    "writable_environment_categories": []
+  }
+]
+[DEBUG] CreateServiceToken - JSON payload for token 'postman_20250416':
+{"name":"postman_20250416","permission_grants":[{"permission_set":"account_admin","writable_environment_categories":[]}]}
+[DEBUG] GetServiceTokenPermissions - Raw API response for token ID 2733790:
+[DEBUG] GetServiceTokenPermissions - Parsed permissions for token ID 2733790:
+[]
+[DEBUG] ServiceToken Create - Fetched permissions from API for token 'test' (ID: 2733790):
+[]
+[DEBUG] ServiceToken Create - Plan permissions for token 'test':
+null
+[DEBUG] ServiceToken Create - Actual permissions (converted) for token 'test':
+[]
+[DEBUG] ServiceToken Create - Sending permission_grants to API for token 'gtok_sl':
+[
+  {
+    "permission_set": "metadata_only",
+    "project_id": 13984,
+    "writable_environment_categories": []
+  },
+  {
+    "permission_set": "semantic_layer_only",
+    "project_id": 13984,
+    "writable_environment_categories": []
+  }
+]
+[DEBUG] CreateServiceToken - JSON payload for token 'gtok_sl':
+{"name":"gtok_sl","permission_grants":[{"permission_set":"metadata_only","project_id":13984,"writable_environment_categories":[]},{"permission_set":"semantic_layer_only","project_id":13984,"writable_environment_categories":[]}]}
+[DEBUG] CreateServiceToken - Raw API response for token 'team_prod':
+{"status":{"code":201,"is_success":true,"user_message":"Success!","developer_message":""},"data":{"id":2733789,"created_at":"2025-12-20 18:31:06.044882+00:00","updated_at":"2025-12-20 18:31:06.044896+00:00","account_id":725,"uid":"tl_K7pM","name":"team_prod","state":1,"permission_grants":[{"permission_set":"team_admin","project_id":13984,"writable_environment_categories":["production"]},{"permission_set":"account_viewer","project_id":null,"writable_environment_categories":[]}],"last_used":null,"semantic_layer_credentials":null,"metadata_only":false,"webhooks_only":false,"token":"-WQAfIu3PicF6VQP02tECz0-fcDIEMPqSgLxMVuKdgc","token_string":"dbtc_tl_K7pM-WQAfIu3PicF6VQP02tECz0-fcDIEMPqSgLxMVuKdgc","last_identify":null,"user_id":null,"user":null,"type":null,"expires_at":null,"service_token_permissions":[{"id":3193717,"account_id":725,"service_token_id":2733789,"project_id":13984,"all_projects":false,"permission_set":"team_admin","state":1,"writable_environment_categories":["production"],"created_at":"2025-12-20 18:31:06.236240+00:00","updated_at":"2025-12-20 18:31:06.236254+00:00"},{"id":3193718,"account_id":725,"service_token_id":2733789,"project_id":null,"all_projects":true,"permission_set":"account_viewer","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.307748+00:00","updated_at":"2025-12-20 18:31:06.307762+00:00"}]},"extra":{},"error_code":null}
+[DEBUG] ServiceToken Create - API creation response for token 'team_prod' (ID: 2733789):
+{
+  "id": 2733789,
+  "account_id": 725,
+  "uid": "tl_K7pM",
+  "name": "team_prod",
+  "token_string": "dbtc_tl_K7pM-WQAfIu3PicF6VQP02tECz0-fcDIEMPqSgLxMVuKdgc",
+  "state": 1,
+  "service_token_permissions": [
+    {
+      "id": 3193717,
+      "account_id": 725,
+      "service_token_id": 2733789,
+      "project_id": 13984,
+      "all_projects": false,
+      "state": 1,
+      "permission_set": "team_admin",
+      "writable_environment_categories": [
+        "production"
+      ]
+    },
+    {
+      "id": 3193718,
+      "account_id": 725,
+      "service_token_id": 2733789,
+      "all_projects": true,
+      "state": 1,
+      "permission_set": "account_viewer"
+    }
+  ]
+}
+[DEBUG] GetServiceTokenPermissions - Raw API response for token ID 2733791:
+  Permission 0: {"id":3193716,"account_id":725,"service_token_id":2733791,"project_id":null,"all_projects":true,"permission_set":"account_admin","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.180556+00:00","updated_at":"2025-12-20 18:31:06.180570+00:00"}
+[DEBUG] GetServiceTokenPermissions - Parsed permissions for token ID 2733791:
+[
+  {
+    "id": 3193716,
+    "account_id": 725,
+    "service_token_id": 2733791,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_admin"
+  }
+]
+[DEBUG] ServiceToken Create - Fetched permissions from API for token 'tf_migrate_service12' (ID: 2733791):
+[
+  {
+    "id": 3193716,
+    "account_id": 725,
+    "service_token_id": 2733791,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_admin"
+  }
+]
+[DEBUG] ServiceToken Create - Plan permissions for token 'tf_migrate_service12':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Actual permissions (converted) for token 'tf_migrate_service12':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Sending permission_grants to API for token 'another_account_admin':
+[
+  {
+    "permission_set": "account_admin",
+    "writable_environment_categories": []
+  }
+]
+[DEBUG] CreateServiceToken - JSON payload for token 'another_account_admin':
+{"name":"another_account_admin","permission_grants":[{"permission_set":"account_admin","writable_environment_categories":[]}]}
+[DEBUG] CreateServiceToken - Raw API response for token 'tf-migrator':
+{"status":{"code":201,"is_success":true,"user_message":"Success!","developer_message":""},"data":{"id":2733794,"created_at":"2025-12-20 18:31:06.345822+00:00","updated_at":"2025-12-20 18:31:06.345836+00:00","account_id":725,"uid":"edxybDI","name":"tf-migrator","state":1,"permission_grants":[{"permission_set":"account_admin","project_id":null,"writable_environment_categories":[]}],"last_used":null,"semantic_layer_credentials":null,"metadata_only":false,"webhooks_only":false,"token":"0q_RENyuOA1kpari3ZorGWijz_b4X0sqCelnVLK5D8c","token_string":"dbtc_edxybDI0q_RENyuOA1kpari3ZorGWijz_b4X0sqCelnVLK5D8c","last_identify":null,"user_id":null,"user":null,"type":null,"expires_at":null,"service_token_permissions":[{"id":3193720,"account_id":725,"service_token_id":2733794,"project_id":null,"all_projects":true,"permission_set":"account_admin","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.420693+00:00","updated_at":"2025-12-20 18:31:06.420706+00:00"}]},"extra":{},"error_code":null}
+[DEBUG] ServiceToken Create - API creation response for token 'tf-migrator' (ID: 2733794):
+{
+  "id": 2733794,
+  "account_id": 725,
+  "uid": "edxybDI",
+  "name": "tf-migrator",
+  "token_string": "dbtc_edxybDI0q_RENyuOA1kpari3ZorGWijz_b4X0sqCelnVLK5D8c",
+  "state": 1,
+  "service_token_permissions": [
+    {
+      "id": 3193720,
+      "account_id": 725,
+      "service_token_id": 2733794,
+      "all_projects": true,
+      "state": 1,
+      "permission_set": "account_admin"
+    }
+  ]
+}
+[DEBUG] CreateServiceToken - Raw API response for token 'team_general':
+{"status":{"code":201,"is_success":true,"user_message":"Success!","developer_message":""},"data":{"id":2733793,"created_at":"2025-12-20 18:31:06.325436+00:00","updated_at":"2025-12-20 18:31:06.325451+00:00","account_id":725,"uid":"xTKFzPU","name":"team_general","state":1,"permission_grants":[{"permission_set":"team_admin","project_id":13984,"writable_environment_categories":["other"]},{"permission_set":"account_viewer","project_id":null,"writable_environment_categories":[]}],"last_used":null,"semantic_layer_credentials":null,"metadata_only":false,"webhooks_only":false,"token":"HNeW9lKbV0G9fN4tkKr9jcv7v1KrM84cyipHKOqu7Tk","token_string":"dbtc_xTKFzPUHNeW9lKbV0G9fN4tkKr9jcv7v1KrM84cyipHKOqu7Tk","last_identify":null,"user_id":null,"user":null,"type":null,"expires_at":null,"service_token_permissions":[{"id":3193719,"account_id":725,"service_token_id":2733793,"project_id":13984,"all_projects":false,"permission_set":"team_admin","state":1,"writable_environment_categories":["other"],"created_at":"2025-12-20 18:31:06.398070+00:00","updated_at":"2025-12-20 18:31:06.398083+00:00"},{"id":3193721,"account_id":725,"service_token_id":2733793,"project_id":null,"all_projects":true,"permission_set":"account_viewer","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.436355+00:00","updated_at":"2025-12-20 18:31:06.436369+00:00"}]},"extra":{},"error_code":null}
+[DEBUG] ServiceToken Create - API creation response for token 'team_general' (ID: 2733793):
+{
+  "id": 2733793,
+  "account_id": 725,
+  "uid": "xTKFzPU",
+  "name": "team_general",
+  "token_string": "dbtc_xTKFzPUHNeW9lKbV0G9fN4tkKr9jcv7v1KrM84cyipHKOqu7Tk",
+  "state": 1,
+  "service_token_permissions": [
+    {
+      "id": 3193719,
+      "account_id": 725,
+      "service_token_id": 2733793,
+      "project_id": 13984,
+      "all_projects": false,
+      "state": 1,
+      "permission_set": "team_admin",
+      "writable_environment_categories": [
+        "other"
+      ]
+    },
+    {
+      "id": 3193721,
+      "account_id": 725,
+      "service_token_id": 2733793,
+      "all_projects": true,
+      "state": 1,
+      "permission_set": "account_viewer"
+    }
+  ]
+}
+[DEBUG] CreateServiceToken - Raw API response for token 'tf_dev_team_admin':
+{"status":{"code":201,"is_success":true,"user_message":"Success!","developer_message":""},"data":{"id":2733795,"created_at":"2025-12-20 18:31:06.366206+00:00","updated_at":"2025-12-20 18:31:06.366220+00:00","account_id":725,"uid":"tdxELWI","name":"tf_dev_team_admin","state":1,"permission_grants":[{"permission_set":"team_admin","project_id":13984,"writable_environment_categories":["staging"]},{"permission_set":"account_viewer","project_id":null,"writable_environment_categories":[]}],"last_used":null,"semantic_layer_credentials":null,"metadata_only":false,"webhooks_only":false,"token":"OPazkUXIwssHbogjNCRVUyoCqNoQ76feQ5xSxLi4Ayw","token_string":"dbtc_tdxELWIOPazkUXIwssHbogjNCRVUyoCqNoQ76feQ5xSxLi4Ayw","last_identify":null,"user_id":null,"user":null,"type":null,"expires_at":null,"service_token_permissions":[{"id":3193723,"account_id":725,"service_token_id":2733795,"project_id":13984,"all_projects":false,"permission_set":"team_admin","state":1,"writable_environment_categories":["staging"],"created_at":"2025-12-20 18:31:06.450400+00:00","updated_at":"2025-12-20 18:31:06.450413+00:00"},{"id":3193724,"account_id":725,"service_token_id":2733795,"project_id":null,"all_projects":true,"permission_set":"account_viewer","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.488787+00:00","updated_at":"2025-12-20 18:31:06.488801+00:00"}]},"extra":{},"error_code":null}
+[DEBUG] ServiceToken Create - API creation response for token 'tf_dev_team_admin' (ID: 2733795):
+{
+  "id": 2733795,
+  "account_id": 725,
+  "uid": "tdxELWI",
+  "name": "tf_dev_team_admin",
+  "token_string": "dbtc_tdxELWIOPazkUXIwssHbogjNCRVUyoCqNoQ76feQ5xSxLi4Ayw",
+  "state": 1,
+  "service_token_permissions": [
+    {
+      "id": 3193723,
+      "account_id": 725,
+      "service_token_id": 2733795,
+      "project_id": 13984,
+      "all_projects": false,
+      "state": 1,
+      "permission_set": "team_admin",
+      "writable_environment_categories": [
+        "staging"
+      ]
+    },
+    {
+      "id": 3193724,
+      "account_id": 725,
+      "service_token_id": 2733795,
+      "all_projects": true,
+      "state": 1,
+      "permission_set": "account_viewer"
+    }
+  ]
+}
+[DEBUG] CreateServiceToken - Raw API response for token 'discoveryAPI':
+{"status":{"code":201,"is_success":true,"user_message":"Success!","developer_message":""},"data":{"id":2733792,"created_at":"2025-12-20 18:31:06.318649+00:00","updated_at":"2025-12-20 18:31:06.318663+00:00","account_id":725,"uid":"o2QuNm4","name":"discoveryAPI","state":1,"permission_grants":[{"permission_set":"metadata_only","project_id":null,"writable_environment_categories":[]},{"permission_set":"readonly","project_id":null,"writable_environment_categories":[]}],"last_used":null,"semantic_layer_credentials":null,"metadata_only":false,"webhooks_only":false,"token":"NeVY5Dod40ircD8xQQjoKHa7oXxhn-Mo3f3-zmZP14E","token_string":"dbtc_o2QuNm4NeVY5Dod40ircD8xQQjoKHa7oXxhn-Mo3f3-zmZP14E","last_identify":null,"user_id":null,"user":null,"type":null,"expires_at":null,"service_token_permissions":[{"id":3193722,"account_id":725,"service_token_id":2733792,"project_id":null,"all_projects":true,"permission_set":"metadata_only","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.446374+00:00","updated_at":"2025-12-20 18:31:06.446390+00:00"},{"id":3193725,"account_id":725,"service_token_id":2733792,"project_id":null,"all_projects":true,"permission_set":"readonly","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.497755+00:00","updated_at":"2025-12-20 18:31:06.497769+00:00"}]},"extra":{},"error_code":null}
+[DEBUG] ServiceToken Create - API creation response for token 'discoveryAPI' (ID: 2733792):
+{
+  "id": 2733792,
+  "account_id": 725,
+  "uid": "o2QuNm4",
+  "name": "discoveryAPI",
+  "token_string": "dbtc_o2QuNm4NeVY5Dod40ircD8xQQjoKHa7oXxhn-Mo3f3-zmZP14E",
+  "state": 1,
+  "service_token_permissions": [
+    {
+      "id": 3193722,
+      "account_id": 725,
+      "service_token_id": 2733792,
+      "all_projects": true,
+      "state": 1,
+      "permission_set": "metadata_only"
+    },
+    {
+      "id": 3193725,
+      "account_id": 725,
+      "service_token_id": 2733792,
+      "all_projects": true,
+      "state": 1,
+      "permission_set": "readonly"
+    }
+  ]
+}
+[DEBUG] GetServiceTokenPermissions - Raw API response for token ID 2733789:
+  Permission 0: {"id":3193717,"account_id":725,"service_token_id":2733789,"project_id":13984,"all_projects":false,"permission_set":"team_admin","state":1,"writable_environment_categories":["production"],"created_at":"2025-12-20 18:31:06.236240+00:00","updated_at":"2025-12-20 18:31:06.236254+00:00"}
+  Permission 1: {"id":3193718,"account_id":725,"service_token_id":2733789,"project_id":null,"all_projects":true,"permission_set":"account_viewer","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.307748+00:00","updated_at":"2025-12-20 18:31:06.307762+00:00"}
+[DEBUG] GetServiceTokenPermissions - Parsed permissions for token ID 2733789:
+[
+  {
+    "id": 3193717,
+    "account_id": 725,
+    "service_token_id": 2733789,
+    "project_id": 13984,
+    "all_projects": false,
+    "state": 1,
+    "permission_set": "team_admin",
+    "writable_environment_categories": [
+      "production"
+    ]
+  },
+  {
+    "id": 3193718,
+    "account_id": 725,
+    "service_token_id": 2733789,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_viewer"
+  }
+]
+[DEBUG] ServiceToken Create - Fetched permissions from API for token 'team_prod' (ID: 2733789):
+[
+  {
+    "id": 3193717,
+    "account_id": 725,
+    "service_token_id": 2733789,
+    "project_id": 13984,
+    "all_projects": false,
+    "state": 1,
+    "permission_set": "team_admin",
+    "writable_environment_categories": [
+      "production"
+    ]
+  },
+  {
+    "id": 3193718,
+    "account_id": 725,
+    "service_token_id": 2733789,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_viewer"
+  }
+]
+[DEBUG] ServiceToken Create - Plan permissions for token 'team_prod':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  },
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Actual permissions (converted) for token 'team_prod':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  },
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] CreateServiceToken - Raw API response for token 'postman_20250416':
+{"status":{"code":201,"is_success":true,"user_message":"Success!","developer_message":""},"data":{"id":2733796,"created_at":"2025-12-20 18:31:06.529856+00:00","updated_at":"2025-12-20 18:31:06.529869+00:00","account_id":725,"uid":"shbbVFE","name":"postman_20250416","state":1,"permission_grants":[{"permission_set":"account_admin","project_id":null,"writable_environment_categories":[]}],"last_used":null,"semantic_layer_credentials":null,"metadata_only":false,"webhooks_only":false,"token":"GD4vXAIFdb9G4riRMTbf7BmFZS4Z7w-uq6AwpP9S5CQ","token_string":"dbtc_shbbVFEGD4vXAIFdb9G4riRMTbf7BmFZS4Z7w-uq6AwpP9S5CQ","last_identify":null,"user_id":null,"user":null,"type":null,"expires_at":null,"service_token_permissions":[{"id":3193726,"account_id":725,"service_token_id":2733796,"project_id":null,"all_projects":true,"permission_set":"account_admin","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.593383+00:00","updated_at":"2025-12-20 18:31:06.593397+00:00"}]},"extra":{},"error_code":null}
+[DEBUG] ServiceToken Create - API creation response for token 'postman_20250416' (ID: 2733796):
+{
+  "id": 2733796,
+  "account_id": 725,
+  "uid": "shbbVFE",
+  "name": "postman_20250416",
+  "token_string": "dbtc_shbbVFEGD4vXAIFdb9G4riRMTbf7BmFZS4Z7w-uq6AwpP9S5CQ",
+  "state": 1,
+  "service_token_permissions": [
+    {
+      "id": 3193726,
+      "account_id": 725,
+      "service_token_id": 2733796,
+      "all_projects": true,
+      "state": 1,
+      "permission_set": "account_admin"
+    }
+  ]
+}
+[DEBUG] GetServiceTokenPermissions - Raw API response for token ID 2733794:
+  Permission 0: {"id":3193720,"account_id":725,"service_token_id":2733794,"project_id":null,"all_projects":true,"permission_set":"account_admin","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.420693+00:00","updated_at":"2025-12-20 18:31:06.420706+00:00"}
+[DEBUG] GetServiceTokenPermissions - Parsed permissions for token ID 2733794:
+[
+  {
+    "id": 3193720,
+    "account_id": 725,
+    "service_token_id": 2733794,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_admin"
+  }
+]
+[DEBUG] ServiceToken Create - Fetched permissions from API for token 'tf-migrator' (ID: 2733794):
+[
+  {
+    "id": 3193720,
+    "account_id": 725,
+    "service_token_id": 2733794,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_admin"
+  }
+]
+[DEBUG] ServiceToken Create - Plan permissions for token 'tf-migrator':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Actual permissions (converted) for token 'tf-migrator':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] GetServiceTokenPermissions - Raw API response for token ID 2733793:
+  Permission 0: {"id":3193719,"account_id":725,"service_token_id":2733793,"project_id":13984,"all_projects":false,"permission_set":"team_admin","state":1,"writable_environment_categories":["other"],"created_at":"2025-12-20 18:31:06.398070+00:00","updated_at":"2025-12-20 18:31:06.398083+00:00"}
+  Permission 1: {"id":3193721,"account_id":725,"service_token_id":2733793,"project_id":null,"all_projects":true,"permission_set":"account_viewer","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.436355+00:00","updated_at":"2025-12-20 18:31:06.436369+00:00"}
+[DEBUG] GetServiceTokenPermissions - Parsed permissions for token ID 2733793:
+[
+  {
+    "id": 3193719,
+    "account_id": 725,
+    "service_token_id": 2733793,
+    "project_id": 13984,
+    "all_projects": false,
+    "state": 1,
+    "permission_set": "team_admin",
+    "writable_environment_categories": [
+      "other"
+    ]
+  },
+  {
+    "id": 3193721,
+    "account_id": 725,
+    "service_token_id": 2733793,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_viewer"
+  }
+]
+[DEBUG] ServiceToken Create - Fetched permissions from API for token 'team_general' (ID: 2733793):
+[
+  {
+    "id": 3193719,
+    "account_id": 725,
+    "service_token_id": 2733793,
+    "project_id": 13984,
+    "all_projects": false,
+    "state": 1,
+    "permission_set": "team_admin",
+    "writable_environment_categories": [
+      "other"
+    ]
+  },
+  {
+    "id": 3193721,
+    "account_id": 725,
+    "service_token_id": 2733793,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_viewer"
+  }
+]
+[DEBUG] ServiceToken Create - Plan permissions for token 'team_general':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  },
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Actual permissions (converted) for token 'team_general':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  },
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] GetServiceTokenPermissions - Raw API response for token ID 2733795:
+  Permission 0: {"id":3193723,"account_id":725,"service_token_id":2733795,"project_id":13984,"all_projects":false,"permission_set":"team_admin","state":1,"writable_environment_categories":["staging"],"created_at":"2025-12-20 18:31:06.450400+00:00","updated_at":"2025-12-20 18:31:06.450413+00:00"}
+  Permission 1: {"id":3193724,"account_id":725,"service_token_id":2733795,"project_id":null,"all_projects":true,"permission_set":"account_viewer","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.488787+00:00","updated_at":"2025-12-20 18:31:06.488801+00:00"}
+[DEBUG] GetServiceTokenPermissions - Parsed permissions for token ID 2733795:
+[
+  {
+    "id": 3193723,
+    "account_id": 725,
+    "service_token_id": 2733795,
+    "project_id": 13984,
+    "all_projects": false,
+    "state": 1,
+    "permission_set": "team_admin",
+    "writable_environment_categories": [
+      "staging"
+    ]
+  },
+  {
+    "id": 3193724,
+    "account_id": 725,
+    "service_token_id": 2733795,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_viewer"
+  }
+]
+[DEBUG] CreateServiceToken - Raw API response for token 'gtok_sl':
+{"status":{"code":201,"is_success":true,"user_message":"Success!","developer_message":""},"data":{"id":2733797,"created_at":"2025-12-20 18:31:06.542290+00:00","updated_at":"2025-12-20 18:31:06.542302+00:00","account_id":725,"uid":"shznn0E","name":"gtok_sl","state":1,"permission_grants":[{"permission_set":"metadata_only","project_id":13984,"writable_environment_categories":[]},{"permission_set":"semantic_layer_only","project_id":13984,"writable_environment_categories":[]}],"last_used":null,"semantic_layer_credentials":null,"metadata_only":false,"webhooks_only":false,"token":"czxP3PYJY_Qp0FLFE_g2TQugwLXG1MkfwpM2EoRdLPU","token_string":"dbtc_shznn0EczxP3PYJY_Qp0FLFE_g2TQugwLXG1MkfwpM2EoRdLPU","last_identify":null,"user_id":null,"user":null,"type":null,"expires_at":null,"service_token_permissions":[{"id":3193727,"account_id":725,"service_token_id":2733797,"project_id":13984,"all_projects":false,"permission_set":"metadata_only","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.624003+00:00","updated_at":"2025-12-20 18:31:06.624016+00:00"},{"id":3193728,"account_id":725,"service_token_id":2733797,"project_id":13984,"all_projects":false,"permission_set":"semantic_layer_only","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.703376+00:00","updated_at":"2025-12-20 18:31:06.703389+00:00"}]},"extra":{},"error_code":null}
+[DEBUG] ServiceToken Create - Fetched permissions from API for token 'tf_dev_team_admin' (ID: 2733795):
+[
+  {
+    "id": 3193723,
+    "account_id": 725,
+    "service_token_id": 2733795,
+    "project_id": 13984,
+    "all_projects": false,
+    "state": 1,
+    "permission_set": "team_admin",
+    "writable_environment_categories": [
+      "staging"
+    ]
+  },
+  {
+    "id": 3193724,
+    "account_id": 725,
+    "service_token_id": 2733795,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_viewer"
+  }
+]
+[DEBUG] ServiceToken Create - API creation response for token 'gtok_sl' (ID: 2733797):
+{
+  "id": 2733797,
+  "account_id": 725,
+  "uid": "shznn0E",
+  "name": "gtok_sl",
+  "token_string": "dbtc_shznn0EczxP3PYJY_Qp0FLFE_g2TQugwLXG1MkfwpM2EoRdLPU",
+  "state": 1,
+  "service_token_permissions": [
+    {
+      "id": 3193727,
+      "account_id": 725,
+      "service_token_id": 2733797,
+      "project_id": 13984,
+      "all_projects": false,
+      "state": 1,
+      "permission_set": "metadata_only"
+    },
+    {
+      "id": 3193728,
+      "account_id": 725,
+      "service_token_id": 2733797,
+      "project_id": 13984,
+      "all_projects": false,
+      "state": 1,
+      "permission_set": "semantic_layer_only"
+    }
+  ]
+}
+[DEBUG] ServiceToken Create - Plan permissions for token 'tf_dev_team_admin':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  },
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Actual permissions (converted) for token 'tf_dev_team_admin':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  },
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] GetServiceTokenPermissions - Raw API response for token ID 2733792:
+  Permission 0: {"id":3193722,"account_id":725,"service_token_id":2733792,"project_id":null,"all_projects":true,"permission_set":"metadata_only","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.446374+00:00","updated_at":"2025-12-20 18:31:06.446390+00:00"}
+  Permission 1: {"id":3193725,"account_id":725,"service_token_id":2733792,"project_id":null,"all_projects":true,"permission_set":"readonly","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.497755+00:00","updated_at":"2025-12-20 18:31:06.497769+00:00"}
+[DEBUG] GetServiceTokenPermissions - Parsed permissions for token ID 2733792:
+[
+  {
+    "id": 3193722,
+    "account_id": 725,
+    "service_token_id": 2733792,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "metadata_only"
+  },
+  {
+    "id": 3193725,
+    "account_id": 725,
+    "service_token_id": 2733792,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "readonly"
+  }
+]
+[DEBUG] ServiceToken Create - Fetched permissions from API for token 'discoveryAPI' (ID: 2733792):
+[
+  {
+    "id": 3193722,
+    "account_id": 725,
+    "service_token_id": 2733792,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "metadata_only"
+  },
+  {
+    "id": 3193725,
+    "account_id": 725,
+    "service_token_id": 2733792,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "readonly"
+  }
+]
+[DEBUG] ServiceToken Create - Plan permissions for token 'discoveryAPI':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  },
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Actual permissions (converted) for token 'discoveryAPI':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  },
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] CreateServiceToken - Raw API response for token 'another_account_admin':
+{"status":{"code":201,"is_success":true,"user_message":"Success!","developer_message":""},"data":{"id":2733798,"created_at":"2025-12-20 18:31:06.685723+00:00","updated_at":"2025-12-20 18:31:06.685736+00:00","account_id":725,"uid":"l2SqZyU","name":"another_account_admin","state":1,"permission_grants":[{"permission_set":"account_admin","project_id":null,"writable_environment_categories":[]}],"last_used":null,"semantic_layer_credentials":null,"metadata_only":false,"webhooks_only":false,"token":"omIq9zJqUrI3I88ewgeSZPDAv6mLBvT86IKDKNXrkTo","token_string":"dbtc_l2SqZyUomIq9zJqUrI3I88ewgeSZPDAv6mLBvT86IKDKNXrkTo","last_identify":null,"user_id":null,"user":null,"type":null,"expires_at":null,"service_token_permissions":[{"id":3193729,"account_id":725,"service_token_id":2733798,"project_id":null,"all_projects":true,"permission_set":"account_admin","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.768174+00:00","updated_at":"2025-12-20 18:31:06.768187+00:00"}]},"extra":{},"error_code":null}
+[DEBUG] ServiceToken Create - API creation response for token 'another_account_admin' (ID: 2733798):
+{
+  "id": 2733798,
+  "account_id": 725,
+  "uid": "l2SqZyU",
+  "name": "another_account_admin",
+  "token_string": "dbtc_l2SqZyUomIq9zJqUrI3I88ewgeSZPDAv6mLBvT86IKDKNXrkTo",
+  "state": 1,
+  "service_token_permissions": [
+    {
+      "id": 3193729,
+      "account_id": 725,
+      "service_token_id": 2733798,
+      "all_projects": true,
+      "state": 1,
+      "permission_set": "account_admin"
+    }
+  ]
+}
+[DEBUG] GetServiceTokenPermissions - Raw API response for token ID 2733796:
+  Permission 0: {"id":3193726,"account_id":725,"service_token_id":2733796,"project_id":null,"all_projects":true,"permission_set":"account_admin","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.593383+00:00","updated_at":"2025-12-20 18:31:06.593397+00:00"}
+[DEBUG] GetServiceTokenPermissions - Parsed permissions for token ID 2733796:
+[
+  {
+    "id": 3193726,
+    "account_id": 725,
+    "service_token_id": 2733796,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_admin"
+  }
+]
+[DEBUG] ServiceToken Create - Fetched permissions from API for token 'postman_20250416' (ID: 2733796):
+[
+  {
+    "id": 3193726,
+    "account_id": 725,
+    "service_token_id": 2733796,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_admin"
+  }
+]
+[DEBUG] ServiceToken Create - Plan permissions for token 'postman_20250416':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Actual permissions (converted) for token 'postman_20250416':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] GetServiceTokenPermissions - Raw API response for token ID 2733797:
+  Permission 0: {"id":3193727,"account_id":725,"service_token_id":2733797,"project_id":13984,"all_projects":false,"permission_set":"metadata_only","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.624003+00:00","updated_at":"2025-12-20 18:31:06.624016+00:00"}
+  Permission 1: {"id":3193728,"account_id":725,"service_token_id":2733797,"project_id":13984,"all_projects":false,"permission_set":"semantic_layer_only","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.703376+00:00","updated_at":"2025-12-20 18:31:06.703389+00:00"}
+[DEBUG] GetServiceTokenPermissions - Parsed permissions for token ID 2733797:
+[
+  {
+    "id": 3193727,
+    "account_id": 725,
+    "service_token_id": 2733797,
+    "project_id": 13984,
+    "all_projects": false,
+    "state": 1,
+    "permission_set": "metadata_only"
+  },
+  {
+    "id": 3193728,
+    "account_id": 725,
+    "service_token_id": 2733797,
+    "project_id": 13984,
+    "all_projects": false,
+    "state": 1,
+    "permission_set": "semantic_layer_only"
+  }
+]
+[DEBUG] ServiceToken Create - Fetched permissions from API for token 'gtok_sl' (ID: 2733797):
+[
+  {
+    "id": 3193727,
+    "account_id": 725,
+    "service_token_id": 2733797,
+    "project_id": 13984,
+    "all_projects": false,
+    "state": 1,
+    "permission_set": "metadata_only"
+  },
+  {
+    "id": 3193728,
+    "account_id": 725,
+    "service_token_id": 2733797,
+    "project_id": 13984,
+    "all_projects": false,
+    "state": 1,
+    "permission_set": "semantic_layer_only"
+  }
+]
+[DEBUG] ServiceToken Create - Plan permissions for token 'gtok_sl':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  },
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Actual permissions (converted) for token 'gtok_sl':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  },
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] GetServiceTokenPermissions - Raw API response for token ID 2733798:
+  Permission 0: {"id":3193729,"account_id":725,"service_token_id":2733798,"project_id":null,"all_projects":true,"permission_set":"account_admin","state":1,"writable_environment_categories":[],"created_at":"2025-12-20 18:31:06.768174+00:00","updated_at":"2025-12-20 18:31:06.768187+00:00"}
+[DEBUG] GetServiceTokenPermissions - Parsed permissions for token ID 2733798:
+[
+  {
+    "id": 3193729,
+    "account_id": 725,
+    "service_token_id": 2733798,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_admin"
+  }
+]
+[DEBUG] ServiceToken Create - Fetched permissions from API for token 'another_account_admin' (ID: 2733798):
+[
+  {
+    "id": 3193729,
+    "account_id": 725,
+    "service_token_id": 2733798,
+    "all_projects": true,
+    "state": 1,
+    "permission_set": "account_admin"
+  }
+]
+[DEBUG] ServiceToken Create - Plan permissions for token 'another_account_admin':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
+[DEBUG] ServiceToken Create - Actual permissions (converted) for token 'another_account_admin':
+[
+  {
+    "PermissionSet": {},
+    "AllProjects": {},
+    "ProjectID": {},
+    "WritableEnvironmentCategories": {}
+  }
+]
