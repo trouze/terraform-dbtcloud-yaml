@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4] - 2025-12-20
+
+### Fixed
+- **Type Consistency**: Filter deleted resources (state=2) at fetch time to prevent Terraform type errors
+  - Added `_should_include_resource()` helper function to filter deleted service tokens and notifications
+  - Deleted resources no longer enter the snapshot, eliminating type inconsistencies downstream
+  - Fixes "all list elements must have the same type" errors caused by deleted resources with missing fields
+- **Type Consistency**: Normalized permission object structures for consistent Terraform types
+  - Service token permissions now always include `project_id` and `writable_environment_categories` fields (null/empty if not applicable)
+  - Group permissions now always include `project_id` and `writable_environment_categories` fields (null/empty if not applicable)
+  - Ensures all permission objects have identical structure regardless of permission scope
+
+### Changed
+- **Fetch Behavior**: Deleted resources (state=2) are now filtered out during fetch phase
+  - Service tokens with `state: 2` are skipped with debug log message
+  - Notifications with `state: 2` are skipped with debug log message
+  - JSON exports no longer include deleted resources (cleaner snapshots)
+  - Element IDs/line items no longer include deleted resources
+
+### Technical Details
+- Filtering happens in `importer/fetcher.py` before resources enter the snapshot
+- Prevents deleted resources from causing type mismatches in Terraform's strict type system
+- Deleted resources often have incomplete fields (e.g., empty permission lists) which caused tuple type errors
+- This is a breaking change for JSON exports (deleted resources excluded), but normalization remains backwards compatible
+
 ## [0.4.3] - 2025-12-19
 
 ### Changed

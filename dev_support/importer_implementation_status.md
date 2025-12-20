@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
-**Last Updated:** 2025-12-19  
-**Current Importer Version:** 0.4.3  
+**Last Updated:** 2025-12-20  
+**Current Importer Version:** 0.4.4  
 **Status:** Phase 3 Complete + Interactive Mode + E2E Testing Infrastructure
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -704,6 +704,23 @@ The following items require API endpoint research before implementation can begi
   - Includes semantic versioning guidelines, step-by-step workflow, and verification commands
   - Referenced in CHANGELOG.md header for easy maintainer access
 - **Documentation**: Created comprehensive RELEASE_NOTES_v0.4.3.md with performance analysis and testing results
+
+### 2025-12-20 (v0.4.4)
+- **Version:** Incremented to 0.4.4 (patch release)
+- **Critical Fix**: Filter deleted resources (state=2) at fetch time to prevent Terraform type errors
+  - Added `_should_include_resource()` helper function in `importer/fetcher.py`
+  - Service tokens with `state: 2` are now filtered out during fetch (skipped with debug log)
+  - Notifications with `state: 2` are now filtered out during fetch (skipped with debug log)
+  - Deleted resources no longer enter the snapshot, eliminating downstream type inconsistencies
+  - Fixes "all list elements must have the same type" errors caused by deleted resources with missing/incomplete fields
+- **Type Consistency**: Normalized permission object structures for consistent Terraform types
+  - Service token permissions now always include `project_id` and `writable_environment_categories` (null/empty if not applicable)
+  - Group permissions now always include `project_id` and `writable_environment_categories` (null/empty if not applicable)
+  - Ensures all permission objects have identical structure regardless of permission scope
+- **Breaking Change**: JSON exports no longer include deleted resources (cleaner snapshots, but different from v0.4.0-0.4.3)
+  - Normalization remains backwards compatible (handles missing fields gracefully)
+  - Element IDs/line items no longer include deleted resources
+- **Testing**: Verified filtering works correctly (0 state=2 resources in new exports, 15 tokens vs 17 before)
 
 ### 2025-12-19 (v0.4.2)
 - **Version:** Incremented to 0.4.2 (patch release)

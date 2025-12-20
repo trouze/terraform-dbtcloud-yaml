@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, Iterable, List
+from typing import Any, Dict, Iterable, List
 
 from slugify import slugify
 
@@ -30,6 +30,14 @@ log = logging.getLogger(__name__)
 
 def slug(value: str) -> str:
     return slugify(value, separator="_")
+
+
+def _should_include_resource(item: Dict[str, Any]) -> bool:
+    """Filter out deleted resources (state=2)."""
+    state = item.get("state")
+    if state == 2:
+        return False
+    return True
 
 
 def fetch_account_snapshot(client: DbtCloudClient) -> AccountSnapshot:
@@ -107,6 +115,9 @@ def _fetch_service_tokens(client: DbtCloudClient) -> Dict[str, ServiceToken]:
         
         if isinstance(data, list):
             for item in data:
+                if not _should_include_resource(item):
+                    log.debug(f"Skipping deleted service token: {item.get('name')} (state={item.get('state')})")
+                    continue
                 key = slug(item["name"])
                 
                 # Extract permission sets and project IDs from permission_grants
@@ -180,6 +191,9 @@ def _fetch_notifications(client: DbtCloudClient) -> Dict[str, Notification]:
     notifications = {}
     try:
         for item in client.paginate("/notifications/", version="v2"):
+            if not _should_include_resource(item):
+                log.debug(f"Skipping deleted notification: {item.get('id')} (state={item.get('state')})")
+                continue
             notif_id = item.get("id", 0)
             
             # Determine notification type based on available fields

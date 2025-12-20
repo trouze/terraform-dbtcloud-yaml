@@ -5,10 +5,11 @@
 # It executes fetch, normalize, and Terraform validation steps.
 #
 # Usage:
-#   ./run_e2e_test.sh [--apply]
+#   ./run_e2e_test.sh [OPTIONS]
 #
 # Options:
-#   --apply    Run terraform apply (default: plan only)
+#   --apply           Run terraform apply (default: plan only)
+#   --dummy-configs   Automatically add dummy provider configs (non-interactive)
 #
 # Prerequisites:
 #   - Python 3.9+ with importer dependencies installed
@@ -29,6 +30,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST_DIR="$PROJECT_ROOT/test/e2e_test"
 EXPORT_DIR="$PROJECT_ROOT/dev_support/samples"
 APPLY_FLAG=false
+DUMMY_CONFIGS_FLAG=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -37,8 +39,13 @@ while [[ $# -gt 0 ]]; do
       APPLY_FLAG=true
       shift
       ;;
+    --dummy-configs)
+      DUMMY_CONFIGS_FLAG=true
+      shift
+      ;;
     *)
       echo "Unknown option: $1"
+      echo "Usage: $0 [--apply] [--dummy-configs]"
       exit 1
       ;;
   esac
@@ -288,6 +295,13 @@ PYPEOF
         echo "" >&2
     done
     
+    # If --dummy-configs flag is set, automatically add dummy configs
+    if [ "$DUMMY_CONFIGS_FLAG" = true ]; then
+        log_info "Auto-adding dummy configs (--dummy-configs flag set)" >&2
+        add_dummy_provider_configs "$yaml_file"
+        return 0
+    fi
+    
     echo "" >&2
     echo "Provider config is required for Terraform but not exported by the API." >&2
     echo "" >&2
@@ -512,7 +526,7 @@ create_test_summary() {
 # End-to-End Test Summary
 
 **Test Date:** $(date)
-**Importer Version:** $(cd "$PROJECT_ROOT" && $PYTHON_CMD -m importer --version)
+**Importer Version:** $(cd "$PROJECT_ROOT" && $PYTHON_CMD -c "from importer import get_version; print(get_version())")
 **Terraform Version:** $(terraform version -json | jq -r '.terraform_version')
 
 ## Test Account Details
@@ -575,6 +589,7 @@ EOF
 main() {
     log_info "Starting End-to-End Test" >&2
     log_info "Apply mode: $APPLY_FLAG" >&2
+    log_info "Dummy configs: $DUMMY_CONFIGS_FLAG" >&2
     echo "" >&2
     
     check_prerequisites

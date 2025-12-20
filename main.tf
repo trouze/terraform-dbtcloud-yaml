@@ -21,35 +21,12 @@ locals {
   # v1 schema (single project)
   project_config_v1 = local.schema_version == 1 ? try(local.yaml_content.project, null) : null
 
-  # v2 schema (multi-project) - Always process to ensure consistent types
+  # v2 schema (multi-project)
+  # Normalizer now guarantees consistent types, so we can pass through directly
   account_config_v2 = try(local.yaml_content.account, null)
-  
-  # Normalize globals: ensure consistent structure for all list fields
-  # This handles deleted/special items that are missing optional fields
-  globals_v2_raw = try(local.yaml_content.globals, {})
-  globals_v2 = {
-    connections = try(local.globals_v2_raw.connections, [])
-    repositories = try(local.globals_v2_raw.repositories, [])
-    service_tokens = [
-      for token in try(local.globals_v2_raw.service_tokens, []) :
-      merge(token, {
-        service_token_permissions = try(token.service_token_permissions, [])
-      })
-    ]
-    groups = [
-      for group in try(local.globals_v2_raw.groups, []) :
-      merge(group, {
-        group_permissions = try(group.group_permissions, [])
-      })
-    ]
-    notifications = try(local.globals_v2_raw.notifications, [])
-    privatelink_endpoints = try(local.globals_v2_raw.privatelink_endpoints, [])
-  }
-  
-  # Rebuild projects as a list to ensure consistent typing
-  projects_v2 = [
-    for project in try(local.yaml_content.projects, []) : project
-  ]
+  globals_v2        = try(local.yaml_content.globals, {})
+  # Ensure projects is always a list for Terraform type consistency
+  projects_v2       = tolist(try(local.yaml_content.projects, []))
 }
 
 #############################################

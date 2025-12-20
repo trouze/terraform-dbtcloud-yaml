@@ -331,21 +331,19 @@ def _normalize_service_tokens(
             token_data["state"] = token.state
         
         # Build service_token_permissions from metadata.permission_grants
+        # ALWAYS include this field to ensure Terraform type consistency
+        token_data["service_token_permissions"] = []
         permission_grants = token.metadata.get("permission_grants", [])
         if permission_grants:
-            token_data["service_token_permissions"] = []
             for grant in permission_grants:
                 perm = {
                     "permission_set": grant["permission_set"],
                     "all_projects": grant["project_id"] is None,
+                    # Always include project_id for type consistency (null if all_projects=True)
+                    "project_id": grant.get("project_id"),
+                    # Always include writable_environment_categories for type consistency (empty list if not present)
+                    "writable_environment_categories": grant.get("writable_environment_categories", []),
                 }
-                # Add project_id if this is a project-specific permission
-                if grant["project_id"] is not None:
-                    perm["project_id"] = grant["project_id"]
-                
-                # Add writable_environment_categories if present and non-empty
-                if grant.get("writable_environment_categories"):
-                    perm["writable_environment_categories"] = grant["writable_environment_categories"]
                 
                 token_data["service_token_permissions"].append(perm)
         
@@ -394,21 +392,19 @@ def _normalize_groups(
             group_data["sso_mapping_groups"] = group.sso_mapping_groups
         
         # Build group_permissions from metadata.group_permissions
+        # ALWAYS include this field to ensure Terraform type consistency
+        group_data["group_permissions"] = []
         group_permissions = group.metadata.get("group_permissions", [])
         if group_permissions:
-            group_data["group_permissions"] = []
             for perm in group_permissions:
                 perm_data = {
                     "permission_set": perm["permission_set"],
                     "all_projects": perm["project_id"] is None,
+                    # Always include project_id for type consistency (null if all_projects=True)
+                    "project_id": perm.get("project_id"),
+                    # Always include writable_environment_categories for type consistency (empty list if not present)
+                    "writable_environment_categories": perm.get("writable_environment_categories", []),
                 }
-                # Add project_id if this is a project-specific permission
-                if perm["project_id"] is not None:
-                    perm_data["project_id"] = perm["project_id"]
-                
-                # Add writable_environment_categories if present and non-empty
-                if perm.get("writable_environment_categories"):
-                    perm_data["writable_environment_categories"] = perm["writable_environment_categories"]
                 
                 group_data["group_permissions"].append(perm_data)
         
@@ -532,7 +528,7 @@ def _normalize_projects(
             "name": project.name,
         }
         
-        # Resolve repository reference
+        # Resolve repository reference - ALWAYS include for Terraform type consistency
         if project.repository_key:
             repo_key = context.resolve_element_reference(project.repository_key)
             if repo_key:
@@ -541,6 +537,9 @@ def _normalize_projects(
                 lookup_id = f"LOOKUP:{project.repository_key}"
                 project_data["repository"] = lookup_id
                 context.add_placeholder(lookup_id, f"Repository for project {project.name}")
+        else:
+            # No repository key - set to null for type consistency
+            project_data["repository"] = None
         
         # Normalize environments
         if config.is_resource_included("environments"):
@@ -605,15 +604,10 @@ def _normalize_environments(
         if env.credential.catalog:
             env_data["credential"]["catalog"] = env.credential.catalog
         
-        # Optional fields
-        if env.dbt_version:
-            env_data["dbt_version"] = env.dbt_version
-        
-        if env.custom_branch:
-            env_data["custom_branch"] = env.custom_branch
-        
-        if env.enable_model_query_history is not None:
-            env_data["enable_model_query_history"] = env.enable_model_query_history
+        # Optional fields - ALWAYS include to ensure Terraform type consistency
+        env_data["dbt_version"] = env.dbt_version or None
+        env_data["custom_branch"] = env.custom_branch or None
+        env_data["enable_model_query_history"] = env.enable_model_query_history
         
         result.append(env_data)
     
