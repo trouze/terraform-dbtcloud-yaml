@@ -35,6 +35,7 @@ class DbtCloudClient:
                 headers={
                     "Authorization": f"Token {settings.api_token}",
                     "User-Agent": f"dbtcloud-importer/{get_version()}",
+                    "Accept-Encoding": "gzip, deflate",
                 },
                 timeout=settings.timeout,
                 verify=settings.verify_ssl,
@@ -44,6 +45,7 @@ class DbtCloudClient:
                 headers={
                     "Authorization": f"Bearer {settings.api_token}",
                     "User-Agent": f"dbtcloud-importer/{get_version()}",
+                    "Accept-Encoding": "gzip, deflate",
                 },
                 timeout=settings.timeout,
                 verify=settings.verify_ssl,

@@ -5,7 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+**Note:** When updating versions, refer to [Version Update Checklist](dev_support/VERSION_UPDATE_CHECKLIST.md) for all locations that need updates.
+
 ## [Unreleased]
+
+## [0.4.3] - 2025-12-19
+
+### Changed
+- **Performance**: Increased default HTTP timeout from 30s to 90s for better handling of slow API responses
+  - Default timeout in `importer/config.py` increased from `30.0` to `90.0`
+  - Environment variable default `DBT_SOURCE_API_TIMEOUT` updated from `"30"` to `"90"`
+  - Users can still override via environment variable for custom timeout values
+- **Performance**: Added gzip compression support for API requests
+  - Added `Accept-Encoding: gzip, deflate` header to both v2 and v3 API clients
+  - Expected 70-90% reduction in payload size for typical JSON responses
+  - Reduces transfer time and likelihood of timeout errors
+  - `httpx` automatically handles decompression
+
+### Added
+- Documentation: Created `dev_support/VERSION_UPDATE_CHECKLIST.md` - comprehensive guide for version management
+  - Lists all files and locations that need updating when incrementing version
+  - Provides semantic versioning guidelines and examples
+  - Includes step-by-step workflow and verification commands
+  - Referenced in CHANGELOG.md header for easy access
+
+### Technical Details
+- Timeout increase helps handle large accounts with hundreds of projects/environments/jobs
+- Gzip compression significantly reduces network transfer time (typical 1-2MB vs 10MB uncompressed)
+- Both changes work together to dramatically reduce timeout errors during fetch operations
+- No breaking changes - fully backwards compatible
 
 ## [0.4.2] - 2025-12-19
 

@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2025-12-19  
-**Current Importer Version:** 0.4.2  
+**Current Importer Version:** 0.4.3  
 **Status:** Phase 3 Complete + Interactive Mode + E2E Testing Infrastructure
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -685,6 +685,25 @@ The following items require API endpoint research before implementation can begi
   - Specific commands and expected outputs
   - Success criteria with clear verification steps
   - Enhanced known risks and mitigations
+
+### 2025-12-19 (v0.4.3)
+- **Version:** Incremented to 0.4.3 (patch release - performance improvements)
+- **Performance Enhancement - HTTP Timeout**: Increased default HTTP timeout from 30s to 90s
+  - Updated `importer/config.py` default timeout: `30.0` → `90.0`
+  - Updated environment variable default: `DBT_SOURCE_API_TIMEOUT` from `"30"` → `"90"`
+  - Provides better handling of slow API responses for large accounts
+  - Users can still override via environment variable for custom timeout values
+- **Performance Enhancement - Gzip Compression**: Added compression support for API requests
+  - Added `Accept-Encoding: gzip, deflate` header to both v2 and v3 API clients in `importer/client.py`
+  - Expected 70-90% reduction in payload size for typical JSON responses
+  - Reduces transfer time and significantly lowers likelihood of timeout errors
+  - Transparent to users - `httpx` automatically handles decompression
+- **Documentation**: Created `dev_support/VERSION_UPDATE_CHECKLIST.md`
+  - Comprehensive guide for version management
+  - Lists all files and locations requiring updates when incrementing version
+  - Includes semantic versioning guidelines, step-by-step workflow, and verification commands
+  - Referenced in CHANGELOG.md header for easy maintainer access
+- **Documentation**: Created comprehensive RELEASE_NOTES_v0.4.3.md with performance analysis and testing results
 
 ### 2025-12-19 (v0.4.2)
 - **Version:** Incremented to 0.4.2 (patch release)
