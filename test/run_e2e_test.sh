@@ -10,6 +10,9 @@
 # Options:
 #   --apply           Run terraform apply (default: plan only)
 #   --dummy-configs   Automatically add dummy provider configs (non-interactive)
+#   --test-plan       Limit plan to 1-2 resources (connections preferred, groups fallback)
+#   --test-apply      Limit plan AND apply to 1-2 resources (implies --apply)
+#   --test-destroy    Destroy 1-2 test resources (connections preferred, groups fallback)
 #
 # Prerequisites:
 #   - Python 3.9+ with importer dependencies installed
@@ -31,6 +34,9 @@ TEST_DIR="$PROJECT_ROOT/test/e2e_test"
 EXPORT_DIR="$PROJECT_ROOT/dev_support/samples"
 APPLY_FLAG=false
 DUMMY_CONFIGS_FLAG=false
+TEST_PLAN_FLAG=false
+TEST_APPLY_FLAG=false
+TEST_DESTROY_FLAG=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -43,9 +49,22 @@ while [[ $# -gt 0 ]]; do
       DUMMY_CONFIGS_FLAG=true
       shift
       ;;
+    --test-plan)
+      TEST_PLAN_FLAG=true
+      shift
+      ;;
+    --test-apply)
+      TEST_APPLY_FLAG=true
+      APPLY_FLAG=true  # Test apply implies apply
+      shift
+      ;;
+    --test-destroy)
+      TEST_DESTROY_FLAG=true
+      shift
+      ;;
     *)
       echo "Unknown option: $1"
-      echo "Usage: $0 [--apply] [--dummy-configs]"
+      echo "Usage: $0 [--apply] [--dummy-configs] [--test-plan] [--test-apply] [--test-destroy]"
       exit 1
       ;;
   esac
@@ -684,6 +703,146 @@ phase3_validate() {
     fi
 }
 
+print_target_account_info() {
+    local base_host="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
+    base_host="${base_host%/}"
+    local host_url="$base_host"
+    if [[ "$base_host" != *"/api" ]]; then
+        host_url="${base_host}/api"
+    fi
+    
+    echo "" >&2
+    log_info "=== Target Account Configuration ===" >&2
+    log_info "Target Account ID: $DBT_TARGET_ACCOUNT_ID" >&2
+    log_info "Target Host URL:  $host_url" >&2
+    echo "" >&2
+}
+
+get_test_mode_targets() {
+    # Returns space-separated list of Terraform resource targets for test mode
+    # Prioritizes connections, falls back to groups
+    local yaml_file="$TEST_DIR/dbt-cloud-config.yml"
+    
+    if [ ! -f "$yaml_file" ]; then
+        log_error "YAML file not found: $yaml_file"
+        return 1
+    fi
+    
+    # Use Python to parse YAML and extract keys
+    # Python outputs logging to stderr, targets to stdout
+    local target_list
+    local log_output
+    log_output=$($PYTHON_CMD - "$yaml_file" <<'PYTHON_SCRIPT' 2>&1
+import sys
+import yaml
+import traceback
+
+try:
+    with open(sys.argv[1], 'r') as f:
+        data = yaml.safe_load(f)
+    
+    if data is None:
+        print("Error: YAML file is empty or invalid", file=sys.stderr)
+        sys.exit(1)
+    
+    # Debug: Check structure
+    print(f"DEBUG: Top-level keys: {list(data.keys()) if isinstance(data, dict) else 'Not a dict'}", file=sys.stderr)
+    
+    targets = []
+    keys = []
+    
+    # Try connections first
+    # globals is at root level, not under account
+    if not isinstance(data, dict):
+        print("Error: Root YAML element is not a dictionary", file=sys.stderr)
+        sys.exit(1)
+    
+    globals_data = data.get('globals')
+    if globals_data is None:
+        print("DEBUG: No 'globals' key found in YAML", file=sys.stderr)
+    else:
+        print(f"DEBUG: globals type: {type(globals_data)}", file=sys.stderr)
+    
+    if isinstance(globals_data, dict):
+        connections = globals_data.get('connections', [])
+        print(f"DEBUG: connections type: {type(connections)}, length: {len(connections) if isinstance(connections, list) else 'N/A'}", file=sys.stderr)
+        
+        if isinstance(connections, list) and len(connections) > 0:
+            # Safely get first 1-2 connections
+            max_conns = min(2, len(connections))
+            for i in range(max_conns):
+                conn = connections[i]
+                print(f"DEBUG: Processing connection {i}: {type(conn)}", file=sys.stderr)
+                if isinstance(conn, dict) and 'key' in conn:
+                    key = conn['key']
+                    # projects_v2 uses count=1, so must access as [0]
+                    target_str = f'module.dbt_cloud.module.projects_v2[0].dbtcloud_global_connection.connections[\\"{key}\\"]'
+                    targets.append(target_str)
+                    keys.append(f"CONNECTION:{key}")
+    
+    # Fallback to groups if no connections
+    if not targets and isinstance(globals_data, dict):
+        groups = globals_data.get('groups', [])
+        print(f"DEBUG: groups type: {type(groups)}, length: {len(groups) if isinstance(groups, list) else 'N/A'}", file=sys.stderr)
+        
+        if isinstance(groups, list) and len(groups) > 0:
+            # Safely get first 1-2 groups
+            max_groups = min(2, len(groups))
+            for i in range(max_groups):
+                group = groups[i]
+                print(f"DEBUG: Processing group {i}: {type(group)}", file=sys.stderr)
+                if isinstance(group, dict) and 'key' in group:
+                    key = group['key']
+                    # projects_v2 uses count=1, so must access as [0]
+                    targets.append(f'module.dbt_cloud.module.projects_v2[0].dbtcloud_group.groups[\\"{key}\\"]')
+                    keys.append(f"GROUP:{key}")
+    
+    # Output keys to stderr for logging
+    for key_info in keys:
+        print(key_info, file=sys.stderr)
+    
+    # Output space-separated targets to stdout
+    if targets:
+        print(' '.join(targets))
+    else:
+        print("Error: No connections or groups found", file=sys.stderr)
+        sys.exit(1)
+except Exception as e:
+    print(f"Error parsing YAML: {e}", file=sys.stderr)
+    print(f"Traceback: {traceback.format_exc()}", file=sys.stderr)
+    print(f"DEBUG: sys.argv = {sys.argv}", file=sys.stderr)
+    sys.exit(1)
+PYTHON_SCRIPT
+)
+    
+    local exit_code=$?
+    
+    # Extract targets (last line that doesn't start with CONNECTION:, GROUP:, or Error:)
+    target_list=""
+    while IFS= read -r line; do
+        if [[ "$line" == CONNECTION:* ]]; then
+            local key="${line#CONNECTION:}"
+            log_info "  - Targeting connection: $key"
+        elif [[ "$line" == GROUP:* ]]; then
+            local key="${line#GROUP:}"
+            log_info "  - Targeting group: $key"
+        elif [[ "$line" == Error:* ]] || [[ "$line" == "Error parsing YAML:"* ]]; then
+            # Skip error lines (already handled by exit code)
+            continue
+        elif [[ -n "$line" ]] && [[ "$line" == module.* ]]; then
+            # This is a target line (contains module.dbt_cloud...)
+            target_list="$line"
+        fi
+    done <<< "$log_output"
+    
+    if [ $exit_code -ne 0 ] || [ -z "$target_list" ]; then
+        log_error "Test mode: Failed to extract targets from YAML"
+        return 1
+    fi
+    
+    echo "$target_list"
+}
+
 phase4_plan() {
     log_info "=== Phase 4: Terraform Plan ==="
     
@@ -708,8 +867,33 @@ phase4_plan() {
     export DBT_CLOUD_TOKEN="${DBT_TARGET_API_TOKEN}"
     export DBT_CLOUD_HOST_URL="$host_url"
     
+    # Build plan command
+    local plan_cmd="terraform plan -out=tfplan"
+    local target_args=()
+    
+    # Check if we should use targeted planning (either test-plan or test-apply)
+    if [ "$TEST_PLAN_FLAG" = true ] || [ "$TEST_APPLY_FLAG" = true ]; then
+        log_info "=== Test Mode: Limited Resource Plan ==="
+        local test_targets
+        test_targets=$(get_test_mode_targets)
+        
+        if [ $? -ne 0 ] || [ -z "$test_targets" ]; then
+            log_error "Failed to determine test mode targets"
+            exit 1
+        fi
+        
+        # Convert space-separated string to array
+        read -ra target_array <<< "$test_targets"
+        for target in "${target_array[@]}"; do
+            target_args+=("-target=$target")
+        done
+        
+        log_info "Test mode: Will plan only ${#target_array[@]} resource(s)"
+        plan_cmd="terraform plan -out=tfplan ${target_args[*]}"
+    fi
+    
     log_info "Running terraform plan..."
-    if terraform plan -out=tfplan 2>&1 | tee plan_output.txt; then
+    if eval "$plan_cmd" 2>&1 | tee plan_output.txt; then
         log_success "Terraform plan completed"
     else
         log_error "Terraform plan failed"
@@ -727,6 +911,75 @@ phase4_plan() {
     if grep -qi "error" plan_output.txt; then
         log_warning "Errors detected in plan output"
         grep -i "error" plan_output.txt | head -5
+    fi
+    
+    # Print target account info for verification
+    print_target_account_info
+}
+
+phase6_destroy() {
+    if [ "$TEST_DESTROY_FLAG" = false ]; then
+        return
+    fi
+    
+    log_info "=== Phase 6: Terraform Destroy (Test Mode) ==="
+    
+    cd "$TEST_DIR"
+    
+    # Map DBT_TARGET_* to Terraform provider variables
+    # Normalize host URL: ensure single /api suffix for custom domains
+    local base_host="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
+    base_host="${base_host%/}"
+    local host_url="$base_host"
+    if [[ "$base_host" != *"/api" ]]; then
+        host_url="${base_host}/api"
+    fi
+    
+    export TF_VAR_dbt_account_id="${DBT_TARGET_ACCOUNT_ID}"
+    export TF_VAR_dbt_token="${DBT_TARGET_API_TOKEN}"
+    export TF_VAR_dbt_pat="${DBT_TARGET_PAT:-}"
+    export TF_VAR_dbt_host_url="$host_url"
+    # Also set DBT_CLOUD_* for provider fallback
+    export DBT_CLOUD_ACCOUNT_ID="${DBT_TARGET_ACCOUNT_ID}"
+    export DBT_CLOUD_TOKEN="${DBT_TARGET_API_TOKEN}"
+    export DBT_CLOUD_HOST_URL="$host_url"
+    
+    # Print target account info for confirmation before destroy
+    print_target_account_info
+    
+    # Get test mode targets
+    log_info "=== Test Mode: Limited Resource Destroy ==="
+    local test_targets
+    test_targets=$(get_test_mode_targets)
+    
+    if [ $? -ne 0 ] || [ -z "$test_targets" ]; then
+        log_error "Failed to determine test mode targets"
+        exit 1
+    fi
+    
+    # Convert space-separated string to array
+    read -ra target_array <<< "$test_targets"
+    local destroy_cmd="terraform destroy"
+    local target_args=()
+    
+    for target in "${target_array[@]}"; do
+        target_args+=("-target=$target")
+    done
+    
+    log_warning "Test mode: Will destroy ${#target_array[@]} resource(s)"
+    log_warning "Targets: ${target_array[*]}"
+    log_warning "About to destroy resources in account $DBT_TARGET_ACCOUNT_ID"
+    log_warning "Press Ctrl+C within 10 seconds to cancel..."
+    sleep 10
+    
+    destroy_cmd="terraform destroy -auto-approve ${target_args[*]}"
+    
+    log_info "Running terraform destroy..."
+    if eval "$destroy_cmd"; then
+        log_success "Terraform destroy completed"
+    else
+        log_error "Terraform destroy failed"
+        exit 1
     fi
 }
 
@@ -758,12 +1011,41 @@ phase5_apply() {
     export DBT_CLOUD_TOKEN="${DBT_TARGET_API_TOKEN}"
     export DBT_CLOUD_HOST_URL="$host_url"
     
-    log_warning "About to apply Terraform changes to account $DBT_TARGET_ACCOUNT_ID"
-    log_warning "Press Ctrl+C within 10 seconds to cancel..."
-    sleep 10
+    # Print target account info for confirmation before apply
+    print_target_account_info
+    
+    # Build apply command
+    local apply_cmd="terraform apply"
+    local target_args=()
+    
+    if [ "$TEST_APPLY_FLAG" = true ]; then
+        log_info "=== Test Mode: Limited Resource Apply ==="
+        local test_targets
+        test_targets=$(get_test_mode_targets)
+        
+        if [ $? -ne 0 ] || [ -z "$test_targets" ]; then
+            log_error "Failed to determine test mode targets"
+            exit 1
+        fi
+        
+        # Convert space-separated string to array
+        read -ra target_array <<< "$test_targets"
+        for target in "${target_array[@]}"; do
+            target_args+=("-target=$target")
+        done
+        
+        log_warning "Test mode: Will apply only ${#target_array[@]} resource(s)"
+        log_warning "Targets: ${target_array[*]}"
+        apply_cmd="terraform apply ${target_args[*]}"
+    else
+        log_warning "About to apply Terraform changes to account $DBT_TARGET_ACCOUNT_ID"
+        log_warning "Press Ctrl+C within 10 seconds to cancel..."
+        sleep 10
+        apply_cmd="terraform apply tfplan"
+    fi
     
     log_info "Running terraform apply..."
-    if terraform apply tfplan; then
+    if eval "$apply_cmd"; then
         log_success "Terraform apply completed"
         
         # Show outputs
@@ -848,21 +1130,41 @@ main() {
     log_info "Starting End-to-End Test" >&2
     log_info "Apply mode: $APPLY_FLAG" >&2
     log_info "Dummy configs: $DUMMY_CONFIGS_FLAG" >&2
+    if [ "$TEST_PLAN_FLAG" = true ]; then
+        log_info "Test plan mode: ENABLED (will plan only 1-2 resources)" >&2
+    fi
+    if [ "$TEST_APPLY_FLAG" = true ]; then
+        log_info "Test apply mode: ENABLED (will plan and apply only 1-2 resources)" >&2
+    fi
+    if [ "$TEST_DESTROY_FLAG" = true ]; then
+        log_info "Test destroy mode: ENABLED (will destroy 1-2 resources)" >&2
+    fi
     echo "" >&2
     
     check_prerequisites
-    clean_workspace
     
-    EXPORT_FILE=$(phase1_fetch)
-    YAML_FILE=$(phase2_normalize "$EXPORT_FILE")
-    
-    # Interactive provider config step
-    configure_provider_configs
-    
-    phase3_validate
-    phase4_plan
-    phase5_apply
-    create_test_summary
+    # If only destroy is requested, skip fetch/normalize and go straight to destroy
+    if [ "$TEST_DESTROY_FLAG" = true ] && [ "$APPLY_FLAG" = false ] && [ "$TEST_PLAN_FLAG" = false ] && [ "$TEST_APPLY_FLAG" = false ]; then
+        log_info "Destroy-only mode: Skipping fetch/normalize" >&2
+        phase3_validate
+        phase6_destroy
+        create_test_summary
+    else
+        # Normal workflow
+        clean_workspace
+        
+        EXPORT_FILE=$(phase1_fetch)
+        YAML_FILE=$(phase2_normalize "$EXPORT_FILE")
+        
+        # Interactive provider config step
+        configure_provider_configs
+        
+        phase3_validate
+        phase4_plan
+        phase5_apply
+        phase6_destroy
+        create_test_summary
+    fi
     
     echo "" >&2
     log_success "=== End-to-End Test Complete ===" >&2

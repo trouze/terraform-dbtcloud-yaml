@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2025-12-20
+
+### Added
+- **Test Mode Destroy Flag**: Added `--test-destroy` flag to E2E test script for cleaning up test resources
+  - Targets 1-2 resources (connections preferred, groups fallback) using same logic as `--test-plan` and `--test-apply`
+  - Supports standalone destroy mode (skips fetch/normalize when only destroy is requested)
+  - Includes 10-second warning before destroy execution
+  - Usage: `./run_e2e_test.sh --test-destroy` or `./run_e2e_test.sh --test-apply --test-destroy`
+
+### Changed
+- **Test Mode Uses Real Connection Data**: Updated Terraform module to read connection configuration from `provider_config` first (where `.env` values are stored), then fall back to `details` (API data), then defaults
+  - Test mode now uses real connection credentials from `.env` files instead of dummy test data
+  - Updated connection types: Databricks, Snowflake, BigQuery, Postgres, Redshift
+  - Ensures test resources are created with actual configuration values for accurate testing
+
+### Fixed
+- **Test Mode Targeting**: Fixed test mode resource targeting by adding `[0]` index to `projects_v2` module path
+  - Root cause: `projects_v2` module uses `count = 1`, requiring `module.projects_v2[0]` instead of `module.projects_v2`
+  - Test mode now correctly targets and plans/applies 1-2 resources as intended
+  - Fix enables successful Terraform plan/apply execution in test mode
+
+### Technical Details
+- Updated `modules/projects_v2/globals.tf` to prioritize `provider_config` over `details` for connection configuration
+- Updated `test/run_e2e_test.sh` to include `[0]` index in target resource paths
+- Added `phase6_destroy()` function with same targeting logic as test-plan/test-apply
+
 ## [0.5.4] - 2025-12-20
 
 ### Fixed
