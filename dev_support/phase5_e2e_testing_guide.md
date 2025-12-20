@@ -1,8 +1,8 @@
 # Phase 5: End-to-End Testing Guide
 
-**Version:** 1.0  
+**Version:** 1.1  
 **Date:** 2025-12-19  
-**Importer Version:** 0.4.0-dev  
+**Importer Version:** 0.4.2  
 **Status:** Ready for Execution
 
 ---
@@ -379,7 +379,7 @@ terraform {
   required_providers {
     dbtcloud = {
       source  = "dbt-labs/dbtcloud"
-      version = "~> 0.3"
+      version = "~> 1.3"
     }
   }
 }
@@ -405,17 +405,22 @@ module "dbt_cloud" {
 
 output "project_ids" {
   description = "Created project IDs"
-  value       = module.dbt_cloud.project_ids
+  value       = module.dbt_cloud.v2_project_ids
 }
 
 output "environment_ids" {
   description = "Created environment IDs"
-  value       = module.dbt_cloud.environment_ids
+  value       = module.dbt_cloud.v2_environment_ids
 }
 
 output "job_ids" {
   description = "Created job IDs"
-  value       = module.dbt_cloud.job_ids
+  value       = module.dbt_cloud.v2_job_ids
+}
+
+output "connection_ids" {
+  description = "Created connection IDs"
+  value       = module.dbt_cloud.v2_connection_ids
 }
 ```
 
