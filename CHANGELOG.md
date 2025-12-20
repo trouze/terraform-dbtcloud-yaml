@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2] - 2025-12-20
+
+### Fixed
+- **Service Token Permission Grants**: Fixed provider to use `permission_grants.permission_set` during service token creation
+  - API expects `permission_grants` array in creation request, not `service_token_permissions`
+  - Updated `CreateServiceToken()` to use correct request structure
+  - Added `ServiceTokenPermissionGrant` struct with proper JSON tags
+  - Fixed `writable_environment_categories` serialization to include empty arrays (not omit them)
+
+- **Cross-Account Project ID Resolution**: Fixed service token and group permissions to use `project_key` instead of source `project_id`
+  - Source account project IDs don't exist in target account, causing 404 errors
+  - Added `project_id_to_key` mapping in normalizer to convert source IDs to project keys
+  - Added `_build_project_id_mapping()` pre-pass before normalizing permissions
+  - Updated Terraform module to resolve `project_key` → target `project_id` at apply time
+  - Affects: `service_token_permissions` and `group_permissions` with project-specific access
+
+### Technical Details
+- Provider changes in `pkg/dbt_cloud/service_token.go`:
+  - Added `ServiceTokenPermissionGrant` and `CreateServiceTokenRequest` structs
+  - Changed `WritableEnvironmentCategories` to pointer type for proper empty array serialization
+- Provider changes in `pkg/framework/objects/service_token/model.go`:
+  - Added `ConvertServiceTokenPermissionModelToGrant()` function
+- Normalizer changes in `importer/normalizer/__init__.py`:
+  - Added `project_id_to_key` mapping and helper methods
+- Normalizer changes in `importer/normalizer/core.py`:
+  - Added `_build_project_id_mapping()` pre-pass
+  - Updated `_normalize_service_tokens()` and `_normalize_groups()` to use `project_key`
+- Terraform changes in `modules/projects_v2/globals.tf`:
+  - Updated permission blocks to resolve `project_key` to target `project_id`
+
 ## [0.6.1] - 2025-12-20
 
 ### Fixed

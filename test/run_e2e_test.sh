@@ -1031,8 +1031,36 @@ phase5_apply() {
     
     cd "$TEST_DIR"
     
+    # Setup credentials and capture token type
+    local token="${DBT_TARGET_API_TOKEN}"
+    local token_type="unknown"
+    if [[ "$token" =~ ^dbtc_ ]]; then
+        token_type="Service Token (dbtc_)"
+    elif [[ "$token" =~ ^dbtu_ ]]; then
+        token_type="Personal Access Token (PAT - dbtu_)"
+    fi
+    
     # Setup provider credentials (detects token type and sets variables)
     setup_provider_credentials > /dev/null
+    
+    # Set up debug logging for provider
+    local log_file="$TEST_DIR/terraform_debug.log"
+    export TF_LOG_FILE="$log_file"
+    # Clear previous log file
+    > "$log_file"
+    log_info "Debug logging enabled: $log_file" >&2
+    
+    # Print token type prominently before apply
+    log_info "=== Token Type Check ===" >&2
+    if [ "$token_type" = "Personal Access Token (PAT - dbtu_)" ]; then
+        log_error "⚠️  WARNING: Using PAT (dbtu_) for Terraform operations" >&2
+        log_error "Service token permission assignments may fail with 404 errors" >&2
+        log_error "Group permission assignments may fail with 500 errors" >&2
+        log_error "Consider using a Service Token (dbtc_) for full functionality" >&2
+    else
+        log_success "Using $token_type" >&2
+    fi
+    echo "" >&2
     
     # Print target account info for confirmation before apply
     print_target_account_info
@@ -1074,8 +1102,16 @@ phase5_apply() {
         # Show outputs
         log_info "Resource IDs created:"
         terraform output -json
+        
+        # Show debug log location if it exists
+        if [ -f "$log_file" ] && [ -s "$log_file" ]; then
+            log_info "Debug log written to: $log_file" >&2
+        fi
     else
         log_error "Terraform apply failed"
+        if [ -f "$log_file" ] && [ -s "$log_file" ]; then
+            log_error "Debug log available at: $log_file" >&2
+        fi
         exit 1
     fi
 }
