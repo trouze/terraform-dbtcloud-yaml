@@ -15,6 +15,50 @@ from rich.console import Console
 
 from .config import get_settings, Settings, SOURCE_PREFIX, TARGET_PREFIX
 
+
+def _strip_bracketed_paste_sequences(value: str) -> str:
+    """
+    Strip bracketed paste mode escape sequences from input.
+    
+    Bracketed paste mode uses:
+    - ESC [ 200 ~ to start paste (^[[200~)
+    - ESC [ 201 ~ to end paste (^[[201~)
+    
+    These can appear when pasting in certain terminals, causing issues.
+    """
+    if not value:
+        return value
+    
+    # Log the raw input for debugging (only if escape sequences detected)
+    original_value = value
+    has_escapes = '\x1b[' in value or '^[' in value
+    
+    # Remove ESC [ 200 ~ (start paste) and ESC [ 201 ~ (end paste)
+    # Handle both actual escape characters and caret notation
+    value = re.sub(r'\x1b\[200~', '', value)  # ESC [ 200 ~
+    value = re.sub(r'\x1b\[201~', '', value)  # ESC [ 201 ~
+    value = re.sub(r'\x1b\[200;', '', value)   # Alternative format
+    value = re.sub(r'\x1b\[201;', '', value)   # Alternative format
+    # Also handle caret notation (^[)
+    value = re.sub(r'\^\[\[200~', '', value)   # ^[[200~
+    value = re.sub(r'\^\[\[201~', '', value)   # ^[[201~
+    
+    # Strip any leading/trailing whitespace that might have been added
+    result = value.strip()
+    
+    # Debug logging if escape sequences were found
+    if has_escapes:
+        import logging
+        import sys
+        log = logging.getLogger(__name__)
+        # Also write to stderr for immediate visibility
+        print(f"\n[DEBUG] Stripped bracketed paste sequences:", file=sys.stderr)
+        print(f"  Input: {repr(original_value)}", file=sys.stderr)
+        print(f"  Output: {repr(result)}", file=sys.stderr)
+        log.debug(f"Stripped bracketed paste sequences: {repr(original_value)} -> {repr(result)}")
+    
+    return result
+
 # Connection type schemas: required fields, optional fields, and descriptions
 CONNECTION_SCHEMAS = {
     "snowflake": {
@@ -111,7 +155,7 @@ def prompt_credentials() -> dict[str, str | int]:
         Dictionary with 'host', 'account_id', and 'api_token'
     """
     # Check what's already set
-    current_host = os.getenv(f"{SOURCE_PREFIX}HOST", "")
+    current_host = os.getenv(f"{SOURCE_PREFIX}HOST_URL") or os.getenv(f"{SOURCE_PREFIX}HOST", "")
     current_account_id = os.getenv(f"{SOURCE_PREFIX}ACCOUNT_ID", "")
     current_token = os.getenv(f"{SOURCE_PREFIX}API_TOKEN", "")
     
@@ -125,11 +169,12 @@ def prompt_credentials() -> dict[str, str | int]:
             validate=lambda result: (
             result.startswith("https://")
         ) or "Host URL must start with https://",
+            filter=_strip_bracketed_paste_sequences,
             long_instruction="Enter the base URL for your dbt Cloud instance (e.g., https://cloud.getdbt.com or https://emea.dbt.com)",
         ).execute()
-        credentials["host"] = host.rstrip("/")
+        credentials["host_url"] = host.rstrip("/")
     else:
-        credentials["host"] = current_host.rstrip("/")
+        credentials["host_url"] = current_host.rstrip("/")
     
     if not current_account_id:
         account_id_str = inquirer.text(
@@ -137,6 +182,7 @@ def prompt_credentials() -> dict[str, str | int]:
             default="",
             validate=lambda result: result.isdigit() or "Account ID must be numeric",
             long_instruction="Enter your dbt Cloud account ID (numeric)",
+            filter=_strip_bracketed_paste_sequences,
         ).execute()
         credentials["account_id"] = int(account_id_str)
     else:
@@ -180,6 +226,7 @@ def prompt_target_credentials() -> dict[str, str | int]:
             validate=lambda result: (
                 result.startswith("https://")
             ) or "Host URL must start with https://",
+            filter=_strip_bracketed_paste_sequences,
             long_instruction="Enter the base URL for your target dbt Cloud instance",
         ).execute()
         credentials["host_url"] = host.rstrip("/")
@@ -192,6 +239,7 @@ def prompt_target_credentials() -> dict[str, str | int]:
             default="",
             validate=lambda result: result.isdigit() or "Account ID must be numeric",
             long_instruction="Enter your target dbt Cloud account ID (numeric)",
+            filter=_strip_bracketed_paste_sequences,
         ).execute()
         credentials["account_id"] = int(account_id_str)
     else:
@@ -653,8 +701,9 @@ def run_fetch_interactive() -> None:
         credentials = prompt_credentials()
         credentials_entered = True
 
-        # Temporarily set environment variables for this session
-        os.environ[f"{SOURCE_PREFIX}HOST"] = credentials["host"]
+        # Temporarily set environment variables for this session (set both new and legacy for compatibility)
+        os.environ[f"{SOURCE_PREFIX}HOST_URL"] = credentials["host_url"]
+        os.environ[f"{SOURCE_PREFIX}HOST"] = credentials["host_url"]  # Legacy compatibility
         os.environ[f"{SOURCE_PREFIX}ACCOUNT_ID"] = str(credentials["account_id"])
         os.environ[f"{SOURCE_PREFIX}API_TOKEN"] = credentials["api_token"]
         
@@ -833,6 +882,7 @@ def prompt_connection_credentials(yaml_file: Path) -> dict[str, dict[str, str | 
                     message=prompt_msg,
                     default=default_value,
                     validate=lambda r: r.isdigit() and int(r) > 0 or f"{field} must be a positive number",
+                    filter=_strip_bracketed_paste_sequences,
                 ).execute()
                 config[field] = int(value) if value else None
             else:
@@ -841,6 +891,7 @@ def prompt_connection_credentials(yaml_file: Path) -> dict[str, dict[str, str | 
                     default=default_value,
                     validate=lambda r: len(r) > 0 or f"{description} is required",
                     long_instruction=schema["descriptions"].get(field, ""),
+                    filter=_strip_bracketed_paste_sequences,
                 ).execute()
                 config[field] = value
         
@@ -877,6 +928,7 @@ def prompt_connection_credentials(yaml_file: Path) -> dict[str, dict[str, str | 
                         message=prompt_msg,
                         default=default_value,
                         long_instruction=schema["descriptions"].get(field, ""),
+                        filter=_strip_bracketed_paste_sequences,
                     ).execute()
                     if value:
                         config[field] = value
@@ -927,20 +979,24 @@ def prompt_connection_credentials_legacy(yaml_file: Path) -> dict[str, dict[str,
                 message="Snowflake Account:",
                 default="",
                 validate=lambda r: len(r) > 0 or "Account is required",
+                filter=_strip_bracketed_paste_sequences,
             ).execute()
             config["database"] = inquirer.text(
                 message="Database:",
                 default="",
                 validate=lambda r: len(r) > 0 or "Database is required",
+                filter=_strip_bracketed_paste_sequences,
             ).execute()
             config["warehouse"] = inquirer.text(
                 message="Warehouse:",
                 default="",
                 validate=lambda r: len(r) > 0 or "Warehouse is required",
+                filter=_strip_bracketed_paste_sequences,
             ).execute()
             role = inquirer.text(
                 message="Role (optional):",
                 default="",
+                filter=_strip_bracketed_paste_sequences,
             ).execute()
             if role:
                 config["role"] = role
@@ -950,15 +1006,18 @@ def prompt_connection_credentials_legacy(yaml_file: Path) -> dict[str, dict[str,
                 message="Databricks Host:",
                 default="",
                 validate=lambda r: len(r) > 0 or "Host is required",
+                filter=_strip_bracketed_paste_sequences,
             ).execute()
             config["http_path"] = inquirer.text(
                 message="HTTP Path:",
                 default="",
                 validate=lambda r: len(r) > 0 or "HTTP path is required",
+                filter=_strip_bracketed_paste_sequences,
             ).execute()
             catalog = inquirer.text(
                 message="Catalog (optional):",
                 default="",
+                filter=_strip_bracketed_paste_sequences,
             ).execute()
             if catalog:
                 config["catalog"] = catalog
@@ -968,15 +1027,18 @@ def prompt_connection_credentials_legacy(yaml_file: Path) -> dict[str, dict[str,
                 message="BigQuery Project ID:",
                 default="",
                 validate=lambda r: len(r) > 0 or "Project ID is required",
+                filter=_strip_bracketed_paste_sequences,
             ).execute()
             config["dataset"] = inquirer.text(
                 message="Dataset:",
                 default="",
                 validate=lambda r: len(r) > 0 or "Dataset is required",
+                filter=_strip_bracketed_paste_sequences,
             ).execute()
             config["location"] = inquirer.text(
                 message="Location:",
                 default="US",
+                filter=_strip_bracketed_paste_sequences,
             ).execute()
         
         elif "redshift" in conn_type:
@@ -984,17 +1046,20 @@ def prompt_connection_credentials_legacy(yaml_file: Path) -> dict[str, dict[str,
                 message="Redshift Hostname:",
                 default="",
                 validate=lambda r: len(r) > 0 or "Hostname is required",
+                filter=_strip_bracketed_paste_sequences,
             ).execute()
             port_str = inquirer.text(
                 message="Port:",
                 default="5439",
                 validate=lambda r: r.isdigit() or "Port must be numeric",
+                filter=_strip_bracketed_paste_sequences,
             ).execute()
             config["port"] = int(port_str)
             config["dbname"] = inquirer.text(
                 message="Database Name:",
                 default="",
                 validate=lambda r: len(r) > 0 or "Database name is required",
+                filter=_strip_bracketed_paste_sequences,
             ).execute()
         
         elif "postgres" in conn_type:
@@ -1002,17 +1067,20 @@ def prompt_connection_credentials_legacy(yaml_file: Path) -> dict[str, dict[str,
                 message="PostgreSQL Hostname:",
                 default="",
                 validate=lambda r: len(r) > 0 or "Hostname is required",
+                filter=_strip_bracketed_paste_sequences,
             ).execute()
             port_str = inquirer.text(
                 message="Port:",
                 default="5432",
                 validate=lambda r: r.isdigit() or "Port must be numeric",
+                filter=_strip_bracketed_paste_sequences,
             ).execute()
             config["port"] = int(port_str)
             config["dbname"] = inquirer.text(
                 message="Database Name:",
                 default="",
                 validate=lambda r: len(r) > 0 or "Database name is required",
+                filter=_strip_bracketed_paste_sequences,
             ).execute()
         
         else:

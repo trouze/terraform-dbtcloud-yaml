@@ -24,7 +24,7 @@ Both commands support **interactive mode** with form-like terminal prompts for g
 3. **Populate `.env`** at the repo root (skip if using interactive mode with manual credential entry):
    ```bash
    # Source Account Credentials (for fetch)
-   DBT_SOURCE_HOST=https://cloud.getdbt.com
+   DBT_SOURCE_HOST_URL=https://cloud.getdbt.com
    DBT_SOURCE_ACCOUNT_ID=12345
    DBT_SOURCE_API_TOKEN=your_pat_here
    

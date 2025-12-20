@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2025-12-20
+
+### Fixed
+- **Connection Type Detection**: Fixed connections showing as "unknown" type
+  - Added `_extract_connection_type_from_adapter_version()` function to derive connection type from `adapter_version` field
+  - The dbt Cloud API v3 returns `"type": null` but provides `"adapter_version": "databricks_v0"` or `"snowflake_v0"`
+  - Connection types now correctly display as "databricks", "snowflake", "bigquery", etc. instead of "unknown"
+- **Bracketed Paste Sequences**: Fixed terminal paste issues in interactive prompts
+  - Added `_strip_bracketed_paste_sequences()` filter to remove escape sequences (`^[[200~`, `^[[201~`) from pasted input
+  - Applied filter to all 23 `inquirer.text()` prompts throughout interactive mode
+  - Handles both escape character format (`\x1b[200~`) and caret notation (`^[[200~`)
+- **Terminal Access**: Fixed "Input is not a terminal" and CPR warnings in E2E test script
+  - Replaced Python heredoc (`python - <<'SCRIPT'`) with standalone `test/configure_connections.py` script
+  - Provides proper terminal access for InquirerPy interactive prompts
+  - Eliminates terminal compatibility warnings when running interactive connection configuration
+
+### Changed
+- **Environment Variable Naming**: Standardized source account credential variable names
+  - Changed `DBT_SOURCE_HOST` to `DBT_SOURCE_HOST_URL` for consistency with target credentials
+  - Maintains backward compatibility by checking both variable names
+  - Updated `importer/config.py` to prefer `DBT_SOURCE_HOST_URL` but fall back to legacy `DBT_SOURCE_HOST`
+  - Updated documentation and examples to use new naming convention
+- **E2E Test Script**: Enhanced provider configuration workflow
+  - Added `inject_provider_configs_from_env()` function to automatically inject connection configs from `.env` files
+  - Checks both project root `.env` and test-specific `.env` files
+  - Reads `DBT_CONNECTION_{CONN_KEY}_{FIELD}` environment variables and converts to YAML `provider_config`
+  - Skips interactive prompts if configs are already available in `.env` files
+  - Improves test automation and reduces manual configuration steps
+
+### Technical Details
+- Updated `importer/fetcher.py` to extract connection type from `adapter_version` when API `type` field is null
+- Updated `importer/interactive.py` with bracketed paste filter and standardized variable naming
+- Created `test/configure_connections.py` standalone script for proper terminal access
+- Updated `test/run_e2e_test.sh` with automatic `.env` injection and improved error handling
+- Environment variable format: `DBT_CONNECTION_{CONNECTION_KEY}_{FIELD_NAME}` (e.g., `DBT_CONNECTION_DATABRICKS_DEV_UC_ENABLED_HOST`)
+
 ## [0.5.1] - 2025-12-20
 
 ### Fixed
