@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.2] - 2025-12-19
+
+### Added
+- **Interactive Provider Config**: E2E test script now pauses after normalization to configure connection provider_config
+  - Added `configure_provider_configs()` function with 4 interactive options (dummy config, manual editor, skip, abort)
+  - Added `add_dummy_provider_configs()` function to generate type-specific placeholder configs (Databricks, Snowflake, BigQuery, Redshift, PostgreSQL)
+  - Added `open_editor_and_wait()` function to pause and open YAML in user's preferred editor
+  - Displays connection details (name, key, type) before prompting user
+- Docs: Added comprehensive "Phase 3: Provider Configuration (Interactive)" section to E2E testing guide with examples for all database types
+
+### Changed
+- **Version:** Updated from 0.4.1 to 0.4.2
+- Testing: E2E test fixture outputs now reference v2-prefixed module outputs (`v2_project_ids`, `v2_environment_ids`, etc.)
+- Testing: Added default value to `test_vars.tf` variable to prevent required variable errors when E2E test loads root module
+
+### Fixed
+- **Critical Terraform Type Issues**: Fixed 3 type inconsistency errors preventing terraform plan from succeeding
+  - **Issue 1 - Conditional Type Mismatch**: Removed conditionals from `locals` that created incompatible tuple types between branches
+    - Changed from `local.schema_version == 2 ? try(...) : []` pattern to always processing uniformly with `try()` defaults
+  - **Issue 2 - Service Tokens Type Inconsistency**: Normalized deleted service tokens (`state: 2`) missing `service_token_permissions` field
+    - Identified via runtime evidence: ALL deleted tokens lack permissions, active tokens (`state: 1`) have them
+    - Solution: Added `service_token_permissions: []` to tokens missing this field using `merge()` in for-comprehension
+  - **Issue 3 - Groups Type Inconsistency**: Normalized special "Everyone" group missing `group_permissions` field
+    - Added `group_permissions: []` to groups missing this field
+- Root Module: Updated `main.tf` locals to rebuild `globals_v2` and `projects_v2` as proper lists, preventing Terraform tuple type errors
+- Testing: E2E test now successfully completes terraform validate and plan phases
+
+### Technical Details
+- Root cause analysis revealed deleted/special resources from API lack optional fields that active resources have
+- Terraform sees `{field: [...]}` vs `{no_field}` as incompatible object types in lists
+- Solution normalizes all list items to have consistent field presence using `merge()` with default empty lists
+- Changed conditional logic from `condition ? value : default` to `try(value, default)` to avoid type unification issues
+
 ## [0.4.1] - 2025-12-19
 
 ### Added

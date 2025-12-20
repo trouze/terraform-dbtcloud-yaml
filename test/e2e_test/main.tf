@@ -42,21 +42,26 @@ module "dbt_cloud" {
 # Outputs for verification
 output "project_ids" {
   description = "Map of project keys to IDs"
-  value       = module.dbt_cloud.project_ids
+  value       = module.dbt_cloud.v2_project_ids
 }
 
 output "environment_ids" {
   description = "Map of environment keys to IDs"
-  value       = module.dbt_cloud.environment_ids
+  value       = module.dbt_cloud.v2_environment_ids
 }
 
 output "job_ids" {
   description = "Map of job keys to IDs"
-  value       = module.dbt_cloud.job_ids
+  value       = module.dbt_cloud.v2_job_ids
 }
 
 output "connection_ids" {
   description = "Map of connection keys to IDs"
-  value       = module.dbt_cloud.connection_ids
+  value       = module.dbt_cloud.v2_connection_ids
+}
+
+output "repository_ids" {
+  description = "Map of repository keys to IDs"
+  value       = module.dbt_cloud.v2_repository_ids
 }
 

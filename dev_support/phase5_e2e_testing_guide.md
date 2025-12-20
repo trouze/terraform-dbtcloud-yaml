@@ -266,9 +266,102 @@ EOF
 
 ---
 
-## Phase 3: Terraform Validation
+## Phase 3: Provider Configuration (Interactive)
+
+### Step 3.0: Configure Connection Provider Configs
+
+**⚠️ IMPORTANT:** Connection provider configurations are not exported by the dbt Cloud API for security reasons. This is a required manual step.
+
+The E2E test script will automatically pause here and present you with options.
+
+#### Interactive Options
+
+When the script reaches this step, you'll see:
+
+```
+[INFO] === Provider Configuration Check ===
+[WARNING] Connections missing provider_config (API security limitation)
+
+Connections without provider_config:
+  • Databricks Production
+    Key: databricks_prod
+    Type: databricks
+
+Options:
+  1) Add dummy/placeholder provider_config for testing (recommended for validation)
+  2) Open YAML in editor for manual configuration
+  3) Skip and continue (terraform validate will fail)
+  4) Abort test
+
+Select option [1-4] (default: 1):
+```
+
+#### Option 1: Dummy Config (Recommended for Testing)
+
+Automatically adds placeholder provider_config based on connection type:
+
+**Databricks:**
+```yaml
+provider_config:
+  host: "dummy-workspace.cloud.databricks.com"
+  http_path: "/sql/1.0/warehouses/dummy123"
+  catalog: "main"
+```
+
+**Snowflake:**
+```yaml
+provider_config:
+  account: "dummy_account"
+  database: "dummy_database"
+  warehouse: "dummy_warehouse"
+  role: "dummy_role"
+```
+
+**BigQuery:**
+```yaml
+provider_config:
+  project_id: "dummy-project-id"
+  dataset: "dummy_dataset"
+  location: "US"
+```
+
+**Use Case:** Quick validation testing - terraform validate and plan will work, but apply will fail with invalid credentials.
+
+#### Option 2: Manual Editor
+
+Opens the YAML file in your default editor (respects `$EDITOR` environment variable, defaults to `nano`).
+
+**Steps:**
+1. Script pauses and displays example provider_config format
+2. Press Enter to open editor
+3. Navigate to `globals.connections` section
+4. Add `provider_config` to each connection
+5. Save and exit editor
+6. Script verifies provider_config exists and continues
+
+**Use Case:** Real migration testing - add actual connection details for end-to-end apply testing.
+
+#### Option 3: Skip
+
+Continues without adding provider_config.
+
+**Expected:** Terraform validation will fail with "provider_config is required" errors.
+
+**Use Case:** Testing error handling or if you've already added configs manually.
+
+#### Option 4: Abort
+
+Exits the test cleanly.
+
+**Use Case:** Need to prepare connection details before continuing.
 
 ### Step 3.1: Copy YAML to Test Fixture
+
+**Note:** This step is now automated by the script. The YAML is copied after normalization.
+
+---
+
+## Phase 4: Terraform Validation
 
 ```bash
 cp "$YAML_FILE" test/e2e_test/dbt-cloud-config.yml
@@ -277,6 +370,8 @@ cp "$YAML_FILE" test/e2e_test/dbt-cloud-config.yml
 ### Step 3.2: Create Terraform Configuration
 
 Create `test/e2e_test/main.tf`:
+
+**Note:** This step is now automated - the file is pre-created in the repository. You only need to adjust `token_map` if using real credentials.
 
 ```hcl
 terraform {
@@ -326,7 +421,18 @@ output "job_ids" {
 
 **Note:** Adjust `token_map` based on your connection types. This is required because credential secrets are not exported by the API.
 
-### Step 3.3: Add Connection Provider Configs (Manual Step)
+### Step 3.3: Automated Testing Flow
+
+**Note:** When using the automated test script (`./test/run_e2e_test.sh`), Steps 3.3-3.5 (manual provider config addition, terraform init, and validate) are handled automatically with the interactive provider configuration step described in Phase 3 above. The script will:
+
+1. Detect missing provider_config
+2. Prompt for configuration method (dummy, editor, skip, abort)
+3. Apply the configuration
+4. Run terraform init and validate automatically
+
+If running manually, continue with the steps below.
+
+### Step 3.4: Add Connection Provider Configs (Manual)
 
 Open `test/e2e_test/dbt-cloud-config.yml` and manually add `provider_config` to each connection:
 
@@ -346,7 +452,7 @@ globals:
 
 **Reason:** Connection provider configs are not available from the API for security reasons.
 
-### Step 3.4: Initialize Terraform
+### Step 3.5: Initialize Terraform (Manual)
 
 ```bash
 cd test/e2e_test
@@ -355,7 +461,7 @@ terraform init -backend=false
 
 Expected output: "Terraform has been successfully initialized!"
 
-### Step 3.5: Validate Configuration
+### Step 3.6: Validate Configuration (Manual)
 
 ```bash
 terraform validate
@@ -368,7 +474,7 @@ If errors occur:
 - Verify connection provider configs are present
 - Check for module variable recognition issues (see [Known Issues](known_issues.md))
 
-### Step 3.6: Update Test Log
+### Step 3.7: Update Test Log (Manual)
 
 ```bash
 cat >> test_log.md << EOF
