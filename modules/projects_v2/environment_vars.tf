@@ -19,9 +19,11 @@ locals {
   ])
 
   # Create map keyed by project_key_env_var_name
+  # Filter out environment variables with no values (API rejects these)
   env_vars_map = {
     for item in local.all_environment_variables :
     "${item.project_key}_${item.env_var_key}" => item
+    if length(try(item.env_var_data.environment_values, {})) > 0
   }
 }
 

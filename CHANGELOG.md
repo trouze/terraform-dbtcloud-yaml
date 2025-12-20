@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2025-12-20
+
+### Fixed
+- **Provider Version Pinning**: Pinned Terraform provider to exact version `= 1.5.1` to prevent version drift
+  - Updated `providers.tf` and `test/e2e_test/main.tf` to use exact version constraint
+  - Prevents unexpected updates that may introduce breaking changes or bugs
+- **Empty Environment Variables**: Added filtering to skip environment variables with no values
+  - API rejects environment variables with empty `environment_values`
+  - Prevents 11 API errors during Terraform apply
+  - Updated `modules/projects_v2/environment_vars.tf` to filter out empty env vars
+- **Deprecated dbt Versions**: Added filtering to skip environments with deprecated dbt versions
+  - Prevents errors for environments using `latest-fusion` (no longer supported)
+  - Prevents 7 API errors and cascading failures
+  - Updated `modules/projects_v2/environments.tf` to filter deprecated versions
+- **Dependency Cascades**: Added explicit `depends_on` blocks for service tokens and groups
+  - Ensures projects exist before creating tokens/groups with project-specific permissions
+  - Updated `modules/projects_v2/globals.tf` with dependency declarations
+
+### Technical Details
+- Provider version pinned in `providers.tf` and `test/e2e_test/main.tf`
+- Environment variable filtering in `modules/projects_v2/environment_vars.tf` line 26
+- Deprecated version filtering in `modules/projects_v2/environments.tf` line 83
+- Dependency blocks added to service tokens and groups resources
+
 ## [0.6.0] - 2025-12-20
 
 ### Added

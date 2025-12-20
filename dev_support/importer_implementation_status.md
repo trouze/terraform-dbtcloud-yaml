@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2025-12-20  
-**Current Importer Version:** 0.6.0  
+**Current Importer Version:** 0.6.1  
 **Status:** Phase 3 Complete + Interactive Mode + E2E Testing Infrastructure
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -657,6 +657,13 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2025-12-20 (v0.6.1)
+- **Version:** Incremented to 0.6.1 (patch release - bug fixes and stability improvements)
+- **Provider Version Pinning**: Pinned Terraform provider to exact version `= 1.5.1` to prevent version drift
+- **Empty Environment Variables**: Added filtering to skip environment variables with no values (prevents 11 API errors)
+- **Deprecated dbt Versions**: Added filtering to skip environments with deprecated dbt versions like `latest-fusion` (prevents 7 API errors)
+- **Dependency Cascades**: Added explicit `depends_on` blocks for service tokens and groups to ensure proper resource ordering
 
 ### 2025-12-20 (v0.6.0)
 - **Version:** Incremented to 0.6.0 (minor release - feature enhancements)

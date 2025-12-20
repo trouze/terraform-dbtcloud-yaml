@@ -9,6 +9,7 @@
 #
 # Options:
 #   --apply           Run terraform apply (default: plan only)
+#   --destroy         Destroy all resources (full destroy, use with caution)
 #   --dummy-configs   Automatically add dummy provider configs (non-interactive)
 #   --test-plan       Limit plan to 1-2 resources (connections preferred, groups fallback)
 #   --test-apply      Limit plan AND apply to 1-2 resources (implies --apply)
@@ -33,6 +34,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST_DIR="$PROJECT_ROOT/test/e2e_test"
 EXPORT_DIR="$PROJECT_ROOT/dev_support/samples"
 APPLY_FLAG=false
+DESTROY_FLAG=false
 DUMMY_CONFIGS_FLAG=false
 TEST_PLAN_FLAG=false
 TEST_APPLY_FLAG=false
@@ -62,9 +64,13 @@ while [[ $# -gt 0 ]]; do
       TEST_DESTROY_FLAG=true
       shift
       ;;
+    --destroy)
+      DESTROY_FLAG=true
+      shift
+      ;;
     *)
       echo "Unknown option: $1"
-      echo "Usage: $0 [--apply] [--dummy-configs] [--test-plan] [--test-apply] [--test-destroy]"
+      echo "Usage: $0 [--apply] [--destroy] [--dummy-configs] [--test-plan] [--test-apply] [--test-destroy]"
       exit 1
       ;;
   esac
@@ -85,6 +91,55 @@ log_warning() {
 
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1" >&2
+}
+
+# Helper function to detect token type and set provider variables
+setup_provider_credentials() {
+    local token="${DBT_TARGET_API_TOKEN}"
+    local token_type="unknown"
+    
+    # Detect token type by prefix
+    if [[ "$token" =~ ^dbtc_ ]]; then
+        token_type="service_token"
+    elif [[ "$token" =~ ^dbtu_ ]]; then
+        token_type="PAT"
+    fi
+    
+    # Log token type for debugging
+    if [ "$token_type" != "unknown" ]; then
+        log_info "Token type detected: $token_type (prefix: ${token:0:5}...)" >&2
+    fi
+    
+    # Normalize host URL
+    local base_host="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
+    base_host="${base_host%/}"
+    local host_url="$base_host"
+    if [[ "$base_host" != *"/api" ]]; then
+        host_url="${base_host}/api"
+    fi
+    
+    # Export Terraform variables
+    export TF_VAR_dbt_account_id="${DBT_TARGET_ACCOUNT_ID}"
+    export TF_VAR_dbt_token="$token"
+    export TF_VAR_dbt_pat="${DBT_TARGET_PAT:-}"
+    export TF_VAR_dbt_host_url="$host_url"
+    
+    # Also set DBT_CLOUD_* for provider fallback
+    export DBT_CLOUD_ACCOUNT_ID="${DBT_TARGET_ACCOUNT_ID}"
+    export DBT_CLOUD_TOKEN="$token"
+    export DBT_CLOUD_HOST_URL="$host_url"
+    
+    # Warn if using PAT for operations that might need service token
+    if [ "$token_type" = "PAT" ]; then
+        log_warning "Using PAT (dbtu_) - some operations may require service token (dbtc_):" >&2
+        log_warning "  - Creating/managing service tokens" >&2
+        log_warning "  - Assigning permissions to service tokens" >&2
+        log_warning "  - Creating/managing groups" >&2
+        log_warning "  - Assigning permissions to groups" >&2
+        log_warning "  - Some notification operations" >&2
+    fi
+    
+    echo "$host_url"
 }
 
 check_prerequisites() {
@@ -666,23 +721,8 @@ phase3_validate() {
     
     cd "$TEST_DIR"
     
-    # Map DBT_TARGET_* to Terraform provider variables
-    # Normalize host URL: ensure single /api suffix for custom domains
-    local base_host="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
-    base_host="${base_host%/}"
-    local host_url="$base_host"
-    if [[ "$base_host" != *"/api" ]]; then
-        host_url="${base_host}/api"
-    fi
-
-    export TF_VAR_dbt_account_id="${DBT_TARGET_ACCOUNT_ID}"
-    export TF_VAR_dbt_token="${DBT_TARGET_API_TOKEN}"
-    export TF_VAR_dbt_pat="${DBT_TARGET_PAT:-}"
-    export TF_VAR_dbt_host_url="$host_url"
-    # Also set DBT_CLOUD_* for provider fallback
-    export DBT_CLOUD_ACCOUNT_ID="${DBT_TARGET_ACCOUNT_ID}"
-    export DBT_CLOUD_TOKEN="${DBT_TARGET_API_TOKEN}"
-    export DBT_CLOUD_HOST_URL="$host_url"
+    # Setup provider credentials (detects token type and sets variables)
+    setup_provider_credentials > /dev/null
     
     # Check if YAML has connection provider configs (warning only now)
     if ! grep -q "provider_config:" dbt-cloud-config.yml; then
@@ -848,24 +888,8 @@ phase4_plan() {
     
     cd "$TEST_DIR"
     
-    # Map DBT_TARGET_* to Terraform provider variables
-    # Normalize host URL: ensure single /api suffix for custom domains
-    local base_host="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
-    base_host="${base_host%/}"
-    local host_url="$base_host"
-    if [[ "$base_host" != *"/api" ]]; then
-        host_url="${base_host}/api"
-    fi
-    
-    export TF_VAR_dbt_account_id="${DBT_TARGET_ACCOUNT_ID}"
-    export TF_VAR_dbt_token="${DBT_TARGET_API_TOKEN}"
-    export TF_VAR_dbt_pat="${DBT_TARGET_PAT:-}"
-    export TF_VAR_dbt_host_url="$host_url"
-    
-    # Also set DBT_CLOUD_* for provider fallback
-    export DBT_CLOUD_ACCOUNT_ID="${DBT_TARGET_ACCOUNT_ID}"
-    export DBT_CLOUD_TOKEN="${DBT_TARGET_API_TOKEN}"
-    export DBT_CLOUD_HOST_URL="$host_url"
+    # Setup provider credentials (detects token type and sets variables)
+    setup_provider_credentials > /dev/null
     
     # Build plan command
     local plan_cmd="terraform plan -out=tfplan"
@@ -917,6 +941,35 @@ phase4_plan() {
     print_target_account_info
 }
 
+phase7_destroy_full() {
+    if [ "$DESTROY_FLAG" = false ]; then
+        return
+    fi
+    
+    log_info "=== Phase 7: Terraform Destroy (Full) ==="
+    
+    cd "$TEST_DIR"
+    
+    # Setup provider credentials (detects token type and sets variables)
+    setup_provider_credentials > /dev/null
+    
+    # Print target account info for confirmation before destroy
+    print_target_account_info
+    
+    log_warning "About to DESTROY ALL resources in account $DBT_TARGET_ACCOUNT_ID"
+    log_warning "This will destroy all resources created by Terraform in this workspace"
+    log_warning "Press Ctrl+C within 15 seconds to cancel..."
+    sleep 15
+    
+    log_info "Running terraform destroy..."
+    if terraform destroy -auto-approve; then
+        log_success "Terraform destroy completed"
+    else
+        log_error "Terraform destroy failed"
+        exit 1
+    fi
+}
+
 phase6_destroy() {
     if [ "$TEST_DESTROY_FLAG" = false ]; then
         return
@@ -926,23 +979,8 @@ phase6_destroy() {
     
     cd "$TEST_DIR"
     
-    # Map DBT_TARGET_* to Terraform provider variables
-    # Normalize host URL: ensure single /api suffix for custom domains
-    local base_host="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
-    base_host="${base_host%/}"
-    local host_url="$base_host"
-    if [[ "$base_host" != *"/api" ]]; then
-        host_url="${base_host}/api"
-    fi
-    
-    export TF_VAR_dbt_account_id="${DBT_TARGET_ACCOUNT_ID}"
-    export TF_VAR_dbt_token="${DBT_TARGET_API_TOKEN}"
-    export TF_VAR_dbt_pat="${DBT_TARGET_PAT:-}"
-    export TF_VAR_dbt_host_url="$host_url"
-    # Also set DBT_CLOUD_* for provider fallback
-    export DBT_CLOUD_ACCOUNT_ID="${DBT_TARGET_ACCOUNT_ID}"
-    export DBT_CLOUD_TOKEN="${DBT_TARGET_API_TOKEN}"
-    export DBT_CLOUD_HOST_URL="$host_url"
+    # Setup provider credentials (detects token type and sets variables)
+    setup_provider_credentials > /dev/null
     
     # Print target account info for confirmation before destroy
     print_target_account_info
@@ -993,23 +1031,8 @@ phase5_apply() {
     
     cd "$TEST_DIR"
     
-    # Map DBT_TARGET_* to Terraform provider variables
-    # Normalize host URL: ensure single /api suffix for custom domains
-    local base_host="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
-    base_host="${base_host%/}"
-    local host_url="$base_host"
-    if [[ "$base_host" != *"/api" ]]; then
-        host_url="${base_host}/api"
-    fi
-    
-    export TF_VAR_dbt_account_id="${DBT_TARGET_ACCOUNT_ID}"
-    export TF_VAR_dbt_token="${DBT_TARGET_API_TOKEN}"
-    export TF_VAR_dbt_pat="${DBT_TARGET_PAT:-}"
-    export TF_VAR_dbt_host_url="$host_url"
-    # Also set DBT_CLOUD_* for provider fallback
-    export DBT_CLOUD_ACCOUNT_ID="${DBT_TARGET_ACCOUNT_ID}"
-    export DBT_CLOUD_TOKEN="${DBT_TARGET_API_TOKEN}"
-    export DBT_CLOUD_HOST_URL="$host_url"
+    # Setup provider credentials (detects token type and sets variables)
+    setup_provider_credentials > /dev/null
     
     # Print target account info for confirmation before apply
     print_target_account_info
@@ -1076,23 +1099,56 @@ create_test_summary() {
 ## Results
 
 ### Phase 1: Fetch
+EOF
+    if [ -n "$EXPORT_FILE" ] && [ -f "$EXPORT_FILE" ]; then
+        cat >> test_summary.md << EOF
 - Status: ✅ Success
 - Export File: $(basename "$EXPORT_FILE")
-- Projects: $(jq '.projects | length' "$EXPORT_FILE")
-- Connections: $(jq '.connections | length' "$EXPORT_FILE")
+- Projects: $(jq -r '.projects | length' "$EXPORT_FILE" 2>/dev/null || echo "N/A")
+- Connections: $(jq -r '.connections | length' "$EXPORT_FILE" 2>/dev/null || echo "N/A")
+EOF
+    else
+        cat >> test_summary.md << EOF
+- Status: N/A (skipped - destroy-only mode)
+EOF
+    fi
+    
+    cat >> test_summary.md << EOF
 
 ### Phase 2: Normalize
+EOF
+    if [ -f "dbt-cloud-config.yml" ]; then
+        cat >> test_summary.md << EOF
 - Status: ✅ Success
 - YAML File: dbt-cloud-config.yml
 - YAML Validation: ✅ Valid
+EOF
+    else
+        cat >> test_summary.md << EOF
+- Status: N/A (skipped - destroy-only mode)
+EOF
+    fi
+    
+    cat >> test_summary.md << EOF
 
 ### Phase 3: Terraform Validation
 - Status: ✅ Success
 - Validation: Passed
 
 ### Phase 4: Terraform Plan
+EOF
+    if [ -f "plan_output.txt" ]; then
+        cat >> test_summary.md << EOF
 - Status: ✅ Success
-$(grep "Plan:" plan_output.txt || echo "- No plan summary available")
+$(grep "Plan:" plan_output.txt 2>/dev/null || echo "- No plan summary available")
+EOF
+    else
+        cat >> test_summary.md << EOF
+- Status: N/A (skipped - destroy-only mode)
+EOF
+    fi
+    
+    cat >> test_summary.md << EOF
 
 ### Phase 5: Terraform Apply
 EOF
@@ -1100,7 +1156,11 @@ EOF
     if [ "$APPLY_FLAG" = true ]; then
         cat >> test_summary.md << EOF
 - Status: ✅ Success
-- Resources Created: $(terraform show -json 2>/dev/null | jq '[.values.root_module.resources[]] | length' || echo "N/A")
+- Resources Created: $(terraform show -json 2>/dev/null | jq -r '[.values.root_module.resources[]] | length' 2>/dev/null || echo "N/A")
+EOF
+    elif [ "$DESTROY_FLAG" = true ] || [ "$TEST_DESTROY_FLAG" = true ]; then
+        cat >> test_summary.md << EOF
+- Status: N/A (skipped - destroy mode)
 EOF
     else
         cat >> test_summary.md << EOF
@@ -1108,12 +1168,41 @@ EOF
 EOF
     fi
     
+    # Add destroy phase if applicable
+    if [ "$DESTROY_FLAG" = true ] || [ "$TEST_DESTROY_FLAG" = true ]; then
+        cat >> test_summary.md << EOF
+
+### Phase 6/7: Terraform Destroy
+EOF
+        if [ "$TEST_DESTROY_FLAG" = true ]; then
+            cat >> test_summary.md << EOF
+- Status: ✅ Success (Test Mode - 1-2 resources)
+EOF
+        elif [ "$DESTROY_FLAG" = true ]; then
+            cat >> test_summary.md << EOF
+- Status: ✅ Success (Full Destroy)
+EOF
+        fi
+    fi
+    
     cat >> test_summary.md << EOF
 
 ## Files Generated
+EOF
+    if [ -n "$EXPORT_FILE" ]; then
+        cat >> test_summary.md << EOF
 - Export: $EXPORT_FILE
+EOF
+    fi
+    cat >> test_summary.md << EOF
 - YAML: $TEST_DIR/dbt-cloud-config.yml
+EOF
+    if [ -f "plan_output.txt" ]; then
+        cat >> test_summary.md << EOF
 - Plan Output: $TEST_DIR/plan_output.txt
+EOF
+    fi
+    cat >> test_summary.md << EOF
 - Summary: $TEST_DIR/test_summary.md
 
 ## Next Steps
@@ -1139,13 +1228,22 @@ main() {
     if [ "$TEST_DESTROY_FLAG" = true ]; then
         log_info "Test destroy mode: ENABLED (will destroy 1-2 resources)" >&2
     fi
+    if [ "$DESTROY_FLAG" = true ]; then
+        log_info "Full destroy mode: ENABLED (will destroy ALL resources)" >&2
+    fi
     echo "" >&2
     
     check_prerequisites
     
-    # If only destroy is requested, skip fetch/normalize and go straight to destroy
-    if [ "$TEST_DESTROY_FLAG" = true ] && [ "$APPLY_FLAG" = false ] && [ "$TEST_PLAN_FLAG" = false ] && [ "$TEST_APPLY_FLAG" = false ]; then
-        log_info "Destroy-only mode: Skipping fetch/normalize" >&2
+    # If only full destroy is requested, skip fetch/normalize and go straight to destroy
+    if [ "$DESTROY_FLAG" = true ] && [ "$APPLY_FLAG" = false ] && [ "$TEST_PLAN_FLAG" = false ] && [ "$TEST_APPLY_FLAG" = false ] && [ "$TEST_DESTROY_FLAG" = false ]; then
+        log_info "Full destroy-only mode: Skipping fetch/normalize" >&2
+        phase3_validate
+        phase7_destroy_full
+        create_test_summary
+    # If only test destroy is requested, skip fetch/normalize and go straight to test destroy
+    elif [ "$TEST_DESTROY_FLAG" = true ] && [ "$APPLY_FLAG" = false ] && [ "$TEST_PLAN_FLAG" = false ] && [ "$TEST_APPLY_FLAG" = false ] && [ "$DESTROY_FLAG" = false ]; then
+        log_info "Test destroy-only mode: Skipping fetch/normalize" >&2
         phase3_validate
         phase6_destroy
         create_test_summary
@@ -1163,6 +1261,7 @@ main() {
         phase4_plan
         phase5_apply
         phase6_destroy
+        phase7_destroy_full
         create_test_summary
     fi
     
