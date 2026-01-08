@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.9] - 2026-01-08
+
+### Fixed
+- **Environment Variable Environment-Specific Values**: Fixed environment-specific values not being set for environment variables
+  - Added explicit dependency on `dbtcloud_environment.environments` to ensure environments are created before setting environment-specific values
+  - Environment variables with `project` defaults were working, but values for specific environments (e.g., "1 - Prod", "2 - Staging") were not being set
+  - The dbt Cloud API requires environments to exist before environment-specific values can be assigned
+
+### Technical Details
+- Terraform module changes in `modules/projects_v2/environment_vars.tf`:
+  - Added `depends_on = [dbtcloud_environment.environments]` to `dbtcloud_environment_variable.environment_variables` resource
+  - Ensures proper resource creation order: environments → environment variables → environment-specific values
+
 ## [0.6.8] - 2026-01-08
 
 ### Fixed

@@ -129,3 +129,20 @@ output "github_integration_discovery" {
   }
 }
 
+# Debug outputs for environment variables
+output "env_var_debug" {
+  description = "Debug: Environment variable processing status"
+  value = {
+    all_env_vars_count     = length(local.all_environment_variables)
+    env_vars_map_keys      = keys(local.env_vars_map)
+    env_vars_map_count     = length(local.env_vars_map)
+    sample_env_var         = length(local.all_environment_variables) > 0 ? {
+      name                = local.all_environment_variables[0].env_var_key
+      project_key         = local.all_environment_variables[0].project_key
+      environment_values  = try(local.all_environment_variables[0].env_var_data.environment_values, {})
+      env_values_count    = length(try(local.all_environment_variables[0].env_var_data.environment_values, {}))
+    } : null
+    resources_planned      = length(dbtcloud_environment_variable.environment_variables)
+  }
+}
+
