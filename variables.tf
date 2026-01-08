@@ -26,9 +26,10 @@ variable "dbt_token" {
 }
 
 variable "dbt_pat" {
-  type      = string
-  sensitive = true
-  default   = ""
+  description = "dbt Cloud Personal Access Token (dbtu_*) for retrieving integration IDs. Required for GitHub App integration discovery. Service tokens cannot access the integrations API."
+  type        = string
+  sensitive   = true
+  default     = null
 }
 
 variable "dbt_host_url" {

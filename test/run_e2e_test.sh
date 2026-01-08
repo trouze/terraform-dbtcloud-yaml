@@ -118,9 +118,30 @@ setup_provider_credentials() {
         host_url="${base_host}/api"
     fi
     
+    # Check if GitLab repositories exist in the YAML config
+    local has_gitlab_repos=false
+    local yaml_file="$TEST_DIR/dbt-cloud-config.yml"
+    if [ -f "$yaml_file" ] && grep -q "git_clone_strategy: deploy_token" "$yaml_file" 2>/dev/null; then
+        has_gitlab_repos=true
+    fi
+    
+    # Determine which token to use
+    # GitLab repos require PAT (user token), not service token
+    local effective_token="$token"
+    if [ "$has_gitlab_repos" = true ]; then
+        if [ -n "${DBT_TARGET_PAT:-}" ]; then
+            effective_token="${DBT_TARGET_PAT}"
+            log_info "GitLab repositories detected - using PAT as main token" >&2
+        else
+            log_warning "GitLab repositories detected but no PAT provided" >&2
+            log_warning "GitLab repo creation will fail without PAT (dbtu_*)" >&2
+            log_warning "Set DBT_TARGET_PAT in your .env file" >&2
+        fi
+    fi
+    
     # Export Terraform variables
     export TF_VAR_dbt_account_id="${DBT_TARGET_ACCOUNT_ID}"
-    export TF_VAR_dbt_token="$token"
+    export TF_VAR_dbt_token="$effective_token"
     export TF_VAR_dbt_pat="${DBT_TARGET_PAT:-}"
     export TF_VAR_dbt_host_url="$host_url"
     
@@ -883,10 +904,86 @@ PYTHON_SCRIPT
     echo "$target_list"
 }
 
+check_github_integration() {
+    log_info "=== Pre-flight: GitHub Integration Check ===" >&2
+    
+    local yaml_file="$TEST_DIR/dbt-cloud-config.yml"
+    
+    if [ ! -f "$yaml_file" ]; then
+        log_warning "YAML file not found, skipping GitHub integration check" >&2
+        return 0
+    fi
+    
+    # Check if any repositories use github_app strategy
+    local has_github_app=false
+    if grep -q "git_clone_strategy.*github_app" "$yaml_file" 2>/dev/null || \
+       grep -q "github_installation_id" "$yaml_file" 2>/dev/null; then
+        has_github_app=true
+    fi
+    
+    if [ "$has_github_app" = false ]; then
+        log_info "No GitHub App integration detected in repositories" >&2
+        return 0
+    fi
+    
+    log_info "GitHub App integration detected in repositories" >&2
+    
+    # Check if PAT is provided
+    if [ -z "${DBT_TARGET_PAT:-}" ]; then
+        log_warning "⚠️  WARNING: Repositories use GitHub App integration but DBT_TARGET_PAT is not set" >&2
+        log_warning "GitHub repositories will fallback to deploy_key strategy" >&2
+        log_warning "To use GitHub App integration, set DBT_TARGET_PAT in your .env file" >&2
+        log_warning "Note: PAT (dbtu_*) is required - service tokens cannot access integrations API" >&2
+        return 0
+    fi
+    
+    log_info "PAT provided, checking GitHub installations in target account..." >&2
+    
+    # Get host URL
+    local base_host="${DBT_TARGET_HOST_URL:-https://cloud.getdbt.com}"
+    base_host="${base_host%/}"
+    local api_url="${base_host}/api/v2/integrations/github/installations/"
+    
+    # Call GitHub installations API
+    local response
+    response=$(curl -s -w "\n%{http_code}" \
+        -H "Authorization: Bearer ${DBT_TARGET_PAT}" \
+        -H "Content-Type: application/json" \
+        "$api_url" 2>/dev/null)
+    
+    local http_code=$(echo "$response" | tail -n1)
+    local body=$(echo "$response" | sed '$d')
+    
+    if [ "$http_code" != "200" ]; then
+        log_warning "⚠️  Failed to retrieve GitHub installations (HTTP $http_code)" >&2
+        log_warning "GitHub repositories may fallback to deploy_key strategy" >&2
+        return 0
+    fi
+    
+    # Parse response (should be JSON array)
+    local installation_count=0
+    if command -v python3 &> /dev/null; then
+        installation_count=$(echo "$body" | python3 -c "import sys, json; data = json.load(sys.stdin); print(len([i for i in data if 'github' in i.get('access_tokens_url', '')]))" 2>/dev/null || echo "0")
+    fi
+    
+    if [ "$installation_count" -gt 0 ]; then
+        log_success "Found $installation_count GitHub installation(s) in target account" >&2
+    else
+        log_warning "⚠️  No GitHub installations found in target account" >&2
+        log_warning "GitHub repositories will fallback to deploy_key strategy" >&2
+        log_warning "Ensure GitHub integration is configured in target account" >&2
+    fi
+    
+    echo "" >&2
+}
+
 phase4_plan() {
     log_info "=== Phase 4: Terraform Plan ==="
     
     cd "$TEST_DIR"
+    
+    # Pre-flight check for GitHub integration
+    check_github_integration
     
     # Setup provider credentials (detects token type and sets variables)
     setup_provider_credentials > /dev/null

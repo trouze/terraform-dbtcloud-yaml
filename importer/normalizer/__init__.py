@@ -127,6 +127,7 @@ class NormalizationContext:
         self.collisions: Dict[str, Dict[str, int]] = {}  # namespace -> (key -> count)
         self.element_id_to_key: Dict[str, str] = {}  # element_mapping_id -> key
         self.project_id_to_key: Dict[int, str] = {}  # numeric project ID -> project key
+        self.repository_key_to_normalized: Dict[str, str] = {}  # original repository key -> normalized key
 
     def add_placeholder(self, lookup_id: str, description: str) -> None:
         """Record a LOOKUP placeholder."""
@@ -192,4 +193,18 @@ class NormalizationContext:
         if key is None:
             log.warning(f"Project ID {project_id} not found in mapping - may cause apply errors")
         return key
+
+    def register_repository_key(self, original_key: str, normalized_key: str) -> None:
+        """Register mapping from original repository key to normalized key."""
+        self.repository_key_to_normalized[original_key] = normalized_key
+        log.debug(f"Registered repository key '{original_key}' -> '{normalized_key}'")
+
+    def resolve_repository_key(self, repo_key: Optional[str]) -> Optional[str]:
+        """Resolve original repository key to normalized key."""
+        if not repo_key:
+            return None
+        normalized = self.repository_key_to_normalized.get(repo_key)
+        if normalized:
+            log.debug(f"Resolved repository key '{repo_key}' -> '{normalized}'")
+        return normalized
 

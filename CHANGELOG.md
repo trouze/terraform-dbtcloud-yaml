@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-01-08
+
+### Fixed
+- **GitLab Repository Creation**: Fixed `gitlab_project_id` not being fetched during import
+  - Added undocumented `include_related=["deploy_key","gitlab"]` query parameter to v3 Retrieve Repository API
+  - Fetcher now correctly extracts `gitlab_project_id` from GitLab integration data
+  - Enables proper GitLab repository creation with `deploy_token` strategy
+- **GitLab PAT Requirement**: Added automatic PAT detection for GitLab repositories
+  - E2E test script now automatically uses PAT as main token when GitLab repos detected
+  - Added warning when GitLab repos exist but no PAT provided
+  - GitLab repositories require user token (PAT), not service token
+
+### Technical Details
+- Fetcher changes in `importer/fetcher.py`:
+  - Added `include_related` parameter to v3 Repository API call
+  - Extracts `gitlab_project_id` from nested `gitlab` object
+- E2E test script changes in `test/run_e2e_test.sh`:
+  - Detects `deploy_token` strategy repos in YAML
+  - Automatically switches to PAT as `TF_VAR_dbt_token` for GitLab support
+
 ## [0.6.4] - 2025-12-20
 
 ### Fixed

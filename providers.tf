@@ -17,7 +17,7 @@ provider "dbtcloud" {
 }
 
 provider "dbtcloud" {
-  alias      = "pat_provider"
+  alias      = "pat"
   host_url   = var.dbt_host_url
   account_id = var.dbt_account_id
   token      = var.dbt_pat != "" ? var.dbt_pat : var.dbt_token

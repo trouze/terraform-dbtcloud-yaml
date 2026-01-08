@@ -13,7 +13,7 @@ terraform {
 provider "dbtcloud" {
   account_id = var.dbt_account_id
   token      = var.dbt_token
-  host_url   = var.dbt_host_url
+  host_url   = "${var.dbt_host_url}/api"
 }
 
 variable "dbt_account_id" {
@@ -28,9 +28,16 @@ variable "dbt_token" {
 }
 
 variable "dbt_host_url" {
-  description = "dbt Cloud host URL"
+  description = "dbt Cloud host URL (base URL without /api suffix)"
   type        = string
-  default     = "https://cloud.getdbt.com/api"
+  default     = "https://cloud.getdbt.com"
+}
+
+variable "dbt_pat" {
+  description = "dbt Cloud Personal Access Token (dbtu_*) for retrieving integration IDs. Optional - required only for GitHub App integration discovery."
+  type        = string
+  sensitive   = true
+  default     = null
 }
 
 module "dbt_cloud" {
@@ -40,6 +47,7 @@ module "dbt_cloud" {
   dbt_account_id = var.dbt_account_id
   dbt_token      = var.dbt_token
   dbt_host_url   = var.dbt_host_url
+  dbt_pat         = var.dbt_pat
 
   yaml_file   = "${path.module}/dbt-cloud-config.yml"
   target_name = "e2e_test"

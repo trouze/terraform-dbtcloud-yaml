@@ -78,3 +78,54 @@ output "credential_ids" {
   }
 }
 
+# Debug outputs for troubleshooting connection and repository linking
+output "connection_mapping" {
+  description = "Debug: Connection key to ID mapping"
+  value = {
+    for key, conn in dbtcloud_global_connection.connections :
+    key => {
+      id   = conn.id
+      name = conn.name
+    }
+  }
+}
+
+output "environment_connections" {
+  description = "Debug: Environment to connection mapping"
+  value = {
+    for key, env in dbtcloud_environment.environments :
+    key => {
+      environment_id = env.id
+      connection_id  = env.connection_id
+      project_key   = split("_", key)[0]
+      env_key       = split("_", key)[1]
+    }
+  }
+}
+
+output "repository_integration_status" {
+  description = "Debug: Repository integration linking status"
+  value = {
+    for key, repo in dbtcloud_repository.repositories :
+    key => {
+      repository_id         = repo.id
+      git_clone_strategy    = repo.git_clone_strategy
+      github_installation_id = repo.github_installation_id
+      gitlab_project_id     = repo.gitlab_project_id
+      azure_project_id      = repo.azure_active_directory_project_id
+      azure_repository_id   = repo.azure_active_directory_repository_id
+      linked_to_project     = try(dbtcloud_project_repository.project_repositories[key].id, null) != null
+    }
+  }
+}
+
+output "github_integration_discovery" {
+  description = "Debug: GitHub integration discovery status"
+  value = {
+    pat_provided            = var.dbt_pat != null
+    installations_found     = length(local.github_installations)
+    github_installation_id  = local.github_installation_id
+    host_url                = local.dbt_host_url
+  }
+}
+

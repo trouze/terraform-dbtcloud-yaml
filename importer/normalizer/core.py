@@ -236,6 +236,8 @@ def _normalize_repositories(
         normalized_key = context.resolve_collision(key, namespace="repositories")
         if _get_element_id(repo):
             context.register_element(_get_element_id(repo), normalized_key)
+        # Register repository key mapping for project lookups
+        context.register_repository_key(key, normalized_key)
         
         repo_data = {
             "key": normalized_key,
@@ -573,13 +575,19 @@ def _normalize_projects(
         
         # Resolve repository reference - ALWAYS include for Terraform type consistency
         if project.repository_key:
-            repo_key = context.resolve_element_reference(project.repository_key)
+            # First try to resolve by repository key mapping
+            repo_key = context.resolve_repository_key(project.repository_key)
             if repo_key:
                 project_data["repository"] = repo_key
             else:
-                lookup_id = f"LOOKUP:{project.repository_key}"
-                project_data["repository"] = lookup_id
-                context.add_placeholder(lookup_id, f"Repository for project {project.name}")
+                # Fallback to element reference
+                repo_key = context.resolve_element_reference(project.repository_key)
+                if repo_key:
+                    project_data["repository"] = repo_key
+                else:
+                    lookup_id = f"LOOKUP:{project.repository_key}"
+                    project_data["repository"] = lookup_id
+                    context.add_placeholder(lookup_id, f"Repository for project {project.name}")
         else:
             # No repository key - set to null for type consistency
             project_data["repository"] = None
@@ -735,6 +743,17 @@ def _normalize_environment_variables(
         env_values = {}
         secret_handling = config.get_secret_handling()
         
+        # Handle project default value (maps to special "project" key)
+        if var.project_default:
+            if var.name.startswith("DBT_ENV_SECRET"):
+                if secret_handling == "redact":
+                    env_values["project"] = "REDACTED"
+                elif secret_handling == "placeholder":
+                    env_values["project"] = f"${{var.{var.name.lower()}}}"
+                # If omit, don't include project default for secrets
+            else:
+                env_values["project"] = var.project_default
+        
         # Handle environment-specific values
         for env_name, value in var.environment_values.items():
             if var.name.startswith("DBT_ENV_SECRET"):
@@ -744,6 +763,11 @@ def _normalize_environment_variables(
                     env_values[env_name] = f"${{var.{var.name.lower()}}}"
             else:
                 env_values[env_name] = value
+        
+        # Skip variables with no values at all
+        if not env_values:
+            context.add_exclusion("environment_variable", var.name, "No values set", _get_element_id(var))
+            continue
         
         var_data = {
             "name": var.name,

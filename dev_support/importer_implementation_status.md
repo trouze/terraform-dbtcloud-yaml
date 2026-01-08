@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
-**Last Updated:** 2025-12-20  
-**Current Importer Version:** 0.6.4  
+**Last Updated:** 2026-01-08  
+**Current Importer Version:** 0.6.5  
 **Status:** Phase 3 Complete + Interactive Mode + E2E Testing Infrastructure
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -666,6 +666,18 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2026-01-08 (v0.6.5)
+- **Version:** Incremented to 0.6.5 (patch release - GitLab repository fix)
+- **GitLab Repository Creation**: Fixed `gitlab_project_id` not being fetched during import
+  - Added undocumented `include_related=["deploy_key","gitlab"]` query parameter to v3 Retrieve Repository API
+  - Fetcher now correctly extracts `gitlab_project_id` from nested GitLab integration data
+  - Enables proper GitLab repository creation with `deploy_token` strategy
+- **GitLab PAT Requirement**: Added automatic PAT detection for GitLab repositories
+  - E2E test script (`test/run_e2e_test.sh`) now automatically detects `deploy_token` repos
+  - Automatically uses PAT (`DBT_TARGET_PAT`) as main token when GitLab repos exist
+  - Warns users if GitLab repos detected but no PAT provided
+  - GitLab repositories require user token (PAT), not service token
 
 ### 2025-12-20 (v0.6.4)
 - **Version:** Incremented to 0.6.4 (patch release - skip all notifications)

@@ -159,12 +159,41 @@ def _fetch_repositories(client: DbtCloudClient) -> Dict[str, Repository]:
     for item in client.paginate("/repositories/"):
         name = item.get("remote_url", "repo")
         repo_key = slug(item.get("name") or name)
+        
+        # For GitLab repositories (deploy_token strategy), fetch detailed info via v3
+        # to get the gitlab object with gitlab_project_id
+        metadata = item.copy()
+        if item.get("git_clone_strategy") == "deploy_token" or item.get("remote_backend") == "gitlab":
+            repo_id = item.get("id")
+            project_id = item.get("project_id")
+            if repo_id and project_id:
+                try:
+                    log.info(f"Fetching detailed GitLab repository info for {repo_key} (v3)")
+                    # Use include_related to get the gitlab object with gitlab_project_id (undocumented API feature)
+                    detailed = client.get(
+                        f"/projects/{project_id}/repositories/{repo_id}/",
+                        version="v3",
+                        params={"include_related": '["deploy_key","gitlab"]'}
+                    )
+                    if detailed and detailed.get("data"):
+                        repo_data = detailed["data"]
+                        # Merge the gitlab object into metadata
+                        if repo_data.get("gitlab"):
+                            metadata["gitlab"] = repo_data["gitlab"]
+                            # Also extract gitlab_project_id to top level for easier access
+                            gitlab_project_id = repo_data["gitlab"].get("gitlab_project_id")
+                            if gitlab_project_id:
+                                metadata["gitlab_project_id"] = gitlab_project_id
+                                log.info(f"Found gitlab_project_id={gitlab_project_id} for {repo_key}")
+                except Exception as exc:
+                    log.warning(f"Failed to fetch detailed repository info for {repo_key}: {exc}")
+        
         repositories[repo_key] = Repository(
             key=repo_key,
             id=item.get("id"),
             remote_url=item["remote_url"],
             git_clone_strategy=item.get("git_clone_strategy"),
-            metadata=item,
+            metadata=metadata,
         )
     return repositories
 

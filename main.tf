@@ -147,4 +147,6 @@ module "projects_v2" {
   projects       = local.projects_v2
   token_map      = var.token_map
   dbt_account_id = var.dbt_account_id
+  dbt_pat        = var.dbt_pat != "" ? var.dbt_pat : null
+  dbt_host_url   = var.dbt_host_url
 }

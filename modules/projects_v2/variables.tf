@@ -6,6 +6,10 @@ terraform {
     null = {
       source = "hashicorp/null"
     }
+    http = {
+      source  = "hashicorp/http"
+      version = "~> 3.0"
+    }
   }
 }
 
@@ -61,5 +65,18 @@ variable "token_map" {
 variable "dbt_account_id" {
   description = "dbt Cloud account ID"
   type        = number
+}
+
+variable "dbt_pat" {
+  description = "dbt Cloud Personal Access Token (dbtu_*) for retrieving integration IDs. Required for GitHub App integration discovery. Service tokens cannot access the integrations API."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "dbt_host_url" {
+  description = "dbt Cloud host URL (e.g., https://cloud.getdbt.com). Defaults to account.host_url if not provided."
+  type        = string
+  default     = null
 }
 
