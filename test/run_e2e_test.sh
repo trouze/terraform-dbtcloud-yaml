@@ -118,23 +118,35 @@ setup_provider_credentials() {
         host_url="${base_host}/api"
     fi
     
-    # Check if GitLab repositories exist in the YAML config
+    # Check if GitLab or GitHub App repositories exist in the YAML config
     local has_gitlab_repos=false
+    local has_github_app_repos=false
     local yaml_file="$TEST_DIR/dbt-cloud-config.yml"
-    if [ -f "$yaml_file" ] && grep -q "git_clone_strategy: deploy_token" "$yaml_file" 2>/dev/null; then
-        has_gitlab_repos=true
+    if [ -f "$yaml_file" ]; then
+        if grep -q "git_clone_strategy: deploy_token" "$yaml_file" 2>/dev/null; then
+            has_gitlab_repos=true
+        fi
+        if grep -q "git_clone_strategy: github_app" "$yaml_file" 2>/dev/null; then
+            has_github_app_repos=true
+        fi
     fi
     
     # Determine which token to use
-    # GitLab repos require PAT (user token), not service token
+    # Both GitLab and GitHub App repos require PAT (user token) for proper OAuth binding
     local effective_token="$token"
-    if [ "$has_gitlab_repos" = true ]; then
+    if [ "$has_gitlab_repos" = true ] || [ "$has_github_app_repos" = true ]; then
         if [ -n "${DBT_TARGET_PAT:-}" ]; then
             effective_token="${DBT_TARGET_PAT}"
-            log_info "GitLab repositories detected - using PAT as main token" >&2
+            if [ "$has_gitlab_repos" = true ] && [ "$has_github_app_repos" = true ]; then
+                log_info "GitLab and GitHub App repositories detected - using PAT as main token" >&2
+            elif [ "$has_gitlab_repos" = true ]; then
+                log_info "GitLab repositories detected - using PAT as main token" >&2
+            else
+                log_info "GitHub App repositories detected - using PAT as main token" >&2
+            fi
         else
-            log_warning "GitLab repositories detected but no PAT provided" >&2
-            log_warning "GitLab repo creation will fail without PAT (dbtu_*)" >&2
+            log_warning "Native Git integration repositories detected but no PAT provided" >&2
+            log_warning "Repository OAuth binding may fail without PAT (dbtu_*)" >&2
             log_warning "Set DBT_TARGET_PAT in your .env file" >&2
         fi
     fi
@@ -142,12 +154,16 @@ setup_provider_credentials() {
     # Export Terraform variables
     export TF_VAR_dbt_account_id="${DBT_TARGET_ACCOUNT_ID}"
     export TF_VAR_dbt_token="$effective_token"
-    export TF_VAR_dbt_pat="${DBT_TARGET_PAT:-}"
     export TF_VAR_dbt_host_url="$host_url"
     
-    # Also set DBT_CLOUD_* for provider fallback
+    # Only export dbt_pat if it's actually set (don't export empty string)
+    if [ -n "${DBT_TARGET_PAT:-}" ]; then
+        export TF_VAR_dbt_pat="${DBT_TARGET_PAT}"
+    fi
+    
+    # Also set DBT_CLOUD_* for provider fallback (use effective_token to ensure PAT is used)
     export DBT_CLOUD_ACCOUNT_ID="${DBT_TARGET_ACCOUNT_ID}"
-    export DBT_CLOUD_TOKEN="$token"
+    export DBT_CLOUD_TOKEN="$effective_token"
     export DBT_CLOUD_HOST_URL="$host_url"
     
     # Warn if using PAT for operations that might need service token
@@ -1128,15 +1144,6 @@ phase5_apply() {
     
     cd "$TEST_DIR"
     
-    # Setup credentials and capture token type
-    local token="${DBT_TARGET_API_TOKEN}"
-    local token_type="unknown"
-    if [[ "$token" =~ ^dbtc_ ]]; then
-        token_type="Service Token (dbtc_)"
-    elif [[ "$token" =~ ^dbtu_ ]]; then
-        token_type="Personal Access Token (PAT - dbtu_)"
-    fi
-    
     # Setup provider credentials (detects token type and sets variables)
     setup_provider_credentials > /dev/null
     
@@ -1147,13 +1154,20 @@ phase5_apply() {
     > "$log_file"
     log_info "Debug logging enabled: $log_file" >&2
     
+    # Detect EFFECTIVE token type (after setup_provider_credentials may have switched to PAT)
+    local effective_token="${TF_VAR_dbt_token}"
+    local token_type="unknown"
+    if [[ "$effective_token" =~ ^dbtc_ ]]; then
+        token_type="Service Token (dbtc_)"
+    elif [[ "$effective_token" =~ ^dbtu_ ]]; then
+        token_type="Personal Access Token (PAT - dbtu_)"
+    fi
+    
     # Print token type prominently before apply
     log_info "=== Token Type Check ===" >&2
     if [ "$token_type" = "Personal Access Token (PAT - dbtu_)" ]; then
-        log_error "⚠️  WARNING: Using PAT (dbtu_) for Terraform operations" >&2
-        log_error "Service token permission assignments may fail with 404 errors" >&2
-        log_error "Group permission assignments may fail with 500 errors" >&2
-        log_error "Consider using a Service Token (dbtc_) for full functionality" >&2
+        log_success "Using PAT (dbtu_) for Terraform operations" >&2
+        log_info "PAT is required for GitHub App and GitLab OAuth binding" >&2
     else
         log_success "Using $token_type" >&2
     fi

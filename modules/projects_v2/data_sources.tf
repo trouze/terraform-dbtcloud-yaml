@@ -45,7 +45,9 @@ data "http" "github_installations" {
 
 locals {
   # Determine host URL - use provided dbt_host_url or fallback to account.host_url
-  dbt_host_url = coalesce(var.dbt_host_url, var.account.host_url, "https://cloud.getdbt.com")
+  # Strip /api suffix if present (for API calls that need base URL)
+  dbt_host_url_raw = coalesce(var.dbt_host_url, var.account.host_url, "https://cloud.getdbt.com")
+  dbt_host_url     = replace(local.dbt_host_url_raw, "/api", "")
 
   # Parse GitHub installations response
   # Response is an array of installation objects: [{"id": 267820, "access_tokens_url": "..."}, ...]

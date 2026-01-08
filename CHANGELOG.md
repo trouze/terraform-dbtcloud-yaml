@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.8] - 2026-01-08
+
+### Fixed
+- **GitHub App Repository OAuth**: Fixed "Token refresh failure" for GitHub App repositories created via Terraform
+  - Provider now always sends `remote_backend` field based on integration type (github, gitlab, azure_active_directory, manual_config)
+  - Fixed double `/api/api/` URL bug in GitHub installations discovery endpoint
+  - Fixed empty PAT export bug that caused GitHub installations API call to fail
+  - Terraform module now always uses discovered target account's `github_installation_id` instead of invalid source account IDs
+
+### Technical Details
+- Provider changes in `terraform-provider-dbtcloud/pkg/dbt_cloud/repository.go`:
+  - Always send `remote_backend` field derived from integration type
+  - Added `omitempty` to `GitCloneStrategy` field
+- Terraform module changes in `modules/projects_v2/projects.tf`:
+  - Always use target account's discovered `github_installation_id` for `github_app` strategy repos
+  - Ignore source account installation IDs which are invalid in target account
+- Terraform module changes in `modules/projects_v2/data_sources.tf`:
+  - Strip `/api` suffix from host URL to prevent double `/api/api/` in API calls
+- E2E test script changes in `test/run_e2e_test.sh`:
+  - Use PAT for both GitHub App and GitLab repos (both require PAT for OAuth binding)
+  - Only export `TF_VAR_dbt_pat` if PAT is actually set (not empty string)
+  - Fixed `DBT_CLOUD_TOKEN` to use effective token (PAT) instead of original service token
+
 ## [0.6.7] - 2026-01-08
 
 ### Fixed

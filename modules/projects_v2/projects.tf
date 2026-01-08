@@ -54,15 +54,15 @@ locals {
   }
 
   # Determine effective GitHub installation ID
-  # Priority: 1) Explicitly provided, 2) Discovered from target account, 3) null
+  # For migrations, ALWAYS use the discovered TARGET account installation ID
+  # Source account installation IDs are invalid in the target account
   effective_github_installation_id = {
     for key, repo in local.resolve_repository :
     key => (
-      # If explicitly provided in config, use it
-      try(repo.github_installation_id, null) != null ? repo.github_installation_id :
-      # If github_app strategy and we discovered target account ID, use it
+      # If github_app strategy, use discovered target account installation ID
+      # IGNORE source account's github_installation_id - it's invalid in target account
       try(repo.git_clone_strategy, "") == "github_app" ? local.github_installation_id :
-      # Otherwise null
+      # Otherwise null (deploy_key, deploy_token, etc. don't need installation ID)
       null
     )
   }
