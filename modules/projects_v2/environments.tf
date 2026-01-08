@@ -31,11 +31,16 @@ locals {
       # If it's a LOOKUP placeholder, use lookup map
       can(regex("^LOOKUP:", tostring(item.env_data.connection))) ?
       local.lookup_connection_ids[item.env_data.connection] :
-      # If it's a numeric ID, use it directly
-      can(try(tonumber(item.env_data.connection), null)) ?
+      # Try to look up as a connection key first (most common case after fix)
+      # Check if connection key exists in the connections map
+      contains(keys(dbtcloud_global_connection.connections), item.env_data.connection) ?
+      dbtcloud_global_connection.connections[item.env_data.connection].id :
+      # Fall back to numeric ID (for backward compatibility)
+      # Use try() to safely attempt conversion - returns null if conversion fails
+      try(tonumber(item.env_data.connection), null) != null ?
       tonumber(item.env_data.connection) :
-      # Otherwise, it's a key reference to a global connection
-      dbtcloud_global_connection.connections[item.env_data.connection].id
+      # If all else fails, this is an error case
+      null
     )
   }
 
@@ -75,12 +80,12 @@ resource "dbtcloud_databricks_credential" "credentials" {
 }
 
 # Create environments
-# Filter out environments with deprecated dbt versions (e.g., latest-fusion)
+# Note: If fusion is not available on target account, API will return an error
+# This allows users to see the error and act on it, rather than silently filtering
 resource "dbtcloud_environment" "environments" {
   for_each = {
     for item in local.all_environments :
     "${item.project_key}_${item.env_key}" => item
-    if !can(regex("latest-fusion|fusion", try(item.env_data.dbt_version, "")))
   }
 
   project_id    = each.value.project_id
@@ -96,6 +101,7 @@ resource "dbtcloud_environment" "environments" {
   dbt_version                = try(each.value.env_data.dbt_version, null)
   enable_model_query_history = try(each.value.env_data.enable_model_query_history, null)
   custom_branch              = try(each.value.env_data.custom_branch, null)
+  deployment_type            = try(each.value.env_data.deployment_type, null)
   # Note: target_name is not a valid argument for dbtcloud_environment resource
   use_custom_branch          = try(each.value.env_data.custom_branch, null) != null
 }

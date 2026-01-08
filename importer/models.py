@@ -105,6 +105,7 @@ class Environment(ImporterBaseModel):
     dbt_version: Optional[str] = None
     custom_branch: Optional[str] = None
     enable_model_query_history: Optional[bool] = None
+    deployment_type: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 

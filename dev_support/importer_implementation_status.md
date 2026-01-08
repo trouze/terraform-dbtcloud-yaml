@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2026-01-08  
-**Current Importer Version:** 0.6.5  
+**Current Importer Version:** 0.6.7  
 **Status:** Phase 3 Complete + Interactive Mode + E2E Testing Infrastructure
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -420,9 +420,9 @@ Before starting end-to-end testing with a real account, verify:
 ## Version Tracking
 
 ### Importer Version
-- **Current:** 0.5.3
+- **Current:** 0.6.7
 - **File:** `importer/VERSION`
-- **Last Updated:** 2025-12-20
+- **Last Updated:** 2026-01-08
 
 ### Terraform Module Version
 - **Current:** Supports v1 and v2 schemas
@@ -666,6 +666,26 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2026-01-08 (v0.6.7)
+- **Version:** Incremented to 0.6.7 (patch release - repository replacement prevention)
+- **Repository Replacement Prevention**: Fixed unnecessary repository replacements when `github_installation_id` is provided
+  - Provider now uses API's returned `git_clone_strategy` value (`github_app`) when `github_installation_id` is set
+  - Terraform module automatically sets `git_clone_strategy = "github_app"` when `github_installation_id` is provided
+  - Prevents Terraform from detecting configuration drift and replacing repositories unnecessarily
+
+### 2026-01-08 (v0.6.6)
+- **Version:** Incremented to 0.6.6 (patch release - environment deployment_type and connection linking)
+- **Environment deployment_type**: Added support for `deployment_type` field (production/staging)
+  - Fetcher extracts `deployment_type` from environment metadata
+  - Normalizer includes `deployment_type` in normalized environment output
+  - Terraform module sets `deployment_type` attribute on `dbtcloud_environment` resources
+- **Environment Connection Linking**: Fixed environments not being linked to global connections
+  - Added connection key registry similar to repository key registry (`connection_key_to_normalized` dict)
+  - Added `register_connection_key()` and `resolve_connection_key()` methods to `NormalizationContext`
+  - Connection normalization registers original -> normalized key mapping
+  - Environment normalization uses connection key resolution first, then falls back to element_mapping_id resolution
+  - Environments now resolve connection keys correctly instead of showing `LOOKUP:` placeholders
 
 ### 2026-01-08 (v0.6.5)
 - **Version:** Incremented to 0.6.5 (patch release - GitLab repository fix)

@@ -9,6 +9,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.7] - 2026-01-08
+
+### Fixed
+- **Repository Replacement Prevention**: Fixed unnecessary repository replacements when `github_installation_id` is provided
+  - Provider now uses API's returned `git_clone_strategy` value (`github_app`) when `github_installation_id` is set
+  - Terraform module automatically sets `git_clone_strategy = "github_app"` when `github_installation_id` is provided
+  - Prevents Terraform from detecting configuration drift and replacing repositories unnecessarily
+  - API automatically changes `git_clone_strategy` from `deploy_key` to `github_app` when GitHub installation ID is provided
+
+### Technical Details
+- Provider changes in `terraform-provider-dbtcloud/pkg/framework/objects/repository/resource.go`:
+  - Create function now uses API's returned `git_clone_strategy` when `github_installation_id` is provided
+  - Ensures state matches API behavior to avoid replacement triggers
+- Terraform module changes in `modules/projects_v2/projects.tf`:
+  - `effective_git_clone_strategy` now automatically sets `github_app` when `github_installation_id` is provided
+  - Matches API's automatic behavior to prevent configuration drift
+
+## [0.6.6] - 2026-01-08
+
+### Fixed
+- **Environment deployment_type**: Added support for `deployment_type` field (production/staging)
+  - Fetcher now extracts `deployment_type` from environment metadata
+  - Normalizer includes `deployment_type` in normalized environment output
+  - Terraform module sets `deployment_type` attribute on `dbtcloud_environment` resources
+- **Environment Connection Linking**: Fixed environments not being linked to global connections
+  - Added connection key registry similar to repository key registry
+  - Environments now resolve connection keys correctly instead of showing `LOOKUP:` placeholders
+  - Connection key resolution uses original key -> normalized key mapping
+
+### Technical Details
+- Model changes in `importer/models.py`:
+  - Added `deployment_type: Optional[str] = None` to `Environment` class
+- Fetcher changes in `importer/fetcher.py`:
+  - Extract `deployment_type` from environment item metadata
+- Normalizer changes in `importer/normalizer/__init__.py` and `importer/normalizer/core.py`:
+  - Added `connection_key_to_normalized` dict and `register_connection_key()`/`resolve_connection_key()` methods
+  - Connection normalization registers original -> normalized key mapping
+  - Environment normalization uses connection key resolution first, then falls back to element_mapping_id resolution
+  - Include `deployment_type` in normalized environment output
+- Terraform changes in `modules/projects_v2/environments.tf`:
+  - Added `deployment_type` attribute to `dbtcloud_environment` resource
+
 ## [0.6.5] - 2026-01-08
 
 ### Fixed

@@ -128,6 +128,7 @@ class NormalizationContext:
         self.element_id_to_key: Dict[str, str] = {}  # element_mapping_id -> key
         self.project_id_to_key: Dict[int, str] = {}  # numeric project ID -> project key
         self.repository_key_to_normalized: Dict[str, str] = {}  # original repository key -> normalized key
+        self.connection_key_to_normalized: Dict[str, str] = {}  # original connection key -> normalized key
 
     def add_placeholder(self, lookup_id: str, description: str) -> None:
         """Record a LOOKUP placeholder."""
@@ -206,5 +207,19 @@ class NormalizationContext:
         normalized = self.repository_key_to_normalized.get(repo_key)
         if normalized:
             log.debug(f"Resolved repository key '{repo_key}' -> '{normalized}'")
+        return normalized
+
+    def register_connection_key(self, original_key: str, normalized_key: str) -> None:
+        """Register mapping from original connection key to normalized key."""
+        self.connection_key_to_normalized[original_key] = normalized_key
+        log.debug(f"Registered connection key '{original_key}' -> '{normalized_key}'")
+
+    def resolve_connection_key(self, conn_key: Optional[str]) -> Optional[str]:
+        """Resolve original connection key to normalized key."""
+        if not conn_key:
+            return None
+        normalized = self.connection_key_to_normalized.get(conn_key)
+        if normalized:
+            log.debug(f"Resolved connection key '{conn_key}' -> '{normalized}'")
         return normalized
 

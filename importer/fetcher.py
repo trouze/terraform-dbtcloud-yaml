@@ -448,6 +448,7 @@ def _fetch_environments(
             dbt_version=item.get("dbt_version"),
             custom_branch=item.get("custom_branch"),
             enable_model_query_history=item.get("enable_model_query_history"),
+            deployment_type=item.get("deployment_type"),
             metadata=item,
         )
 

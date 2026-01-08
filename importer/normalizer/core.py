@@ -154,6 +154,8 @@ def _normalize_connections(
         normalized_key = context.resolve_collision(key, namespace="connections")
         if element_id:
             context.register_element(element_id, normalized_key)
+        # Register connection key mapping for environment lookups
+        context.register_connection_key(key, normalized_key)
         
         conn_data = {
             "key": normalized_key,
@@ -638,8 +640,13 @@ def _normalize_environments(
         }
         
         # Resolve connection reference
+        # First try to resolve using connection key mapping (original key -> normalized key)
+        # Then fall back to element_mapping_id resolution
         if env.connection_key:
-            conn_key = context.resolve_element_reference(env.connection_key)
+            conn_key = context.resolve_connection_key(env.connection_key)
+            if not conn_key:
+                # Fall back to element_mapping_id resolution
+                conn_key = context.resolve_element_reference(env.connection_key)
             if conn_key:
                 env_data["connection"] = conn_key
             else:
@@ -659,6 +666,7 @@ def _normalize_environments(
         env_data["dbt_version"] = env.dbt_version or None
         env_data["custom_branch"] = env.custom_branch or None
         env_data["enable_model_query_history"] = env.enable_model_query_history
+        env_data["deployment_type"] = env.deployment_type or None
         
         result.append(env_data)
     
