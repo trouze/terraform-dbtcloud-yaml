@@ -23,6 +23,14 @@ locals {
     for item in local.all_environment_variables :
     "${item.project_key}_${item.env_var_key}" => item
   }
+
+  # Build a map of environment names to environment resource keys
+  # This maps "project_key_env_name" => environment resource key
+  # Used to create implicit dependencies by referencing created environment resources
+  env_name_to_resource_key = {
+    for item in local.all_environments :
+    "${item.project_key}_${item.env_data.name}" => "${item.project_key}_${item.env_key}"
+  }
 }
 
 # Create project-scoped environment variables
@@ -34,17 +42,20 @@ resource "dbtcloud_environment_variable" "environment_variables" {
 
   # Map environment values
   # Keys in environment_values should match environment names
+  # Reference created environment resources directly to create implicit dependencies
+  # This ensures environments exist before env vars are created, but only for referenced environments
   environment_values = {
     for env_key, env_value in each.value.env_var_data.environment_values :
-    # Resolve environment name to environment ID
-    lookup(
-      {
-        for env_item in local.all_environments :
-        "${env_item.project_key}_${env_item.env_key}" => env_item.env_data.name
-      },
-      "${each.value.project_key}_${env_key}",
+    # Resolve environment name (use env_key directly if it's "project" or if lookup fails)
+    env_key == "project" ? "project" : (
+      # Try to find the environment resource key for this environment name
+      contains(keys(local.env_name_to_resource_key), "${each.value.project_key}_${env_key}") ?
+      # Reference the created environment resource to create implicit dependency
+      # Use the environment's name (which matches what the API expects)
+      dbtcloud_environment.environments[local.env_name_to_resource_key["${each.value.project_key}_${env_key}"]].name :
+      # Fallback to env_key if environment not found (will cause API error, but that's expected)
       env_key
-      ) => (
+    ) => (
       # If value starts with secret prefix, look it up in token_map
       can(regex("^secret_", env_value)) ?
       lookup(var.token_map, replace(env_value, "secret_", ""), env_value) :

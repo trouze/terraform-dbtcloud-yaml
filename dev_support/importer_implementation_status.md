@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2026-01-08  
-**Current Importer Version:** 0.6.8  
+**Current Importer Version:** 0.6.9  
 **Status:** Phase 3 Complete + Interactive Mode + E2E Testing Infrastructure
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -420,7 +420,7 @@ Before starting end-to-end testing with a real account, verify:
 ## Version Tracking
 
 ### Importer Version
-- **Current:** 0.6.7
+- **Current:** 0.6.9
 - **File:** `importer/VERSION`
 - **Last Updated:** 2026-01-08
 
@@ -666,6 +666,13 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2026-01-08 (v0.6.9)
+- **Version:** Incremented to 0.6.9 (patch release - environment variable environment-specific values)
+- **Environment Variable Environment-Specific Values**: Fixed environment-specific values not being set for environment variables
+  - Added explicit dependency on `dbtcloud_environment.environments` to ensure environments are created before setting environment-specific values
+  - Environment variables with `project` defaults were working, but values for specific environments (e.g., "1 - Prod", "2 - Staging") were not being set
+  - The dbt Cloud API requires environments to exist before environment-specific values can be assigned
 
 ### 2026-01-08 (v0.6.7)
 - **Version:** Incremented to 0.6.7 (patch release - repository replacement prevention)
