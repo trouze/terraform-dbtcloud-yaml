@@ -68,14 +68,16 @@ resource "dbtcloud_environment_variable" "environment_variables" {
 # These override environment-specific values for specific jobs
 locals {
   # Collect all job overrides from job definitions
+  # Only include overrides for jobs we actually create (jobs_creatable_map),
+  # otherwise references to dbtcloud_job.jobs[job_key] can fail.
   job_env_var_overrides = flatten([
-    for job_key, job_item in local.jobs_map : [
+    for job_key, job_item in local.jobs_creatable_map : [
       for override_key, override_value in try(job_item.job_data.environment_variable_overrides, {}) : {
-        job_key       = job_key
-        job_definition_id = dbtcloud_job.jobs[job_key].id
-        env_var_name  = override_key
-        env_var_value = override_value
-        project_key   = job_item.project_key
+        job_key           = job_key
+        project_id        = job_item.project_id
+        job_definition_id = dbtcloud_job.jobs[job_key].job_id
+        env_var_name      = override_key
+        env_var_value     = override_value
       }
     ]
   ])
@@ -87,7 +89,7 @@ resource "dbtcloud_environment_variable_job_override" "job_overrides" {
     "${override.job_key}_${override.env_var_name}" => override
   }
 
-  project_id        = each.value.project_key
+  project_id        = each.value.project_id
   job_definition_id = each.value.job_definition_id
   name              = each.value.env_var_name
   raw_value = (

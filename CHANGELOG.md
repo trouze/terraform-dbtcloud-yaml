@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.11] - 2026-01-09
+
+### Fixed
+- **Jobs: schedule normalization**: Fixed scheduled job configuration not being applied in the target account.
+  - Normalizer now reads schedule fields from the nested Jobs API shape (`settings.schedule.date` / `settings.schedule.time`) instead of expecting flat `schedule_*` fields.
+  - Avoids invalid Terraform/provider combinations by only emitting `schedule_cron` for `custom_cron`, selecting `schedule_hours` vs `schedule_interval` based on `schedule.time.type`, and omitting schedule fields entirely unless `triggers.schedule` is true.
+
 ## [0.6.10] - 2026-01-08
 
 ### Fixed

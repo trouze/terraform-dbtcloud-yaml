@@ -473,15 +473,67 @@ def _fetch_jobs(client: DbtCloudClient, project_id: int, environments: list) -> 
         else:
             environment_key = f"env_{environment_id or 'unknown'}"
         
+        job_id = item.get("id")
+        env_var_overrides: Dict[str, str] = {}
+        if isinstance(job_id, int) and job_id != 0:
+            env_var_overrides = _fetch_job_env_var_overrides(client, project_id, job_id)
+
         yield Job(
             key=job_key,
-            id=item.get("id"),
+            id=job_id,
             name=item["name"],
             environment_key=environment_key,
             execute_steps=item.get("execute_steps", []),
             triggers=item.get("triggers", {}),
             settings=item,
+            environment_variable_overrides=env_var_overrides,
         )
+
+
+def _fetch_job_env_var_overrides(
+    client: DbtCloudClient,
+    project_id: int,
+    job_definition_id: int,
+) -> Dict[str, str]:
+    """
+    Fetch job-level environment variable overrides (v3).
+    Endpoint: /projects/{project_id}/environment-variables/job/?job_definition_id={job_id}
+
+    Response format (data) is a map like:
+      { "VAR_NAME": { "project": {...}, "environment": {...}, "job": { "id": 123, "value": "X" } }, ... }
+    """
+    overrides: Dict[str, str] = {}
+    try:
+        path = f"/projects/{project_id}/environment-variables/job/"
+        resp = client.get(path, version="v3", params={"job_definition_id": job_definition_id})
+        data = resp.get("data", {})
+        if not isinstance(data, dict):
+            return overrides
+
+        for var_name, payload in data.items():
+            if not isinstance(var_name, str) or not isinstance(payload, dict):
+                continue
+            job_payload = payload.get("job")
+            if not isinstance(job_payload, dict):
+                continue
+            raw_value = job_payload.get("value")
+            if not isinstance(raw_value, str):
+                continue
+
+            # Secrets cannot be recovered from the source.
+            # If the name looks like a secret or the value is masked, store a token_map placeholder.
+            if var_name.startswith("DBT_ENV_SECRET") or raw_value.strip("*") == "":
+                overrides[var_name] = f"secret_{var_name}"
+            else:
+                overrides[var_name] = raw_value
+    except Exception as exc:  # pragma: no cover - network dependent
+        log.warning(
+            "Failed to fetch job env var overrides for project %s job %s: %s",
+            project_id,
+            job_definition_id,
+            exc,
+        )
+    return overrides
 
 
 def _fetch_environment_variables(client: DbtCloudClient, project_id: int) -> Iterable[EnvironmentVariable]:

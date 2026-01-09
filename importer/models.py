@@ -117,6 +117,7 @@ class Job(ImporterBaseModel):
     execute_steps: List[str]
     triggers: Dict[str, Any]
     settings: Dict[str, Any] = Field(default_factory=dict)
+    environment_variable_overrides: Dict[str, str] = Field(default_factory=dict)
 
 
 class EnvironmentVariable(ImporterBaseModel):

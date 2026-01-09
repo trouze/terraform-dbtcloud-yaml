@@ -56,7 +56,6 @@ locals {
   # Validate run_compare_changes compatibility
   # State-aware orchestration (run_compare_changes) is only available for:
   # 1. Jobs on staging or production environments (deployment_type must be "staging" or "production")
-  # 2. Jobs that are NOT CI or Merge jobs (no github_webhook, git_provider_webhook, or on_merge triggers)
   validate_run_compare_changes = {
     for key, item in local.jobs_map :
     key => (
@@ -67,11 +66,7 @@ locals {
         contains(["staging", "production"], try(
           dbtcloud_environment.environments["${item.project_key}_${item.environment_key}"].deployment_type,
           ""
-        )) &&
-        # Check if job is NOT a CI/Merge job
-        !try(item.job_data.triggers.github_webhook, false) &&
-        !try(item.job_data.triggers.git_provider_webhook, false) &&
-        !try(item.job_data.triggers.on_merge, false)
+        ))
       ) : false
     )
   }
@@ -137,6 +132,12 @@ resource "dbtcloud_job" "jobs" {
   timeout_seconds          = try(each.value.job_data.timeout_seconds, 0)
   triggers_on_draft_pr     = try(each.value.job_data.triggers_on_draft_pr, false)
   self_deferring           = try(each.value.job_data.self_deferring, null)
+
+  lifecycle {
+    ignore_changes = [
+      job_completion_trigger_condition
+    ]
+  }
 }
 
 # Note: Notification job associations are handled in globals.tf

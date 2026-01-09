@@ -685,6 +685,67 @@ def _normalize_jobs(
     
     # Build mapping of environment_id -> environment_key for deferral resolution
     env_id_to_key = {env.id: env.key for env in project.environments if env.id}
+
+    # Build mapping of job_id -> job_key for job completion trigger condition resolution
+    job_id_to_key = {j.id: j.key for j in project.jobs if getattr(j, "id", None)}
+
+    # Precompute job chaining edges (job_key -> trigger_job_key) for same-project triggers,
+    # so we can detect cycles and avoid generating Terraform dependency cycles.
+    trigger_key_by_job_key: Dict[str, str] = {}
+    for j in project.jobs:
+        jctc = j.settings.get("job_completion_trigger_condition")
+        trigger_condition = None
+        if isinstance(jctc, dict):
+            if isinstance(jctc.get("condition"), dict):
+                trigger_condition = jctc.get("condition")
+            else:
+                trigger_condition = jctc
+        if not isinstance(trigger_condition, dict):
+            continue
+        src_trigger_job_id = trigger_condition.get("job_id")
+        src_trigger_project_id = trigger_condition.get("project_id")
+        # Only same-project chaining can be resolved automatically.
+        if (
+            isinstance(src_trigger_job_id, int)
+            and src_trigger_project_id == project.id
+            and src_trigger_job_id in job_id_to_key
+        ):
+            trigger_job_key = job_id_to_key[src_trigger_job_id]
+            # Avoid trivial self-dependency
+            if trigger_job_key and trigger_job_key != j.key:
+                trigger_key_by_job_key[j.key] = trigger_job_key
+
+    def _cycle_nodes(edges: Dict[str, str]) -> set[str]:
+        """Return the set of nodes that participate in any directed cycle in edges."""
+        visiting: set[str] = set()
+        visited: set[str] = set()
+        cycles: set[str] = set()
+
+        def dfs(n: str, stack: List[str]) -> None:
+            if n in visiting:
+                # Mark the cycle portion of the current stack
+                if n in stack:
+                    cycles.update(stack[stack.index(n):])
+                else:
+                    cycles.add(n)
+                return
+            if n in visited:
+                return
+            visiting.add(n)
+            stack.append(n)
+            nxt = edges.get(n)
+            if nxt:
+                dfs(nxt, stack)
+            stack.pop()
+            visiting.remove(n)
+            visited.add(n)
+
+        for node in edges.keys():
+            if node not in visited:
+                dfs(node, [])
+        return cycles
+
+    cycle_job_keys = _cycle_nodes(trigger_key_by_job_key)
     
     for job in project.jobs:
         if job.key in exclude_keys:
@@ -717,21 +778,147 @@ def _normalize_jobs(
             job_data["deferring_environment_key"] = None
         
         # Schedule settings - ALWAYS include for Terraform type consistency
-        job_data["schedule_type"] = job.settings.get("schedule_type") or None
-        job_data["schedule_hours"] = job.settings.get("schedule_hours") or None
-        job_data["schedule_days"] = job.settings.get("schedule_days") or None
-        job_data["schedule_cron"] = job.settings.get("schedule_cron") or None
+        #
+        # Important: the dbt Cloud Jobs API returns schedule nested:
+        #   settings.schedule.date.{type,days,cron}
+        #   settings.schedule.time.{type,interval,hours}
+        #
+        # Terraform provider validation enforces mutually exclusive combinations:
+        # - schedule_cron cannot be set with schedule_interval or schedule_hours
+        # - schedule_hours cannot be set with schedule_interval (and vice versa)
+        # Only populate schedule fields for *scheduled* jobs.
+        # The Jobs API often includes a schedule object even when triggers.schedule is false,
+        # and Terraform/provider validation enforces mutually exclusive combinations.
+        is_scheduled = False
+        if isinstance(job.triggers, dict):
+            is_scheduled = bool(job.triggers.get("schedule", False))
+
+        if not is_scheduled:
+            job_data["schedule_type"] = None
+            job_data["schedule_days"] = None
+            job_data["schedule_hours"] = None
+            job_data["schedule_interval"] = None
+            job_data["schedule_cron"] = None
+        else:
+            schedule = job.settings.get("schedule") if isinstance(job.settings.get("schedule"), dict) else {}
+            schedule_date = schedule.get("date") if isinstance(schedule.get("date"), dict) else {}
+            schedule_time = schedule.get("time") if isinstance(schedule.get("time"), dict) else {}
+
+            schedule_type = schedule_date.get("type") or job.settings.get("schedule_type") or None
+            schedule_days = schedule_date.get("days") or job.settings.get("schedule_days") or None
+            schedule_time_type = schedule_time.get("type")
+
+            # Decide whether to emit schedule_hours vs schedule_interval based on schedule_time.type
+            schedule_hours = None
+            schedule_interval = None
+            if schedule_time_type == "at_exact_hours":
+                schedule_hours = schedule_time.get("hours") or job.settings.get("schedule_hours") or None
+                schedule_interval = None
+            elif schedule_time_type == "every_hour":
+                schedule_interval = schedule_time.get("interval") or job.settings.get("schedule_interval") or None
+                schedule_hours = None
+            else:
+                # Fallback: prefer hours if present, else interval
+                schedule_hours = schedule_time.get("hours") or job.settings.get("schedule_hours") or None
+                schedule_interval = schedule_time.get("interval") or job.settings.get("schedule_interval") or None
+                if schedule_hours is not None and schedule_interval is not None:
+                    # If both present, drop interval (provider disallows the combo)
+                    schedule_interval = None
+
+            # Only emit schedule_cron for custom_cron schedules.
+            # The API often includes a computed schedule.cron even for non-cron schedules; that must be ignored.
+            schedule_cron = None
+            if schedule_type == "custom_cron":
+                schedule_cron = schedule_date.get("cron") or job.settings.get("schedule_cron") or None
+
+            job_data["schedule_type"] = schedule_type
+            job_data["schedule_days"] = schedule_days
+            job_data["schedule_hours"] = schedule_hours
+            job_data["schedule_interval"] = schedule_interval
+            job_data["schedule_cron"] = schedule_cron
         
         # Optional job settings - ALWAYS include for Terraform type consistency
-        job_data["num_threads"] = job.settings.get("num_threads") or None
-        job_data["timeout_seconds"] = job.settings.get("timeout_seconds") or None
-        job_data["target_name"] = job.settings.get("target_name") or None
+        #
+        # Important: the dbt Cloud Jobs API returns some settings nested:
+        # - threads/target_name under settings.settings
+        # - timeout_seconds under settings.execution
+        # Preserve those values first, then fall back to older flat keys.
+        nested_settings = job.settings.get("settings") if isinstance(job.settings.get("settings"), dict) else {}
+        nested_execution = job.settings.get("execution") if isinstance(job.settings.get("execution"), dict) else {}
+
+        job_data["num_threads"] = (
+            nested_settings.get("threads")
+            or job.settings.get("num_threads")
+            or None
+        )
+        job_data["timeout_seconds"] = (
+            nested_execution.get("timeout_seconds")
+            or job.settings.get("timeout_seconds")
+            or None
+        )
+        job_data["target_name"] = (
+            nested_settings.get("target_name")
+            or job.settings.get("target_name")
+            or None
+        )
         job_data["dbt_version"] = job.settings.get("dbt_version") or None
         job_data["generate_docs"] = job.settings.get("generate_docs", False)
         job_data["run_lint"] = job.settings.get("run_lint", False)
+        # Propagate lint failure behavior when run_lint is enabled.
+        # If absent in the source snapshot, leave as null so Terraform can apply its default.
+        job_data["errors_on_lint_failure"] = job.settings.get("errors_on_lint_failure")
         job_data["run_generate_sources"] = job.settings.get("run_generate_sources", False)
         job_data["run_compare_changes"] = job.settings.get("run_compare_changes", False)
         job_data["compare_changes_flags"] = job.settings.get("compare_changes_flags") or None
+
+        # Job completion trigger condition (job chaining)
+        # Source API represents this as:
+        #   job.settings.job_completion_trigger_condition.condition = { job_id, project_id, statuses: [10,20,30] }
+        jctc = job.settings.get("job_completion_trigger_condition")
+        trigger_condition = None
+        if isinstance(jctc, dict):
+            # v3 shape has { "condition": {...} }
+            if isinstance(jctc.get("condition"), dict):
+                trigger_condition = jctc.get("condition")
+            else:
+                trigger_condition = jctc
+
+        resolved_trigger = None
+        if isinstance(trigger_condition, dict):
+            src_trigger_job_id = trigger_condition.get("job_id")
+            src_trigger_project_id = trigger_condition.get("project_id")
+            src_statuses = trigger_condition.get("statuses") or []
+
+            # Only resolve job chaining within the same project (cross-project requires additional lookups).
+            if isinstance(src_trigger_job_id, int) and src_trigger_project_id == project.id and src_trigger_job_id in job_id_to_key:
+                status_map = {10: "success", 20: "error", 30: "canceled"}
+                resolved_statuses = [
+                    status_map[s] for s in src_statuses if isinstance(s, int) and s in status_map
+                ]
+                resolved_trigger = {
+                    "job_key": job_id_to_key[src_trigger_job_id],
+                    "statuses": resolved_statuses,
+                }
+            elif src_trigger_job_id is not None:
+                lookup_id = f"LOOKUP:job_completion_trigger_{project.key}_{job.key}"
+                context.add_placeholder(lookup_id, "Job completion trigger condition requires manual resolution (cross-project or unknown job)")
+
+        # If this project has cyclic job-chaining, omit those edges so Terraform can plan/apply.
+        # We'll surface them via LOOKUP placeholders for a later, dedicated job-chaining migration step.
+        if resolved_trigger and job.key in cycle_job_keys:
+            lookup_id = f"LOOKUP:job_completion_trigger_cycle_{project.key}_{job.key}"
+            context.add_placeholder(
+                lookup_id,
+                "Job completion trigger condition is part of a cycle and cannot be applied in a single Terraform graph",
+            )
+            resolved_trigger = None
+
+        # Always include for Terraform type consistency
+        job_data["job_completion_trigger_condition"] = resolved_trigger
+
+        # Job-level environment variable overrides.
+        # Always include for Terraform type consistency.
+        job_data["environment_variable_overrides"] = getattr(job, "environment_variable_overrides", {}) or {}
         
         result.append(job_data)
     
