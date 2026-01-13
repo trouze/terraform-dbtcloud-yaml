@@ -158,18 +158,18 @@ def _flatten_for_csv(data: Dict[str, Any], prefix: str = "") -> Dict[str, Any]:
 #   40-49: Project resources
 #   50-59: Execution/Jobs
 RESOURCE_TYPES = {
-    "ACC": {"name": "Account", "icon": "cloud", "color": "#3B82F6", "sort_order": "00"},
-    "CON": {"name": "Connection", "icon": "storage", "color": "#10B981", "sort_order": "10"},
-    "REP": {"name": "Repository", "icon": "source", "color": "#8B5CF6", "sort_order": "11"},
-    "TOK": {"name": "Service Token", "icon": "key", "color": "#EC4899", "sort_order": "12"},
-    "GRP": {"name": "Group", "icon": "group", "color": "#6366F1", "sort_order": "13"},
-    "NOT": {"name": "Notification", "icon": "notifications", "color": "#F97316", "sort_order": "14"},
-    "WEB": {"name": "Webhook", "icon": "webhook", "color": "#84CC16", "sort_order": "15"},
-    "PLE": {"name": "PrivateLink", "icon": "lock", "color": "#14B8A6", "sort_order": "16"},
-    "PRJ": {"name": "Project", "icon": "folder", "color": "#F59E0B", "sort_order": "30"},
-    "ENV": {"name": "Environment", "icon": "layers", "color": "#06B6D4", "sort_order": "40"},
-    "VAR": {"name": "Env Variable", "icon": "code", "color": "#A855F7", "sort_order": "41"},
-    "JOB": {"name": "Job", "icon": "schedule", "color": "#EF4444", "sort_order": "50"},
+    "ACC": {"name": "Account", "code": "ACCNT", "icon": "cloud", "color": "#3B82F6", "sort_order": "00"},
+    "CON": {"name": "Connection", "code": "CONN", "icon": "storage", "color": "#10B981", "sort_order": "10"},
+    "REP": {"name": "Repository", "code": "REPO", "icon": "source", "color": "#8B5CF6", "sort_order": "11"},
+    "TOK": {"name": "Service Token", "code": "SRVTKN", "icon": "key", "color": "#EC4899", "sort_order": "12"},
+    "GRP": {"name": "Group", "code": "GRP", "icon": "group", "color": "#6366F1", "sort_order": "13"},
+    "NOT": {"name": "Notification", "code": "NOTIFY", "icon": "notifications", "color": "#F97316", "sort_order": "14"},
+    "WEB": {"name": "Webhook", "code": "WBHK", "icon": "webhook", "color": "#84CC16", "sort_order": "15"},
+    "PLE": {"name": "PrivateLink", "code": "PRVLNK", "icon": "lock", "color": "#14B8A6", "sort_order": "16"},
+    "PRJ": {"name": "Project", "code": "PRJCT", "icon": "folder", "color": "#F59E0B", "sort_order": "30"},
+    "ENV": {"name": "Environment", "code": "ENV", "icon": "layers", "color": "#06B6D4", "sort_order": "40"},
+    "VAR": {"name": "Env Variable", "code": "ENVVAR", "icon": "code", "color": "#A855F7", "sort_order": "41"},
+    "JOB": {"name": "Job", "code": "JOB", "icon": "schedule", "color": "#EF4444", "sort_order": "50"},
 }
 
 # Optimized default columns per entity type (most useful fields for each type)
@@ -191,11 +191,14 @@ DEFAULT_COLUMNS_BY_TYPE = {
 
 
 def _add_sort_key(items: list) -> list:
-    """Add a sort_key field to each item based on type sort order."""
+    """Add a sort_key field and display type to each item based on type sort order."""
     for item in items:
         type_code = item.get("element_type_code", "ZZ")
-        sort_order = RESOURCE_TYPES.get(type_code, {}).get("sort_order", "99")
+        type_info = RESOURCE_TYPES.get(type_code, {})
+        sort_order = type_info.get("sort_order", "99")
         item["_type_sort_key"] = f"{sort_order}-{type_code}"
+        # Add display type code (ACCNT, REPO, etc.) for the Type column
+        item["_display_type"] = type_info.get("code", type_code)
     return items
 
 
@@ -261,7 +264,7 @@ def _build_column_defs(visible_cols: list, type_filter: str, state: "AppState") 
             "pinned": "left",
         },
         {
-            "field": "element_type_code",
+            "field": "_display_type",  # Use display code (ACCNT, REPO, etc.) instead of internal code
             "colId": "element_type_code",
             "headerName": "Type",
             "width": COLUMN_WIDTHS["element_type_code"],
@@ -589,7 +592,7 @@ def create_entity_table(
             # Type filter dropdown
             type_select = ui.select(
                 options={
-                    opt: f"{RESOURCE_TYPES.get(opt, {}).get('name', opt)} ({type_counts.get(opt, 0)})" 
+                    opt: f"{RESOURCE_TYPES.get(opt, {}).get('name', opt)} ({RESOURCE_TYPES.get(opt, {}).get('code', opt)}) [{type_counts.get(opt, 0)}]" 
                     if opt != "all" else f"All Types ({len(report_items)})"
                     for opt in filter_options
                 },
@@ -821,7 +824,7 @@ def _show_detail_dialog(row_data: dict, state: Optional["AppState"] = None) -> N
     """Show a dialog with entity details."""
     
     type_code = row_data.get("element_type_code", "UNK")
-    type_info = RESOURCE_TYPES.get(type_code, {"name": type_code, "icon": "info", "color": "#6B7280"})
+    type_info = RESOURCE_TYPES.get(type_code, {"name": type_code, "code": type_code, "icon": "info", "color": "#6B7280"})
     
     # Load full data if state is available
     full_data = _get_full_entity_data(state, row_data) if state else None
@@ -833,7 +836,7 @@ def _show_detail_dialog(row_data: dict, state: Optional["AppState"] = None) -> N
             with ui.row().classes("items-center gap-2"):
                 ui.icon(type_info["icon"]).style(f"color: {type_info['color']};")
                 ui.label(row_data.get("name", "Unknown")).classes("text-xl font-bold")
-                ui.badge(type_info["name"]).style(f"background-color: {type_info['color']};")
+                ui.badge(f"{type_info['name']} ({type_info['code']})").style(f"background-color: {type_info['color']};")
             ui.button(icon="close", on_click=dialog.close).props("flat round dense")
         
         # Tabs - Summary is now the default
@@ -896,7 +899,7 @@ def _render_summary_tab(row_data: dict, full_data: dict, type_code: str, type_in
     with ui.column().classes("w-full gap-4 p-2"):
         # Key info chips at top
         with ui.row().classes("w-full gap-3 flex-wrap"):
-            _info_chip("Type", type_info["name"], type_info["color"])
+            _info_chip("Type", f"{type_info['name']} ({type_info['code']})", type_info["color"])
             if row_data.get("dbt_id") or full_data.get("id"):
                 _info_chip("ID", str(row_data.get("dbt_id") or full_data.get("id")), "#3B82F6")
             if row_data.get("key") or full_data.get("key"):

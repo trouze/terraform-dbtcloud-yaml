@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-01-13
+
+### Added
+- **Fetch Page**: Cancel button to stop fetch operations in progress
+- **Fetch Page**: Configurable threads input (1-20) for parallel API requests
+- **Explore Tab**: Display codes added to RESOURCE_TYPES (ACCNT, CONN, REPO, SRVTKN, etc.)
+
+### Changed
+- **Explore Tab**: Type dropdown now shows format "Name (CODE) [count]"
+- **Explore Tab**: Entity detail dialog badge shows "Name (CODE)"
+- **Explore Tab**: Summary tab Type chip shows "Name (CODE)"
+- **Fetcher**: `fetch_account_snapshot` accepts optional `cancel_event` parameter
+
 ## [0.7.5] - 2026-01-13
 
 ### Added
