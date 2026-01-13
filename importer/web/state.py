@@ -96,6 +96,11 @@ class ExploreState:
     report_items: list = field(default_factory=list)
     selected_type_filter: str = "all"
     search_query: str = ""
+    # Column visibility settings (field names that are visible)
+    visible_columns: list = field(default_factory=lambda: [
+        "element_type_code", "name", "project_name", "key", "dbt_id",
+        "include_in_conversion", "line_item_number"
+    ])
 
 
 @dataclass
@@ -239,6 +244,9 @@ class AppState:
                 "account_name": self.fetch.account_name,
                 "resource_counts": self.fetch.resource_counts,
             },
+            "explore": {
+                "visible_columns": self.explore.visible_columns,
+            },
             "map": {
                 "scope_mode": self.map.scope_mode,
                 "selected_project_ids": self.map.selected_project_ids,
@@ -299,6 +307,11 @@ class AppState:
             state.fetch.last_report_items_file = f.get("last_report_items_file")
             state.fetch.account_name = f.get("account_name")
             state.fetch.resource_counts = f.get("resource_counts", {})
+
+        if "explore" in data:
+            e = data["explore"]
+            if "visible_columns" in e:
+                state.explore.visible_columns = e["visible_columns"]
 
         if "map" in data:
             m = data["map"]

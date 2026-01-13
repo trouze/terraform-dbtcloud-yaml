@@ -3,6 +3,7 @@
 from typing import Callable, Optional, Union
 
 from nicegui import ui
+from nicegui.events import UploadEventArguments
 
 from importer.web.state import AppState, SourceCredentials, TargetCredentials
 
@@ -15,6 +16,7 @@ def create_source_credential_form(
     state: AppState,
     on_credentials_change: Optional[Callable[[SourceCredentials], None]] = None,
     on_load_env: Optional[Callable[[], None]] = None,
+    on_load_env_content: Optional[Callable[[str, str], None]] = None,
     on_save_env: Optional[Callable[[], None]] = None,
 ) -> None:
     """Create a form for entering source dbt Platform credentials.
@@ -22,22 +24,57 @@ def create_source_credential_form(
     Args:
         state: Application state containing current credentials
         on_credentials_change: Callback when credentials change
-        on_load_env: Callback when "Load from .env" is clicked
+        on_load_env: Callback when "Load default .env" is clicked
+        on_load_env_content: Callback when file is uploaded (content, filename)
         on_save_env: Callback when "Save to .env" is clicked
     """
     creds = state.source_credentials
+    
+    # Track upload component reference
+    upload_ref = {"upload": None}
+    
+    async def handle_upload(e: UploadEventArguments):
+        """Handle file upload."""
+        if e.file and on_load_env_content:
+            content = await e.file.text()
+            on_load_env_content(content, e.file.name)
+            # Reset the upload component
+            if upload_ref["upload"]:
+                upload_ref["upload"].reset()
 
     with ui.card().classes("w-full"):
         with ui.row().classes("w-full items-center justify-between mb-4"):
             ui.label("Source Account Credentials").classes("text-lg font-semibold")
             
-            # .env buttons
+            # .env buttons with dropdown menu for load options
             with ui.row().classes("gap-2"):
-                ui.button(
-                    "Load from .env",
-                    icon="upload_file",
-                    on_click=on_load_env,
-                ).props("outline size=sm")
+                with ui.button_group().props("outline"):
+                    ui.button(
+                        "Load .env",
+                        icon="upload_file",
+                        on_click=on_load_env,
+                    ).props("size=sm").tooltip("Load from default .env location")
+                    
+                    with ui.button(icon="arrow_drop_down").props("size=sm dropdown-icon=none"):
+                        with ui.menu().classes("min-w-[200px]"):
+                            ui.menu_item(
+                                "Load default .env",
+                                on_click=on_load_env,
+                            )
+                            ui.separator()
+                            # Tip for hidden files
+                            ui.label("Tip: Press ⌘+Shift+. to show hidden files").classes(
+                                "text-xs text-slate-500 px-4 py-1"
+                            )
+                            # Upload component for browsing files
+                            upload = ui.upload(
+                                label="Browse for .env file...",
+                                on_upload=handle_upload,
+                                auto_upload=True,
+                                max_files=1,
+                            ).props("accept=* flat").classes("w-full")
+                            upload_ref["upload"] = upload
+                
                 ui.button(
                     "Save to .env",
                     icon="save",
@@ -83,6 +120,7 @@ def create_target_credential_form(
     state: AppState,
     on_credentials_change: Optional[Callable[[TargetCredentials], None]] = None,
     on_load_env: Optional[Callable[[], None]] = None,
+    on_load_env_content: Optional[Callable[[str, str], None]] = None,
     on_save_env: Optional[Callable[[], None]] = None,
 ) -> None:
     """Create a form for entering target dbt Platform credentials.
@@ -90,22 +128,57 @@ def create_target_credential_form(
     Args:
         state: Application state containing current credentials
         on_credentials_change: Callback when credentials change
-        on_load_env: Callback when "Load from .env" is clicked
+        on_load_env: Callback when "Load default .env" is clicked
+        on_load_env_content: Callback when file is uploaded (content, filename)
         on_save_env: Callback when "Save to .env" is clicked
     """
     creds = state.target_credentials
+    
+    # Track upload component reference
+    upload_ref = {"upload": None}
+    
+    async def handle_upload(e: UploadEventArguments):
+        """Handle file upload."""
+        if e.file and on_load_env_content:
+            content = await e.file.text()  # async read
+            on_load_env_content(content, e.file.name)
+            # Reset the upload component
+            if upload_ref["upload"]:
+                upload_ref["upload"].reset()
 
     with ui.card().classes("w-full"):
         with ui.row().classes("w-full items-center justify-between mb-4"):
             ui.label("Target Account Credentials").classes("text-lg font-semibold")
             
-            # .env buttons
+            # .env buttons with dropdown menu for load options
             with ui.row().classes("gap-2"):
-                ui.button(
-                    "Load from .env",
-                    icon="upload_file",
-                    on_click=on_load_env,
-                ).props("outline size=sm")
+                with ui.button_group().props("outline"):
+                    ui.button(
+                        "Load .env",
+                        icon="upload_file",
+                        on_click=on_load_env,
+                    ).props("size=sm").tooltip("Load from default .env location")
+                    
+                    with ui.button(icon="arrow_drop_down").props("size=sm dropdown-icon=none"):
+                        with ui.menu().classes("min-w-[200px]"):
+                            ui.menu_item(
+                                "Load default .env",
+                                on_click=on_load_env,
+                            )
+                            ui.separator()
+                            # Tip for hidden files
+                            ui.label("Tip: Press ⌘+Shift+. to show hidden files").classes(
+                                "text-xs text-slate-500 px-4 py-1"
+                            )
+                            # Upload component for browsing files
+                            upload = ui.upload(
+                                label="Browse for .env file...",
+                                on_upload=handle_upload,
+                                auto_upload=True,
+                                max_files=1,
+                            ).props("accept=* flat").classes("w-full")
+                            upload_ref["upload"] = upload
+                
                 ui.button(
                     "Save to .env",
                     icon="save",

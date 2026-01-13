@@ -156,6 +156,7 @@ def _create_bar_chart(type_counts: Counter) -> None:
             marker_color=colors,
             text=values,
             textposition="outside",
+            textfont=dict(color="white"),
         )
     ])
     
@@ -165,9 +166,9 @@ def _create_bar_chart(type_counts: Counter) -> None:
         xaxis_tickangle=-45,
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(size=12),
-        xaxis=dict(showgrid=False),
-        yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.2)"),
+        font=dict(size=12, color="white"),
+        xaxis=dict(showgrid=False, tickfont=dict(color="white")),
+        yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.2)", tickfont=dict(color="white")),
     )
     
     ui.plotly(fig).classes("w-full")
@@ -188,6 +189,7 @@ def _create_pie_chart(type_counts: dict) -> None:
             marker_colors=CHART_COLORS[:len(labels)],
             textinfo="label+percent",
             textposition="outside",
+            textfont=dict(color="white"),
         )
     ])
     
@@ -195,8 +197,16 @@ def _create_pie_chart(type_counts: dict) -> None:
         margin=dict(l=20, r=20, t=20, b=20),
         height=300,
         paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="white"),
         showlegend=True,
-        legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
+        legend=dict(
+            orientation="h", 
+            yanchor="bottom", 
+            y=-0.2, 
+            xanchor="center", 
+            x=0.5,
+            font=dict(color="white"),
+        ),
     )
     
     ui.plotly(fig).classes("w-full")
@@ -233,10 +243,12 @@ def _create_treemap(project_job_counts: dict) -> None:
         margin=dict(l=20, r=20, t=20, b=20),
         height=300,
         paper_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="white"),
     )
     
     fig.update_traces(
         textinfo="label+value",
+        textfont=dict(color="white"),
         hovertemplate="<b>%{label}</b><br>Jobs: %{value}<extra></extra>",
     )
     
@@ -280,9 +292,17 @@ def _create_inclusion_chart(breakdown: dict) -> None:
         xaxis_tickangle=-45,
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
-        xaxis=dict(showgrid=False),
-        yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.2)"),
+        font=dict(color="white"),
+        legend=dict(
+            orientation="h", 
+            yanchor="bottom", 
+            y=1.02, 
+            xanchor="center", 
+            x=0.5,
+            font=dict(color="white"),
+        ),
+        xaxis=dict(showgrid=False, tickfont=dict(color="white")),
+        yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.2)", tickfont=dict(color="white")),
     )
     
     ui.plotly(fig).classes("w-full")

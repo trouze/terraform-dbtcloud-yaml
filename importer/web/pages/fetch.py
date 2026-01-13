@@ -23,8 +23,10 @@ from importer.web.components.terminal_output import (
 from importer.web.components.progress_tree import ProgressTree
 from importer.web.env_manager import (
     load_source_credentials,
+    load_source_credentials_from_content,
     save_source_credentials,
     load_account_info_from_env,
+    fetch_account_name,
 )
 from importer.element_ids import apply_element_ids
 
@@ -73,6 +75,9 @@ def create_fetch_page(
                     state=state,
                     on_credentials_change=lambda creds: _on_credentials_change(state, save_state),
                     on_load_env=lambda: _load_env_credentials(state, terminal, save_state),
+                    on_load_env_content=lambda content, filename: _load_env_from_upload(
+                        content, filename, state, terminal, save_state
+                    ),
                     on_save_env=lambda: _save_env_credentials(state, terminal),
                 )
 
@@ -237,8 +242,8 @@ def _load_env_credentials(
     terminal: TerminalOutput,
     save_state: Callable[[], None],
 ) -> None:
-    """Load credentials from .env file."""
-    terminal.info("Loading credentials from .env file...")
+    """Load credentials from default .env file."""
+    terminal.info("Loading credentials from default .env file...")
     
     try:
         creds = load_source_credentials()
@@ -256,6 +261,9 @@ def _load_env_credentials(
         # Also update account info
         state.source_account = load_account_info_from_env("source")
         
+        # Clear previous fetch results since credentials changed
+        state.fetch.fetch_complete = False
+        
         save_state()
         
         terminal.success("Credentials loaded from .env")
@@ -266,6 +274,59 @@ def _load_env_credentials(
 
     except Exception as e:
         terminal.error(f"Failed to load credentials: {e}")
+        ui.notify(f"Failed to load: {e}", type="negative")
+
+
+def _load_env_from_upload(
+    content: str,
+    filename: str,
+    state: AppState,
+    terminal: TerminalOutput,
+    save_state: Callable[[], None],
+) -> None:
+    """Load credentials from uploaded .env file content."""
+    terminal.info(f"Loading credentials from uploaded file: {filename}")
+    
+    try:
+        creds = load_source_credentials_from_content(content)
+        
+        if not creds.get("account_id") and not creds.get("api_token"):
+            terminal.warning(f"No source credentials found in {filename}")
+            ui.notify("No credentials found in uploaded file", type="warning")
+            return
+
+        # Update state
+        state.source_credentials.host_url = creds.get("host_url", "https://cloud.getdbt.com")
+        state.source_credentials.account_id = creds.get("account_id", "")
+        state.source_credentials.api_token = creds.get("api_token", "")
+        
+        # Try to fetch account name to update account info
+        if creds.get("account_id") and creds.get("api_token"):
+            success, result = fetch_account_name(
+                creds["host_url"],
+                creds["account_id"],
+                creds["api_token"],
+            )
+            if success:
+                state.source_account.account_name = result
+                state.source_account.is_verified = True
+            state.source_account.account_id = creds["account_id"]
+            state.source_account.host_url = creds["host_url"]
+            state.source_account.is_configured = True
+        
+        # Clear previous fetch results since credentials changed
+        state.fetch.fetch_complete = False
+        
+        save_state()
+        
+        terminal.success(f"Credentials loaded from {filename}")
+        ui.notify(f"Credentials loaded from {filename}", type="positive")
+        
+        # Reload page to show new values
+        ui.navigate.reload()
+
+    except Exception as e:
+        terminal.error(f"Failed to load credentials from {filename}: {e}")
         ui.notify(f"Failed to load: {e}", type="negative")
 
 
@@ -359,6 +420,10 @@ async def _run_fetch(
 
     fetch_in_progress["value"] = True
     fetch_btn.disable()
+    
+    # Clear previous results panel if it exists
+    if results_container is not None:
+        results_container.clear()
     
     # Start progress tracking
     terminal.clear()

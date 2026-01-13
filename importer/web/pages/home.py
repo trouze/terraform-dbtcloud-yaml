@@ -38,22 +38,26 @@ def _create_welcome_section(on_step_change: Callable[[WorkflowStep], None]) -> N
         with ui.column().classes("gap-4"):
             with ui.row().classes("items-center gap-4"):
                 ui.image("/static/favicon.svg").classes("w-12 h-12")
-                ui.label("dbt Platform Account Exploration and Migration Tool").classes("text-3xl font-bold")
+                with ui.column().classes("gap-0"):
+                    ui.label("dbt Magellan").classes("text-3xl font-bold")
+                    ui.label("Exploration & Migration Tool").classes("text-sm text-slate-500")
 
             ui.markdown("""
-                Migrate dbt Platform configurations between accounts with a guided workflow:
+                Explore, audit, and migrate dbt Platform account configurations with a guided workflow:
                 
-                1. **Fetch** - Download your source account configuration
-                2. **Explore** - Review entities, view reports, export data
-                3. **Map** - Select what to migrate, configure options
-                4. **Target** - Set up destination credentials
+                1. **Fetch** - Download your account configuration via API
+                2. **Explore** - Review entities, view reports, export CSVs, analyze charts
+                3. **Map** - Select entities to migrate, configure transformations
+                4. **Target** - Set up destination account credentials
                 5. **Deploy** - Generate Terraform and apply changes
+                
+                *Use steps 1-2 for account exploration and auditing, or complete all steps for full migration.*
             """).classes("text-slate-600 dark:text-slate-400")
 
             with ui.row().classes("gap-4 mt-4"):
                 ui.button(
-                    "Start New Migration",
-                    icon="play_arrow",
+                    "Get Started",
+                    icon="rocket_launch",
                     on_click=lambda: on_step_change(WorkflowStep.FETCH),
                 ).style("background-color: #FF694A;")
 
@@ -110,7 +114,7 @@ def _create_recent_runs_section(
         if not runs:
             with ui.row().classes("items-center gap-2 text-slate-500"):
                 ui.icon("info", size="sm")
-                ui.label("No previous runs found. Start a new migration to get started.")
+                ui.label("No previous runs found. Click 'Get Started' to fetch your first account.")
             return
 
         # Create table

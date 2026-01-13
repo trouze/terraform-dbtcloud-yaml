@@ -272,7 +272,7 @@ def run_app(
         port=port,
         show=show,
         reload=reload,
-        title="dbt Platform Account Exploration and Migration Tool",
+        title="dbt Magellan: Exploration & Migration Tool",
         favicon=str(favicon_path),
         storage_secret="dbt-cloud-importer-secret",  # For user storage
     )

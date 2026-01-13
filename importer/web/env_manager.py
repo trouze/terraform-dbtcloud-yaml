@@ -51,6 +51,71 @@ def load_env_values(env_path: Optional[str] = None) -> dict:
     return dotenv_values(path)
 
 
+def parse_env_content(content: str) -> dict:
+    """Parse .env content from a string (for uploaded files).
+
+    Args:
+        content: String content of a .env file
+
+    Returns:
+        Dictionary of environment variable names to values.
+    """
+    values = {}
+    for line in content.splitlines():
+        line = line.strip()
+        # Skip empty lines and comments
+        if not line or line.startswith("#"):
+            continue
+        # Handle KEY=VALUE format
+        if "=" in line:
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip()
+            # Remove quotes if present
+            if (value.startswith('"') and value.endswith('"')) or \
+               (value.startswith("'") and value.endswith("'")):
+                value = value[1:-1]
+            values[key] = value
+    return values
+
+
+def load_source_credentials_from_content(content: str) -> dict:
+    """Load source dbt Cloud credentials from .env content string.
+
+    Args:
+        content: String content of a .env file
+
+    Returns:
+        Dictionary with keys: host_url, account_id, api_token
+    """
+    values = parse_env_content(content)
+
+    return {
+        "host_url": values.get("DBT_SOURCE_HOST_URL", "https://cloud.getdbt.com"),
+        "account_id": values.get("DBT_SOURCE_ACCOUNT_ID", ""),
+        "api_token": values.get("DBT_SOURCE_API_TOKEN", ""),
+    }
+
+
+def load_target_credentials_from_content(content: str) -> dict:
+    """Load target dbt Cloud credentials from .env content string.
+
+    Args:
+        content: String content of a .env file
+
+    Returns:
+        Dictionary with keys: host_url, account_id, api_token, token_type
+    """
+    values = parse_env_content(content)
+
+    return {
+        "host_url": values.get("DBT_TARGET_HOST_URL", "https://cloud.getdbt.com"),
+        "account_id": values.get("DBT_TARGET_ACCOUNT_ID", ""),
+        "api_token": values.get("DBT_TARGET_API_TOKEN", ""),
+        "token_type": values.get("DBT_TARGET_TOKEN_TYPE", "service_token"),
+    }
+
+
 def load_source_credentials(env_path: Optional[str] = None) -> dict:
     """Load source dbt Cloud credentials from .env file.
 

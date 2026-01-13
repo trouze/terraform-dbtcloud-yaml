@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2026-01-13  
-**Current Importer Version:** 0.7.1  
+**Current Importer Version:** 0.7.2  
 **Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -953,6 +953,19 @@ The following items require API endpoint research before implementation can begi
   - Injects provider_config into YAML before prompting user, reducing manual configuration
   - Checks both project root `.env` and test-specific `.env` files
   - Skips interactive prompts if configs are already available
+
+### 2026-01-13 (v0.7.2)
+- **Version:** Incremented to 0.7.2 (patch release)
+- **Web UI Rebrand**: Renamed from "Account Migration Tool" to "dbt Magellan: Exploration & Migration Tool"
+- **Explore Tab Enhancements**:
+  - Entity types now have sort-order prefixes (00-ACC, 10-CON, 30-PRJ, etc.) for logical grouping
+  - Default sort order: Project → Type → Name (all ascending)
+  - Column visibility selector with persisted preferences
+  - Enhanced entity detail dialog with "Details" outline view and "JSON (Full)" tab
+- **Layout Fixes**: Fixed CSS grid layout issues where Explore tab panels didn't fill available width/height
+- **UX Improvements**: 
+  - File upload dialog for loading .env files with macOS hidden file tip
+  - "Fetch Complete" panel clears on new fetch or .env load
 
 ### 2025-12-19 (v0.4.2)
 - **Version:** Incremented to 0.4.2 (patch release)

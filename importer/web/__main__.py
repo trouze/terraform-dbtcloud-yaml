@@ -6,7 +6,7 @@ import sys
 
 def main():
     parser = argparse.ArgumentParser(
-        description="dbt Platform Account Exploration and Migration Tool",
+        description="dbt Magellan: Exploration & Migration Tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(

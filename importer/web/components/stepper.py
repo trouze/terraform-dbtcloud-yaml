@@ -39,8 +39,8 @@ def create_nav_drawer(
         # Logo/title area
         with ui.column().classes("w-full items-center py-6 border-b border-slate-700"):
             ui.image("/static/favicon.svg").classes("w-14 h-14")
-            ui.label("dbt Platform").classes("text-xl font-bold mt-3 text-white")
-            ui.label("Exploration & Migration").classes("text-sm text-slate-400")
+            ui.label("dbt Magellan").classes("text-xl font-bold mt-3 text-white")
+            ui.label("Exploration & Migration Tool").classes("text-sm text-slate-400")
             ui.label(f"v{__version__}").classes("text-xs text-slate-500 mt-1")
 
         # Workflow steps

@@ -72,3 +72,7 @@ __pycache__/
 venv/
 *.egg-info/
 .cursor/debug.log
+
+# Nicegui preferences
+.nicegui/*
+.nicegui/storage-user-e0e06ca5-55e1-475d-9cd3-b1a9e18974d6.json

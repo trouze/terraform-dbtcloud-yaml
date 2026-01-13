@@ -17,8 +17,15 @@ def create_explore_page(
 ) -> None:
     """Create the Explore step page with tabs."""
     
-    with ui.column().classes("w-full max-w-7xl mx-auto p-6 gap-4"):
-        # Header
+    # Main container - use CSS Grid for reliable height constraints
+    with ui.element("div").classes("w-full max-w-7xl mx-auto p-4").style(
+        "display: grid; "
+        "grid-template-rows: auto auto 1fr auto; "
+        "height: calc(100vh - 100px); "
+        "gap: 8px; "
+        "overflow: hidden;"
+    ):
+        # Row 1: Header (auto height)
         _create_header(state)
         
         # Check if data is available
@@ -31,27 +38,30 @@ def create_explore_page(
         report_content = _load_file(state.fetch.last_report_file)
         report_items = _load_report_items(state)
         
-        # Main tabs
+        # Row 2: Tabs (auto height)
         with ui.tabs().classes("w-full") as tabs:
             summary_tab = ui.tab("Summary", icon="summarize")
             report_tab = ui.tab("Report", icon="article")
             entities_tab = ui.tab("Entities", icon="table_chart")
             charts_tab = ui.tab("Charts", icon="bar_chart")
         
-        with ui.tab_panels(tabs, value=summary_tab).classes("w-full"):
-            with ui.tab_panel(summary_tab):
+        # Row 3: Tab panels (1fr - takes remaining space)
+        with ui.tab_panels(tabs, value=summary_tab).classes("w-full").style(
+            "overflow: hidden; min-height: 0;"
+        ):
+            with ui.tab_panel(summary_tab).style("width: 100%; height: 100%; overflow: hidden;"):
                 _create_summary_tab(summary_content, state)
             
-            with ui.tab_panel(report_tab):
+            with ui.tab_panel(report_tab).style("width: 100%; height: 100%; overflow: hidden;"):
                 _create_report_tab(report_content, state)
             
-            with ui.tab_panel(entities_tab):
+            with ui.tab_panel(entities_tab).style("width: 100%; height: 100%; overflow: hidden;"):
                 _create_entities_tab(report_items, state, save_state)
             
-            with ui.tab_panel(charts_tab):
+            with ui.tab_panel(charts_tab).style("width: 100%; height: 100%; overflow: auto;"):
                 _create_charts_tab(report_items, state)
         
-        # Navigation buttons
+        # Row 4: Navigation buttons (auto height)
         _create_navigation(state, on_step_change)
 
 
@@ -152,19 +162,50 @@ def _load_report_items(state: AppState) -> list:
 
 def _create_summary_tab(content: str, state: AppState) -> None:
     """Create the Summary tab content."""
-    with ui.column().classes("w-full gap-4"):
-        # Refresh button
-        with ui.row().classes("w-full justify-end"):
-            ui.button(
-                "Refresh",
-                icon="refresh",
-                on_click=lambda: ui.notify("Refresh from file not yet implemented", type="info"),
-            ).props("flat")
+    
+    async def copy_markdown():
+        if content:
+            await ui.run_javascript(f'''
+                navigator.clipboard.writeText({repr(content)}).catch(err => {{
+                    console.error('Failed to copy:', err);
+                }});
+            ''')
+            ui.notify("Summary markdown copied to clipboard", type="positive")
+        else:
+            ui.notify("No content to copy", type="warning")
+    
+    with ui.element("div").style(
+        "display: grid; "
+        "grid-template-rows: auto 1fr; "
+        "width: 100%; "
+        "height: 100%; "
+        "gap: 8px; "
+        "overflow: hidden;"
+    ):
+        # Header with icon, copy button, and refresh button (auto height)
+        with ui.row().classes("w-full items-center justify-between"):
+            with ui.row().classes("items-center gap-2"):
+                ui.icon("summarize", size="sm").style(f"color: {DBT_ORANGE};")
+                ui.label("Account Summary").classes("text-lg font-semibold")
+            with ui.row().classes("gap-2"):
+                ui.button(
+                    "Copy Markdown",
+                    icon="content_copy",
+                    on_click=copy_markdown,
+                ).props("flat dense")
+                ui.button(
+                    "Refresh",
+                    icon="refresh",
+                    on_click=lambda: ui.notify("Refresh from file not yet implemented", type="info"),
+                ).props("flat dense")
         
         if content:
-            # Render markdown in a card
-            with ui.card().classes("w-full p-6"):
-                ui.markdown(content).classes("prose dark:prose-invert max-w-none")
+            # Render markdown in a scrollable card (1fr - fills remaining space)
+            with ui.card().classes("w-full").style(
+                f"border-left: 4px solid {DBT_ORANGE}; overflow: hidden; min-height: 0;"
+            ):
+                with ui.scroll_area().classes("w-full h-full"):
+                    ui.markdown(content).classes("prose dark:prose-invert max-w-none p-4")
         else:
             with ui.card().classes("w-full p-6 text-center"):
                 ui.icon("description", size="2rem").classes("text-slate-400")
@@ -173,18 +214,51 @@ def _create_summary_tab(content: str, state: AppState) -> None:
 
 def _create_report_tab(content: str, state: AppState) -> None:
     """Create the Report tab content."""
-    with ui.column().classes("w-full gap-4"):
-        # Search box for report
+    
+    async def copy_markdown():
+        if content:
+            await ui.run_javascript(f'''
+                navigator.clipboard.writeText({repr(content)}).catch(err => {{
+                    console.error('Failed to copy:', err);
+                }});
+            ''')
+            ui.notify("Report markdown copied to clipboard", type="positive")
+        else:
+            ui.notify("No content to copy", type="warning")
+    
+    with ui.element("div").style(
+        "display: grid; "
+        "grid-template-rows: auto 1fr; "
+        "width: 100%; "
+        "height: 100%; "
+        "gap: 8px; "
+        "overflow: hidden;"
+    ):
+        # Header with icon, search box, copy button, and refresh button (auto height)
         with ui.row().classes("w-full items-center gap-4"):
+            with ui.row().classes("items-center gap-2"):
+                ui.icon("article", size="sm").style("color: #3B82F6;")  # Blue accent
+                ui.label("Detailed Report").classes("text-lg font-semibold")
+            
             search = ui.input(
                 placeholder="Search in report...",
             ).props("outlined dense").classes("flex-grow")
             
-            ui.button("Refresh", icon="refresh").props("flat")
+            with ui.row().classes("gap-2"):
+                ui.button(
+                    "Copy Markdown",
+                    icon="content_copy",
+                    on_click=copy_markdown,
+                ).props("flat dense")
+                ui.button("Refresh", icon="refresh").props("flat dense")
         
         if content:
-            with ui.card().classes("w-full p-6 max-h-[600px] overflow-auto"):
-                ui.markdown(content).classes("prose dark:prose-invert max-w-none text-sm")
+            # Scrollable card (1fr - fills remaining space)
+            with ui.card().classes("w-full").style(
+                "border-left: 4px solid #3B82F6; overflow: hidden; min-height: 0;"
+            ):
+                with ui.scroll_area().classes("w-full h-full"):
+                    ui.markdown(content).classes("prose dark:prose-invert max-w-none text-sm p-4")
         else:
             with ui.card().classes("w-full p-6 text-center"):
                 ui.icon("description", size="2rem").classes("text-slate-400")
@@ -195,7 +269,13 @@ def _create_entities_tab(report_items: list, state: AppState, save_state: Callab
     """Create the Entities tab with AGGrid table."""
     from importer.web.components.entity_table import create_entity_table
     
-    with ui.column().classes("w-full gap-4"):
+    with ui.element("div").style(
+        "display: grid; "
+        "grid-template-rows: 1fr; "
+        "width: 100%; "
+        "height: 100%; "
+        "overflow: hidden;"
+    ):
         if not report_items:
             with ui.card().classes("w-full p-6 text-center"):
                 ui.icon("table_chart", size="2rem").classes("text-slate-400")
@@ -203,7 +283,7 @@ def _create_entities_tab(report_items: list, state: AppState, save_state: Callab
                 ui.label("Run the Fetch step to load account entities.").classes("text-sm text-slate-400")
             return
         
-        # Create the entity table component
+        # Create the entity table component (fills available space)
         create_entity_table(report_items, state, save_state)
 
 
@@ -211,14 +291,15 @@ def _create_charts_tab(report_items: list, state: AppState) -> None:
     """Create the Charts tab with visualizations."""
     from importer.web.components.charts import create_charts
     
-    with ui.column().classes("w-full gap-4"):
-        if not report_items:
-            with ui.card().classes("w-full p-6 text-center"):
-                ui.icon("bar_chart", size="2rem").classes("text-slate-400")
-                ui.label("No data available for charts").classes("text-slate-500 mt-2")
-            return
-        
-        create_charts(report_items, state)
+    with ui.scroll_area().classes("w-full h-full"):
+        with ui.column().classes("w-full gap-4 p-2"):
+            if not report_items:
+                with ui.card().classes("w-full p-6 text-center"):
+                    ui.icon("bar_chart", size="2rem").classes("text-slate-400")
+                    ui.label("No data available for charts").classes("text-slate-500 mt-2")
+                return
+            
+            create_charts(report_items, state)
 
 
 def _create_navigation(state: AppState, on_step_change: Callable[[WorkflowStep], None]) -> None:

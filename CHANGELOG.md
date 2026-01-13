@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-01-13
+
+### Changed
+- **Web UI Rebrand**: Renamed from "Account Migration Tool" to "dbt Magellan: Exploration & Migration Tool"
+- **Home Page**: Updated messaging to emphasize both exploration/auditing and migration use cases
+- **Explore Entities Tab**: Entity types now have sort-order prefixes (00-ACC, 10-CON, 30-PRJ, etc.) for logical grouping
+- **Explore Entities Tab**: Default sort order is now Project → Type → Name (all ascending)
+
+### Added
+- **Explore Entities Tab**: Column visibility selector with preferences persisted across sessions
+- **Explore Entities Tab**: Enhanced entity detail dialog with "Details" outline view and "JSON (Full)" tab showing all API fields
+- **Fetch Page**: File upload dialog for loading .env files with macOS hidden file tip (⌘+Shift+.)
+
+### Fixed
+- **Explore Page Layout**: Fixed CSS grid layout issue where Summary, Report, Entities, and Charts tabs didn't fill available width
+- **Explore Entities Table**: Fixed AGGrid not filling available vertical space in panel
+- **Fetch Page**: "Fetch Complete" panel now clears when starting a new fetch or loading a new .env file
+
 ## [0.7.1] - 2026-01-13
 
 ### Added

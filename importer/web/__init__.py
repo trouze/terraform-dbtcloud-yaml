@@ -1,4 +1,4 @@
-"""dbt Platform Account Exploration and Migration Tool.
+"""dbt Magellan: Exploration & Migration Tool.
 
 A NiceGUI-based web interface for the fetch → explore → map → deploy workflow.
 """
