@@ -56,6 +56,15 @@ locals {
   # Validate run_compare_changes compatibility
   # State-aware orchestration (run_compare_changes) is only available for:
   # 1. Jobs on staging or production environments (deployment_type must be "staging" or "production")
+  # Note: Terraform's coalesce() treats empty strings as invalid, so don't use it for null->"" normalization.
+  env_deployment_type_by_job = {
+    for key, item in local.jobs_map :
+    key => try(
+      dbtcloud_environment.environments["${item.project_key}_${item.environment_key}"].deployment_type,
+      null
+    )
+  }
+
   validate_run_compare_changes = {
     for key, item in local.jobs_map :
     key => (
@@ -63,10 +72,10 @@ locals {
       try(item.job_data.run_compare_changes, false) == true ?
       (
         # Check if environment is staging or production
-        contains(["staging", "production"], try(
-          dbtcloud_environment.environments["${item.project_key}_${item.environment_key}"].deployment_type,
-          ""
-        ))
+        contains(
+          ["staging", "production"],
+          local.env_deployment_type_by_job[key] != null ? local.env_deployment_type_by_job[key] : ""
+        )
       ) : false
     )
   }
@@ -80,8 +89,35 @@ locals {
   env_has_deployment_type = {
     for key, item in local.jobs_map :
     key => (
-      try(dbtcloud_environment.environments["${item.project_key}_${item.environment_key}"].deployment_type, null) != null &&
-      try(dbtcloud_environment.environments["${item.project_key}_${item.environment_key}"].deployment_type, "") != ""
+      local.env_deployment_type_by_job[key] != null && local.env_deployment_type_by_job[key] != ""
+    )
+  }
+
+  # Schedule field mutual exclusivity:
+  # Provider enforces that schedule_cron cannot be combined with schedule_interval or schedule_hours.
+  # Some source jobs include both, so we resolve to a single schedule mode (cron > interval > hours).
+  schedule_cron_effective = {
+    for key, item in local.jobs_map :
+    key => (
+      try(item.job_data.schedule_cron, null) != null && try(item.job_data.schedule_cron, "") != ""
+      ? item.job_data.schedule_cron
+      : null
+    )
+  }
+  schedule_interval_effective = {
+    for key, item in local.jobs_map :
+    key => (
+      local.schedule_cron_effective[key] == null
+      ? try(item.job_data.schedule_interval, null)
+      : null
+    )
+  }
+  schedule_hours_effective = {
+    for key, item in local.jobs_map :
+    key => (
+      local.schedule_cron_effective[key] == null && local.schedule_interval_effective[key] == null
+      ? try(item.job_data.schedule_hours, null)
+      : null
     )
   }
 
@@ -118,20 +154,20 @@ resource "dbtcloud_job" "jobs" {
   is_active                = try(each.value.job_data.is_active, true)
   num_threads              = coalesce(try(each.value.job_data.num_threads, null), 4)
   # Only enable run_compare_changes if validation passes (staging/prod environment and not CI/Merge job)
-  run_compare_changes      = local.validate_run_compare_changes[each.key]
+  run_compare_changes = local.validate_run_compare_changes[each.key]
   # Use null for compare_changes_flags if validation fails - empty string still triggers SAO validation
-  compare_changes_flags    = local.validate_run_compare_changes[each.key] ? try(each.value.job_data.compare_changes_flags, "--select state:modified") : null
-  run_generate_sources     = try(each.value.job_data.run_generate_sources, false)
-  run_lint                 = try(each.value.job_data.run_lint, false)
-  schedule_cron            = try(each.value.job_data.schedule_cron, null)
-  schedule_days            = try(each.value.job_data.schedule_days, null)
-  schedule_hours           = try(each.value.job_data.schedule_hours, null)
-  schedule_interval        = try(each.value.job_data.schedule_interval, null)
-  schedule_type            = try(each.value.job_data.schedule_type, null)
-  target_name              = try(each.value.job_data.target_name, null)
-  timeout_seconds          = try(each.value.job_data.timeout_seconds, 0)
-  triggers_on_draft_pr     = try(each.value.job_data.triggers_on_draft_pr, false)
-  self_deferring           = try(each.value.job_data.self_deferring, null)
+  compare_changes_flags = local.validate_run_compare_changes[each.key] ? try(each.value.job_data.compare_changes_flags, "--select state:modified") : null
+  run_generate_sources  = try(each.value.job_data.run_generate_sources, false)
+  run_lint              = try(each.value.job_data.run_lint, false)
+  schedule_cron         = local.schedule_cron_effective[each.key]
+  schedule_days         = try(each.value.job_data.schedule_days, null)
+  schedule_hours        = local.schedule_hours_effective[each.key]
+  schedule_interval     = local.schedule_interval_effective[each.key]
+  schedule_type         = try(each.value.job_data.schedule_type, null)
+  target_name           = try(each.value.job_data.target_name, null)
+  timeout_seconds       = try(each.value.job_data.timeout_seconds, 0)
+  triggers_on_draft_pr  = try(each.value.job_data.triggers_on_draft_pr, false)
+  self_deferring        = try(each.value.job_data.self_deferring, null)
 
   lifecycle {
     ignore_changes = [

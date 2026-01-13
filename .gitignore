@@ -62,6 +62,7 @@ dev_support/samples/normalized/normalization_runs.json
 
 # Backup sample directories (created by E2E test script)
 dev_support/samples.backup.*
+dev_support/samples*
 
 # Python
 __pycache__/

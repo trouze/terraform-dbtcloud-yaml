@@ -31,18 +31,45 @@ NC='\033[0m' # No Color
 
 # Configuration
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TEST_DIR="$PROJECT_ROOT/test/e2e_test"
-EXPORT_DIR="$PROJECT_ROOT/dev_support/samples"
+TEST_DIR_DEFAULT="$PROJECT_ROOT/test/e2e_test"
+EXPORT_DIR_DEFAULT="$PROJECT_ROOT/dev_support/samples"
+IMPORTER_CONFIG_DEFAULT="$PROJECT_ROOT/importer_mapping.yml"
+
+# Optional overrides (useful for running multiple isolated imports, e.g. a separate BT profile)
+TEST_DIR="${DBT_E2E_TEST_DIR:-$TEST_DIR_DEFAULT}"
+EXPORT_DIR="${DBT_E2E_EXPORT_DIR:-$EXPORT_DIR_DEFAULT}"
+IMPORTER_CONFIG="${DBT_E2E_IMPORTER_CONFIG:-$IMPORTER_CONFIG_DEFAULT}"
 APPLY_FLAG=false
 DESTROY_FLAG=false
 DUMMY_CONFIGS_FLAG=false
 TEST_PLAN_FLAG=false
 TEST_APPLY_FLAG=false
 TEST_DESTROY_FLAG=false
+PROFILE_NAME=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
   case $1 in
+    --profile)
+      PROFILE_NAME="$2"
+      shift
+      shift
+      ;;
+    --test-dir)
+      TEST_DIR="$2"
+      shift
+      shift
+      ;;
+    --export-dir)
+      EXPORT_DIR="$2"
+      shift
+      shift
+      ;;
+    --config)
+      IMPORTER_CONFIG="$2"
+      shift
+      shift
+      ;;
     --apply)
       APPLY_FLAG=true
       shift
@@ -70,11 +97,38 @@ while [[ $# -gt 0 ]]; do
       ;;
     *)
       echo "Unknown option: $1"
-      echo "Usage: $0 [--apply] [--destroy] [--dummy-configs] [--test-plan] [--test-apply] [--test-destroy]"
+      echo "Usage: $0 [--profile NAME] [--test-dir PATH] [--export-dir PATH] [--config PATH] [--apply] [--destroy] [--dummy-configs] [--test-plan] [--test-apply] [--test-destroy]"
       exit 1
       ;;
   esac
 done
+
+# Apply profile presets (if provided)
+if [ -n "$PROFILE_NAME" ]; then
+  case "$PROFILE_NAME" in
+    bt|BT)
+      TEST_DIR="$PROJECT_ROOT/test/e2e_bt"
+      EXPORT_DIR="$PROJECT_ROOT/dev_support/samples_bt"
+      # Prefer profile-local mapping config if present; fall back to repo default
+      if [ -f "$TEST_DIR/importer_mapping.yml" ]; then
+        IMPORTER_CONFIG="$TEST_DIR/importer_mapping.yml"
+      fi
+      ;;
+    dps|DPS)
+      TEST_DIR="$PROJECT_ROOT/test/e2e_dps"
+      EXPORT_DIR="$PROJECT_ROOT/dev_support/samples_dps"
+      # Prefer profile-local mapping config if present; fall back to repo default
+      if [ -f "$TEST_DIR/importer_mapping.yml" ]; then
+        IMPORTER_CONFIG="$TEST_DIR/importer_mapping.yml"
+      fi
+      ;;
+    *)
+      echo "Unknown profile: $PROFILE_NAME" >&2
+      echo "Supported profiles: bt, dps" >&2
+      exit 1
+      ;;
+  esac
+fi
 
 # Helper functions
 log_info() {
@@ -330,7 +384,7 @@ phase2_normalize() {
     cd "$PROJECT_ROOT"
     
     log_info "Running importer normalize..."
-    $PYTHON_CMD -m importer normalize "$export_file" >&2
+    $PYTHON_CMD -m importer normalize "$export_file" --config "$IMPORTER_CONFIG" --output-dir "$EXPORT_DIR/normalized" >&2
     
     # Find the most recent normalized YAML
     YAML_FILE=$(ls -t "$EXPORT_DIR"/normalized/account_*_norm_*__yaml__*.yml 2>/dev/null | head -1)
@@ -1044,10 +1098,11 @@ phase4_plan() {
         log_info "$PLAN_SUMMARY"
     fi
     
-    # Check for errors
-    if grep -qi "error" plan_output.txt; then
+    # Check for errors (avoid false positives like "errors_on_lint_failure")
+    # Terraform errors are emitted as "Error:" or "│ Error:" lines.
+    if grep -Eq '^(│[[:space:]]+)?Error:' plan_output.txt; then
         log_warning "Errors detected in plan output"
-        grep -i "error" plan_output.txt | head -5
+        grep -En '^(│[[:space:]]+)?Error:' plan_output.txt | head -5
     fi
     
     # Print target account info for verification

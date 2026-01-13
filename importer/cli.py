@@ -8,16 +8,22 @@ from datetime import datetime as dt
 import os
 from pathlib import Path
 from typing import Optional
+import threading
 
 import typer
-from rich.console import Console
+from rich.console import Console, Group
+from rich.live import Live
+from rich.panel import Panel
+from rich.spinner import Spinner
 from rich.table import Table
+from rich.text import Text
+from rich.tree import Tree
 
 from . import get_version
 from .client import DbtCloudClient
 from .config import get_settings
 from .element_ids import apply_element_ids
-from .fetcher import fetch_account_snapshot
+from .fetcher import fetch_account_snapshot, FetchProgressCallback
 from .models import AccountSnapshot
 from .norm_tracker import NormalizationRunTracker
 from .normalizer import MappingConfig, NormalizationContext
@@ -28,6 +34,168 @@ from .utils import encode_run_identifier, short_hash, slugify_url
 
 app = typer.Typer(add_completion=False)
 console = Console()
+
+
+class FetchProgress:
+    """Rich-based progress display for fetch operations."""
+
+    # Resource types in fetch order
+    GLOBAL_RESOURCES = [
+        "connections",
+        "repositories",
+        "service_tokens",
+        "groups",
+        "notifications",
+        "webhooks",
+        "privatelink_endpoints",
+    ]
+
+    PROJECT_RESOURCES = ["environments", "jobs", "environment_variables", "job_env_var_overrides"]
+
+    def __init__(self, console: Console, *, threads: Optional[int] = None) -> None:
+        self._console = console
+        self._live: Optional[Live] = None
+        self._lock = threading.Lock()
+        self._threads = threads
+
+        # State tracking
+        self._phase = ""
+        self._current_resource = ""
+        self._resource_counts: dict[str, int] = {}
+        self._resource_done: dict[str, bool] = {}
+
+        # Project tracking
+        self._current_project_num = 0
+        self._total_projects = 0
+        self._current_project_name = ""
+
+    def __enter__(self) -> "FetchProgress":
+        self._live = Live(
+            self._render(),
+            console=self._console,
+            refresh_per_second=10,
+            transient=False,
+        )
+        self._live.__enter__()
+        return self
+
+    def __exit__(self, *args) -> None:
+        if self._live:
+            # Final render before exiting
+            self._live.update(self._render())
+            self._live.__exit__(*args)
+
+    def _render(self) -> Panel:
+        """Render the current progress state as a Rich tree."""
+        if self._threads is not None:
+            tree = Tree(f"[bold]Fetching account snapshot (threads={self._threads})...")
+        else:
+            tree = Tree("[bold]Fetching account snapshot...")
+
+        # Globals section
+        globals_branch = tree.add("[bold cyan]Globals")
+        for resource in self.GLOBAL_RESOURCES:
+            self._add_resource_node(globals_branch, resource)
+
+        # Projects section (only show if we're in projects phase or done with globals)
+        if self._phase == "projects" or self._resource_done.get("privatelink_endpoints"):
+            if self._total_projects > 0:
+                queued = self._resource_counts.get("projects", 0)
+                project_label = f"[bold cyan]Projects completed [{self._current_project_num}/{self._total_projects}] (queued {queued}/{self._total_projects})"
+                if self._current_project_name:
+                    project_label += f" {self._current_project_name}"
+            else:
+                project_label = "[bold cyan]Projects"
+            projects_branch = tree.add(project_label)
+
+            # Show project-level resources
+            for resource in self.PROJECT_RESOURCES:
+                self._add_resource_node(projects_branch, resource)
+
+        return Panel(tree, title="[bold blue]dbt Cloud Import Progress", border_style="blue")
+
+    def _add_resource_node(self, parent: Tree, resource: str) -> None:
+        """Add a resource node with appropriate status indicator."""
+        count = self._resource_counts.get(resource, 0)
+        is_done = self._resource_done.get(resource, False)
+        is_current = self._current_resource == resource
+
+        # Format resource name for display
+        display_name = resource.replace("_", " ")
+
+        if is_done:
+            # Completed with checkmark
+            label = Text()
+            label.append("✓ ", style="green")
+            label.append(f"{display_name} ", style="dim")
+            label.append(f"{count} fetched", style="green")
+        elif is_current:
+            # In progress with spinner
+            label = Text()
+            label.append("⠋ ", style="yellow")
+            label.append(f"{display_name} ", style="bold")
+            label.append(f"{count} fetched...", style="yellow")
+        elif count > 0:
+            # In progress but not the active spinner (e.g. parallel resources) - still show counts
+            label = Text()
+            label.append("○ ", style="dim")
+            label.append(f"{display_name} ", style="dim")
+            label.append(f"{count} fetched", style="yellow")
+        else:
+            # Pending (dim)
+            label = Text()
+            label.append("○ ", style="dim")
+            label.append(display_name, style="dim")
+
+        parent.add(label)
+
+    def _update(self) -> None:
+        """Trigger a live display update."""
+        if self._live:
+            self._live.update(self._render())
+
+    # FetchProgressCallback protocol implementation
+
+    def on_phase(self, phase: str) -> None:
+        """Called when entering a major phase."""
+        with self._lock:
+            self._phase = phase
+            self._update()
+
+    def on_resource_start(self, resource_type: str, total: Optional[int] = None) -> None:
+        """Called when starting to fetch a resource type."""
+        with self._lock:
+            self._current_resource = resource_type
+            self._resource_counts[resource_type] = 0
+            self._resource_done[resource_type] = False
+            self._update()
+
+    def on_resource_item(self, resource_type: str, key: str) -> None:
+        """Called for each item fetched."""
+        with self._lock:
+            self._resource_counts[resource_type] = self._resource_counts.get(resource_type, 0) + 1
+            self._update()
+
+    def on_resource_done(self, resource_type: str, count: int) -> None:
+        """Called when finished fetching a resource type."""
+        with self._lock:
+            self._resource_counts[resource_type] = count
+            self._resource_done[resource_type] = True
+            self._current_resource = ""
+            self._update()
+
+    def on_project_start(self, project_num: int, total: int, name: str) -> None:
+        """Called when starting to fetch a project's resources."""
+        with self._lock:
+            self._current_project_num = project_num
+            self._total_projects = total
+            self._current_project_name = name
+            self._update()
+
+    def on_project_done(self, project_num: int) -> None:
+        """Called when finished fetching a project's resources."""
+        with self._lock:
+            self._update()
 
 
 @app.callback()
@@ -83,6 +251,11 @@ def fetch(
         "--output",
         help="Path to write the account JSON export (defaults to stdout).",
     ),
+    threads: Optional[int] = typer.Option(
+        None,
+        "--threads",
+        help="Max concurrent API requests during fetch (overrides DBT_SOURCE_FETCH_THREADS).",
+    ),
     compact: bool = typer.Option(
         False,
         "--compact",
@@ -113,6 +286,10 @@ def fetch(
         run_fetch_interactive()
         return
     settings = get_settings()
+
+    fetch_threads = threads if threads is not None else settings.fetch_threads
+    if fetch_threads < 1:
+        fetch_threads = 1
     
     # Initialize run tracker and start a new run
     output_dir = Path("dev_support/samples") if not output else output.parent
@@ -133,7 +310,8 @@ def fetch(
     
     client = DbtCloudClient(settings)
     try:
-        snapshot = fetch_account_snapshot(client)
+        with FetchProgress(console, threads=fetch_threads) as progress:
+            snapshot = fetch_account_snapshot(client, progress=progress, threads=fetch_threads)
         logger.info(f"Successfully fetched snapshot: {len(snapshot.projects)} projects, {len(snapshot.globals.connections)} connections, {len(snapshot.globals.repositories)} repositories")
     except Exception as e:
         logger.exception("Failed to fetch account snapshot")

@@ -1,0 +1,83 @@
+# End-to-End Test Configuration (DPS profile)
+
+terraform {
+  required_version = ">= 1.5"
+  required_providers {
+    dbtcloud = {
+      source  = "dbt-labs/dbtcloud"
+      version = "= 1.5.1"
+    }
+  }
+}
+
+provider "dbtcloud" {
+  account_id = var.dbt_account_id
+  token      = var.dbt_token
+  host_url   = "${var.dbt_host_url}/api"
+}
+
+variable "dbt_account_id" {
+  description = "dbt Cloud account ID"
+  type        = number
+}
+
+variable "dbt_token" {
+  description = "dbt Cloud API token"
+  type        = string
+  sensitive   = true
+}
+
+variable "dbt_host_url" {
+  description = "dbt Cloud host URL (base URL without /api suffix)"
+  type        = string
+  default     = "https://cloud.getdbt.com"
+}
+
+variable "dbt_pat" {
+  description = "dbt Cloud Personal Access Token (dbtu_*) for retrieving integration IDs. Optional - required only for GitHub App integration discovery."
+  type        = string
+  sensitive   = true
+  default     = null
+}
+
+module "dbt_cloud" {
+  source = "../.."
+
+  # Pass credentials to the module
+  dbt_account_id = var.dbt_account_id
+  dbt_token      = var.dbt_token
+  dbt_host_url   = var.dbt_host_url
+  dbt_pat        = var.dbt_pat
+
+  yaml_file   = "${path.module}/dbt-cloud-config.yml"
+  target_name = "dps"
+
+  token_map = {}
+}
+
+output "project_ids" {
+  description = "Map of project keys to IDs"
+  value       = module.dbt_cloud.v2_project_ids
+}
+
+output "environment_ids" {
+  description = "Map of environment keys to IDs"
+  value       = module.dbt_cloud.v2_environment_ids
+}
+
+output "job_ids" {
+  description = "Map of job keys to IDs"
+  value       = module.dbt_cloud.v2_job_ids
+}
+
+output "connection_ids" {
+  description = "Map of connection keys to IDs"
+  value       = module.dbt_cloud.v2_connection_ids
+}
+
+output "repository_ids" {
+  description = "Map of repository keys to IDs"
+  value       = module.dbt_cloud.v2_repository_ids
+}
+
+

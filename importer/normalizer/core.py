@@ -396,15 +396,11 @@ def _normalize_groups(
         group_data = {
             "key": normalized_key,
             "name": group.name,
+            # ALWAYS include these fields for Terraform type consistency
+            # (all list elements must have the same structure)
+            "assign_by_default": group.assign_by_default if group.assign_by_default is not None else False,
+            "sso_mapping_groups": group.sso_mapping_groups if group.sso_mapping_groups else [],
         }
-        
-        # Add assign_by_default if present
-        if group.assign_by_default is not None:
-            group_data["assign_by_default"] = group.assign_by_default
-        
-        # Add sso_mapping_groups if present and non-empty
-        if group.sso_mapping_groups:
-            group_data["sso_mapping_groups"] = group.sso_mapping_groups
         
         # Build group_permissions from metadata.group_permissions
         # ALWAYS include this field to ensure Terraform type consistency
@@ -756,12 +752,23 @@ def _normalize_jobs(
             context.add_exclusion("job", job.key, "Inactive", _get_element_id(job))
             continue
         
-        normalized_key = context.resolve_collision(f"{project.key}_{job.key}", namespace="jobs")
+        # Resolve collision using full key (project_key + job_key) to ensure uniqueness
+        full_key = f"{project.key}_{job.key}"
+        normalized_full_key = context.resolve_collision(full_key, namespace="jobs")
         if _get_element_id(job):
-            context.register_element(_get_element_id(job), normalized_key)
+            context.register_element(_get_element_id(job), normalized_full_key)
+        
+        # Extract the job-only portion of the normalized key (strip project prefix)
+        # This handles collision suffixes (e.g., "job_name" -> "job_name_2")
+        project_prefix = f"{project.key}_"
+        resolved_job_key = (
+            normalized_full_key[len(project_prefix):]
+            if normalized_full_key.startswith(project_prefix)
+            else job.key
+        )
         
         job_data = {
-            "key": job.key,  # Use original key within project scope
+            "key": resolved_job_key,  # Use collision-resolved key within project scope
             "name": job.name,
             "environment_key": job.environment_key,
             "execute_steps": job.execute_steps,

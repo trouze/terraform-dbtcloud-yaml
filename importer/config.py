@@ -29,6 +29,7 @@ class Settings:
     host: str
     account_id: int
     api_token: str
+    fetch_threads: int = 5
     timeout: float = 90.0  # Increased from 30.0 to handle slower API responses
     max_retries: int = 5
     backoff_factor: float = 1.5
@@ -62,6 +63,7 @@ class Settings:
             raise RuntimeError(f"{SOURCE_PREFIX}ACCOUNT_ID must be an integer") from exc
 
         timeout = float(os.getenv(f"{SOURCE_PREFIX}API_TIMEOUT", "90"))
+        fetch_threads_raw = os.getenv(f"{SOURCE_PREFIX}FETCH_THREADS", "5")
         max_retries = int(os.getenv(f"{SOURCE_PREFIX}API_MAX_RETRIES", "5"))
         backoff_factor = float(os.getenv(f"{SOURCE_PREFIX}API_BACKOFF_FACTOR", "1.5"))
         rate_limit_retry_after = os.getenv(f"{SOURCE_PREFIX}API_RETRY_AFTER", "true").lower() in {
@@ -72,10 +74,18 @@ class Settings:
         }
         verify_ssl = os.getenv(f"{SOURCE_PREFIX}SSL_VERIFY", "true").lower() in {"1", "true", "yes", "on"}
 
+        try:
+            fetch_threads = int(fetch_threads_raw)
+        except ValueError as exc:
+            raise RuntimeError(f"{SOURCE_PREFIX}FETCH_THREADS must be an integer") from exc
+        if fetch_threads < 1:
+            fetch_threads = 1
+
         return cls(
             host=host.rstrip("/"),
             account_id=account_id,
             api_token=api_token,
+            fetch_threads=fetch_threads,
             timeout=timeout,
             max_retries=max_retries,
             backoff_factor=backoff_factor,

@@ -1,0 +1,438 @@
+# PRD: dbt Cloud Importer Web UI (SUPERSEDED)
+
+> **Note:** This combined PRD has been split into 5 smaller, focused PRDs:
+> - [Part 1: Core Shell & Navigation](prd-web-ui-01-core-shell.md)
+> - [Part 2: Fetch Step](prd-web-ui-02-fetch.md)
+> - [Part 3: Explore Step](prd-web-ui-03-explore.md)
+> - [Part 4: Map Step](prd-web-ui-04-map.md)
+> - [Part 5: Target & Deploy Steps](prd-web-ui-05-deploy.md)
+
+---
+
+## Introduction
+
+A web-based interface for the dbt Cloud Importer that provides a guided, wizard-style workflow for migrating dbt Cloud account configurations. The interface enables users to fetch source account data, explore and visualize the imported entities, interactively select items for migration, configure target credentials, and execute Terraform deployments—all through an intuitive browser-based UI.
+
+This addresses the need for a more accessible migration experience for both dbt Labs Solution Architects/Sales Engineers performing customer migrations and customer platform engineers managing their own migrations independently.
+
+## Goals
+
+- Provide a step-by-step guided workflow for the complete fetch → explore → map → deploy pipeline
+- Enable rich data exploration with filtering, sorting, charts, and CSV exports
+- Allow interactive selection of which entities to include in migrations
+- Support local credential storage via `.env` files (consistent with existing CLI)
+- Offer both file generation and optional direct Terraform execution
+- Design for flexible deployment: local development, Docker, and hosted infrastructure
+
+## User Stories
+
+### US-001: Launch Web Interface
+**Description:** As a user, I want to start the web interface with a simple command so that I can access the migration wizard in my browser.
+
+**Acceptance Criteria:**
+- [ ] Running `python -m importer.web` starts the NiceGUI server
+- [ ] Browser automatically opens to `http://localhost:8080`
+- [ ] Home/dashboard page loads with navigation to all workflow steps
+- [ ] Server can be stopped with Ctrl+C
+- [ ] Typecheck passes
+
+---
+
+### US-002: Navigate Workflow Steps
+**Description:** As a user, I want to see my progress through the migration workflow so that I know what steps remain.
+
+**Acceptance Criteria:**
+- [ ] Left navigation drawer shows all 5 steps: Fetch, Explore, Map, Target, Deploy
+- [ ] Current step is visually highlighted
+- [ ] Completed steps show checkmark indicator
+- [ ] Steps can be navigated non-linearly (user can jump back)
+- [ ] Top progress bar shows overall completion percentage
+- [ ] Typecheck passes
+- [ ] Verify in browser
+
+---
+
+### US-003: Configure Source Credentials
+**Description:** As a user, I want to enter my source dbt Cloud account credentials so that the importer can fetch my account data.
+
+**Acceptance Criteria:**
+- [ ] Form fields for: Host URL, Account ID, API Token (masked)
+- [ ] "Load from .env" button populates fields from existing `.env` file
+- [ ] "Save to .env" button persists credentials to `.env` file
+- [ ] Validation: Host URL is valid URL, Account ID is numeric, Token is non-empty
+- [ ] Error messages displayed inline on validation failure
+- [ ] Typecheck passes
+- [ ] Verify in browser
+
+---
+
+### US-004: Execute Fetch Operation
+**Description:** As a user, I want to fetch my dbt Cloud account data so that I can explore what will be migrated.
+
+**Acceptance Criteria:**
+- [ ] "Fetch Account Data" button triggers fetch operation
+- [ ] Progress indicator shows fetch is in progress
+- [ ] Real-time log output displayed during fetch
+- [ ] On success: shows summary stats (X projects, Y jobs, etc.)
+- [ ] On success: automatically navigates to Explore step
+- [ ] On failure: shows error message with details
+- [ ] Fetch artifacts saved to configurable output directory
+- [ ] Typecheck passes
+- [ ] Verify in browser
+
+---
+
+### US-005: View Summary Report
+**Description:** As a user, I want to see a high-level summary of my fetched account so that I understand the scope of the migration.
+
+**Acceptance Criteria:**
+- [ ] Summary tab displays rendered markdown from `*__summary__*.md`
+- [ ] Shows: account name, total projects, environments, jobs, connections, etc.
+- [ ] Per-project breakdown with resource counts
+- [ ] Summary updates when new fetch is performed
+- [ ] Typecheck passes
+- [ ] Verify in browser
+
+---
+
+### US-006: Browse Entities in Data Table
+**Description:** As a user, I want to browse all fetched entities in a filterable table so that I can find and review specific resources.
+
+**Acceptance Criteria:**
+- [ ] Entities tab shows AGGrid table with all `report_items`
+- [ ] Columns: Type, Name, Key, dbt ID, Include in Conversion
+- [ ] Column sorting (click header to sort)
+- [ ] Column filtering (filter icon per column)
+- [ ] Global search box filters across all columns
+- [ ] Filter by resource type dropdown (Connections, Jobs, Environments, etc.)
+- [ ] Row count displayed (e.g., "Showing 150 of 423 items")
+- [ ] Typecheck passes
+- [ ] Verify in browser
+
+---
+
+### US-007: Export Entities to CSV
+**Description:** As a user, I want to export the entity list to CSV so that I can analyze or share it externally.
+
+**Acceptance Criteria:**
+- [ ] "Export CSV" button downloads current filtered view as CSV
+- [ ] CSV includes all visible columns
+- [ ] Filename includes account ID and timestamp
+- [ ] Export respects current filters (exports what's shown)
+- [ ] Typecheck passes
+- [ ] Verify in browser
+
+---
+
+### US-008: View Resource Distribution Charts
+**Description:** As a user, I want to see visual charts of my account resources so that I can quickly understand the composition.
+
+**Acceptance Criteria:**
+- [ ] Charts tab shows Plotly visualizations
+- [ ] Bar chart: resource counts by type (connections, jobs, environments, etc.)
+- [ ] Treemap or sunburst: jobs grouped by project
+- [ ] Pie chart: connection types distribution
+- [ ] Charts are interactive (hover for details, click to filter)
+- [ ] Typecheck passes
+- [ ] Verify in browser
+
+---
+
+### US-009: Select Entities for Migration
+**Description:** As a user, I want to select which entities to include in the migration so that I can control what gets deployed.
+
+**Acceptance Criteria:**
+- [ ] Checkbox column in entity table for selection
+- [ ] "Select All" / "Deselect All" buttons
+- [ ] Bulk select by resource type (e.g., "Select all Connections")
+- [ ] Selection persists when switching tabs or pages
+- [ ] Selection count displayed (e.g., "127 of 423 selected")
+- [ ] Selections update `include_in_conversion` flag
+- [ ] Typecheck passes
+- [ ] Verify in browser
+
+---
+
+### US-010: Configure Mapping Options
+**Description:** As a user, I want to configure normalization options so that I can control how entities are transformed for the target.
+
+**Acceptance Criteria:**
+- [ ] Form to edit key `importer_mapping.yml` settings
+- [ ] Scope mode selector: all_projects / specific_projects / account_level_only
+- [ ] Resource type toggles (include connections, include jobs, etc.)
+- [ ] Normalization options: strip_source_ids, secret_handling, etc.
+- [ ] "Load from file" / "Save to file" for mapping config
+- [ ] Preview panel shows which resources will be included
+- [ ] Typecheck passes
+- [ ] Verify in browser
+
+---
+
+### US-011: Run Normalization
+**Description:** As a user, I want to run the normalization step so that I can generate Terraform-ready YAML.
+
+**Acceptance Criteria:**
+- [ ] "Normalize" button triggers normalization with current config
+- [ ] Progress indicator during normalization
+- [ ] On success: shows generated YAML filename
+- [ ] On success: displays lookups manifest (items needing manual resolution)
+- [ ] On success: displays exclusions report (what was filtered out)
+- [ ] Artifacts saved to output directory
+- [ ] Typecheck passes
+- [ ] Verify in browser
+
+---
+
+### US-012: Configure Target Credentials
+**Description:** As a user, I want to enter target account credentials so that Terraform can deploy to the destination.
+
+**Acceptance Criteria:**
+- [ ] Form fields for: Target Host URL, Target Account ID, Target API Token
+- [ ] Support for service token OR user token authentication
+- [ ] "Load from .env" / "Save to .env" buttons
+- [ ] Validation with test connection button
+- [ ] Clear separation from source credentials
+- [ ] Typecheck passes
+- [ ] Verify in browser
+
+---
+
+### US-013: Configure Connection Providers
+**Description:** As a user, I want to configure connection provider details (Snowflake, Databricks, etc.) so that connections can be created in the target.
+
+**Acceptance Criteria:**
+- [ ] Dynamic form based on connection types in the YAML
+- [ ] Per-connection-type fields (e.g., Snowflake: account, database, warehouse)
+- [ ] Sensitive fields masked (passwords, keys)
+- [ ] "Save to .env" persists as `DBT_CONNECTION_*` variables
+- [ ] Validation for required fields
+- [ ] Typecheck passes
+- [ ] Verify in browser
+
+---
+
+### US-014: Preview Generated YAML
+**Description:** As a user, I want to preview the generated Terraform YAML so that I can verify it before deployment.
+
+**Acceptance Criteria:**
+- [ ] YAML preview panel with syntax highlighting
+- [ ] Collapsible sections by resource type
+- [ ] Search within YAML content
+- [ ] "Download YAML" button for local save
+- [ ] Shows diff from previous normalization (if applicable)
+- [ ] Typecheck passes
+- [ ] Verify in browser
+
+---
+
+### US-015: Run Terraform Plan
+**Description:** As a user, I want to run `terraform plan` so that I can preview what will be created/modified.
+
+**Acceptance Criteria:**
+- [ ] "Run Plan" button executes `terraform init` then `terraform plan`
+- [ ] Real-time streaming output in terminal panel
+- [ ] Plan summary displayed: X to add, Y to change, Z to destroy
+- [ ] Resource list showing planned changes
+- [ ] Plan can be cancelled mid-execution
+- [ ] Typecheck passes
+- [ ] Verify in browser
+
+---
+
+### US-016: Run Terraform Apply
+**Description:** As a user, I want to run `terraform apply` so that I can deploy the configuration to the target account.
+
+**Acceptance Criteria:**
+- [ ] "Apply" button only enabled after successful plan
+- [ ] Confirmation dialog before apply (with resource count)
+- [ ] Real-time streaming output during apply
+- [ ] Progress indicator showing resources created
+- [ ] On success: summary of created resources
+- [ ] On failure: error details with affected resource
+- [ ] Typecheck passes
+- [ ] Verify in browser
+
+---
+
+### US-017: View Recent Runs History
+**Description:** As a user, I want to see a history of recent fetch/normalize runs so that I can access previous artifacts.
+
+**Acceptance Criteria:**
+- [ ] Home/dashboard shows recent runs table
+- [ ] Columns: Run ID, Account ID, Timestamp, Type (fetch/normalize), Status
+- [ ] Click row to load that run's data into explorer
+- [ ] Links to artifacts (JSON, YAML, reports)
+- [ ] Data sourced from `importer_runs.json` and `normalization_runs.json`
+- [ ] Typecheck passes
+- [ ] Verify in browser
+
+---
+
+### US-018: Dark/Light Theme Toggle
+**Description:** As a user, I want to switch between dark and light themes so that I can use my preferred visual style.
+
+**Acceptance Criteria:**
+- [ ] Theme toggle button in header/navbar
+- [ ] Dark theme as default
+- [ ] Theme preference persisted in browser storage
+- [ ] All components properly styled in both themes
+- [ ] Typecheck passes
+- [ ] Verify in browser
+
+---
+
+### US-019: Docker Deployment
+**Description:** As a DevOps engineer, I want to run the web UI in Docker so that I can deploy it consistently.
+
+**Acceptance Criteria:**
+- [ ] Dockerfile in `importer/web/` directory
+- [ ] `docker build` creates working image
+- [ ] `docker run -p 8080:8080` starts the UI
+- [ ] Environment variables for configuration (port, host, etc.)
+- [ ] Volume mount for `.env` and output directories
+- [ ] README with Docker usage instructions
+- [ ] Typecheck passes
+
+---
+
+### US-020: Error Handling and Recovery
+**Description:** As a user, I want clear error messages and recovery options so that I can resolve issues without restarting.
+
+**Acceptance Criteria:**
+- [ ] API errors show user-friendly message + technical details (expandable)
+- [ ] Network errors suggest checking credentials/connectivity
+- [ ] Validation errors highlight specific fields
+- [ ] "Retry" button for transient failures
+- [ ] Session state preserved on page refresh
+- [ ] Typecheck passes
+- [ ] Verify in browser
+
+## Functional Requirements
+
+- **FR-1:** The web UI must be launchable via `python -m importer.web`
+- **FR-2:** The UI must provide a 5-step wizard: Fetch → Explore → Map → Target → Deploy
+- **FR-3:** Each step must be independently accessible (non-linear navigation)
+- **FR-4:** Source and target credentials must be loadable from and savable to `.env` files
+- **FR-5:** The Fetch step must call the existing `importer.fetcher` module
+- **FR-6:** The Explore step must display `report_items` in a filterable/sortable AGGrid table
+- **FR-7:** The Explore step must render summary and report markdown files
+- **FR-8:** The Explore step must provide Plotly charts for resource visualization
+- **FR-9:** The Map step must allow toggling `include_in_conversion` per entity
+- **FR-10:** The Map step must support editing `importer_mapping.yml` settings
+- **FR-11:** The Normalize operation must call the existing `importer.normalizer` module
+- **FR-12:** The Deploy step must support both "generate files only" and "execute Terraform"
+- **FR-13:** Terraform execution must stream real-time output to the UI
+- **FR-14:** The UI must persist session state across page refreshes
+- **FR-15:** The UI must support dark and light themes
+- **FR-16:** CSV export must export the current filtered view of entities
+- **FR-17:** The home page must display recent runs from tracking JSON files
+
+## Non-Goals (Out of Scope)
+
+- **Multi-user authentication/authorization** - This is a local tool, not a shared service
+- **Database backend** - All state stored in files (JSON, YAML, .env)
+- **Real-time collaboration** - Single-user workflow only
+- **CI/CD integration** - This is for interactive use, not automated pipelines
+- **Terraform state management UI** - Users manage state externally
+- **Rollback/undo for Terraform applies** - Use standard Terraform workflows
+- **Custom theming beyond dark/light** - Keep styling simple
+- **Mobile responsive design** - Desktop browser focus
+
+## Design Considerations
+
+### UI Framework
+- **NiceGUI** with Quasar components (Material Design)
+- AGGrid for data tables
+- Plotly for charts
+- Tailwind CSS for custom styling where needed
+
+### Layout
+```
+┌─────────────────────────────────────────────────────────┐
+│  [Logo]  dbt Cloud Importer          [Theme] [Settings] │
+├──────────┬──────────────────────────────────────────────┤
+│ Steps    │                                              │
+│ ──────── │         Main Content Area                    │
+│ ○ Fetch  │                                              │
+│ ○ Explore│         (changes per step)                   │
+│ ○ Map    │                                              │
+│ ○ Target │                                              │
+│ ○ Deploy │                                              │
+│          │                                              │
+│ ──────── │                                              │
+│ Recent   │                                              │
+│ Runs     │                                              │
+└──────────┴──────────────────────────────────────────────┘
+```
+
+### Component Reuse
+- Credential form component (used for source and target)
+- Entity table component (used in Explore and Map)
+- Terminal output component (used for fetch, normalize, terraform)
+- Progress stepper component (used in header)
+
+## Technical Considerations
+
+### Integration with Existing Code
+- Import and call `importer.fetcher.fetch_account()` directly
+- Import and call `importer.normalizer.normalize()` directly
+- Reuse `importer.models` Pydantic models for type safety
+- Reuse `importer.reporter` for markdown generation
+
+### State Management
+- NiceGUI's `app.storage.user` for session persistence
+- In-memory state for current workflow data
+- File-based persistence for credentials and config
+
+### Process Execution
+- Terraform commands run via `subprocess` with streaming output
+- Background tasks for long-running operations (fetch, normalize, apply)
+- Cancellation support via process termination
+
+### Dependencies
+```
+nicegui>=2.0,<3
+pandas>=2.0,<3
+plotly>=5.0,<6
+```
+
+### File Structure
+```
+importer/
+├── web/
+│   ├── __init__.py
+│   ├── __main__.py           # Entry point
+│   ├── app.py                # NiceGUI app setup
+│   ├── state.py              # Session state management
+│   ├── env_manager.py        # .env file handling
+│   ├── pages/
+│   │   ├── home.py
+│   │   ├── fetch.py
+│   │   ├── explore.py
+│   │   ├── mapping.py
+│   │   ├── target.py
+│   │   └── deploy.py
+│   ├── components/
+│   │   ├── entity_table.py
+│   │   ├── charts.py
+│   │   ├── credential_form.py
+│   │   ├── terminal_output.py
+│   │   └── stepper.py
+│   └── Dockerfile
+```
+
+## Success Metrics
+
+- User can complete full fetch → deploy workflow in under 30 minutes
+- Entity table loads and filters 1000+ items without noticeable lag
+- Terraform output streams with less than 1 second latency
+- Zero data loss on page refresh mid-workflow
+- Works on Chrome, Firefox, Safari (latest versions)
+
+## Open Questions
+
+1. Should we support multiple concurrent sessions (different browser tabs for different accounts)?
+2. Should the UI support importing from multiple source accounts into one target?
+3. Do we need audit logging for compliance (who ran what, when)?
+4. Should we add a "dry run" mode that validates everything without any API calls?
+5. Should connection provider configs support importing from existing Terraform state?

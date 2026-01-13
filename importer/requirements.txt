@@ -8,3 +8,7 @@ click>=8.1.7,<8.2
 PyYAML>=6.0,<7
 InquirerPy>=0.3.0,<0.4
 
+# Web UI dependencies
+nicegui>=2.0,<3
+pandas>=2.0,<3
+plotly>=5.0,<6

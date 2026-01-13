@@ -52,6 +52,11 @@ class DbtCloudClient:
             ),
         }
 
+    @classmethod
+    def from_settings(cls, settings: Settings) -> "DbtCloudClient":
+        """Create a new client instance (useful for per-thread clients)."""
+        return cls(settings)
+
     def close(self) -> None:
         for client in self._clients.values():
             client.close()

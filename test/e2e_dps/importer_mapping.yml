@@ -1,0 +1,59 @@
+# yaml-language-server: $schema=../../schemas/importer_mapping.json
+#
+# DPS profile mapping config (starter)
+#
+# This is a copy of the repo-default mapping config with DPS-specific output paths.
+
+version: 1
+
+scope:
+  mode: all_projects
+
+resource_filters:
+  connections:
+    include: true
+  repositories:
+    include: true
+  privatelink_endpoints:
+    include: true
+  service_tokens:
+    include: true
+  groups:
+    include: true
+  notifications:
+    include: true
+  webhooks:
+    include: false
+  projects:
+    include: true
+  environments:
+    include: true
+  jobs:
+    include: true
+  environment_variables:
+    include: true
+
+normalization_options:
+  strip_source_ids: true
+  preserve_advisory_ids: false
+  placeholder_strategy: lookup
+  name_collision_strategy: suffix
+  secret_handling: redact
+  multi_project_mode: single_file
+  include_inactive: false
+  include_connection_details: true
+  yaml_style:
+    indent: 2
+    line_length: 120
+    sort_keys: false
+
+output:
+  yaml_file: dbt-config.yml
+  # The runner script overrides output-dir, but keeping this DPS-specific avoids surprises
+  output_directory: dev_support/samples_dps/normalized/
+  generate_manifests:
+    lookups: true
+    exclusions: true
+    diff_json: true
+
+

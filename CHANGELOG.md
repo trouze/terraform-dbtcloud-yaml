@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-01-13
+
+### Added
+- **Fetch parallelism**: Parallelized Phase 1 fetch across globals + projects + job env-var overrides with configurable worker count.
+  - New CLI flag: `python -m importer fetch --threads N`
+  - New env var: `DBT_SOURCE_FETCH_THREADS` (default 5)
+
+### Changed
+- **Fetch UX**: Progress UI shows thread count and makes it clearer why projects complete more slowly (job env-var overrides dominate runtime on some accounts).
+
+### Fixed
+- **Terraform v2**: Hardened job scheduling config to avoid invalid schedule field combinations during plan/apply.
+- **E2E runner**: Avoid false-positive “Errors detected” output by matching real Terraform `Error:` lines only.
+
+## [0.7.0] - 2026-01-13
+
+### Added
+- **Web UI: Account Migration Tool**: New NiceGUI-based web interface for the importer workflow
+  - Interactive 5-step workflow: Fetch → Explore → Map → Target → Deploy
+  - Dark/light theme toggle with dbt brand colors
+  - Session state persistence across page refreshes
+  - Recent runs dashboard showing previous fetch/normalize operations
+  - Sidebar navigation with step locking based on progress
+  - Launch via `python -m importer.web` with `--port`, `--no-open`, `--reload` flags
+
+### Changed
+- Renamed "Importer" to "Account Migration Tool" in web UI branding
+
 ## [0.6.11] - 2026-01-09
 
 ### Fixed
