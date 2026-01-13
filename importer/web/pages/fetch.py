@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
@@ -56,6 +57,7 @@ def create_fetch_page(
     # State for tracking fetch progress
     fetch_in_progress = {"value": False}
     fetch_complete = {"value": state.fetch.fetch_complete}
+    cancel_event = {"event": None}  # Will hold threading.Event during fetch
     
     with ui.column().classes("w-full max-w-6xl mx-auto p-6 gap-4"):
         # Page header
@@ -121,21 +123,30 @@ def create_fetch_page(
 
         # Now add the fetch button with access to results_container
         with fetch_btn_container:
-            fetch_btn = ui.button(
-                "Fetch Account Data",
-                icon="cloud_download",
-                on_click=lambda: _run_fetch(
-                    state,
-                    terminal,
-                    progress_tree,
-                    fetch_btn,
-                    fetch_in_progress,
-                    fetch_complete,
-                    on_step_change,
-                    save_state,
-                    results_container,
-                ),
-            ).classes("w-full").style(f"background-color: {DBT_ORANGE};")
+            with ui.row().classes("w-full gap-2"):
+                fetch_btn = ui.button(
+                    "Fetch Account Data",
+                    icon="cloud_download",
+                    on_click=lambda: _run_fetch(
+                        state,
+                        terminal,
+                        progress_tree,
+                        fetch_btn,
+                        cancel_btn,
+                        fetch_in_progress,
+                        fetch_complete,
+                        cancel_event,
+                        on_step_change,
+                        save_state,
+                        results_container,
+                    ),
+                ).classes("flex-grow").style(f"background-color: {DBT_ORANGE};")
+
+                cancel_btn = ui.button(
+                    "Cancel",
+                    icon="cancel",
+                    on_click=lambda: _cancel_fetch(cancel_event, terminal),
+                ).props("outline color=negative").classes("hidden")
 
 
 def _create_fetch_options(state: AppState, save_state: Callable[[], None]) -> None:
@@ -391,13 +402,23 @@ async def _test_connection(state: AppState, terminal: TerminalOutput) -> None:
         ui.notify(f"Error: {e}", type="negative")
 
 
+def _cancel_fetch(cancel_event: dict, terminal: TerminalOutput) -> None:
+    """Cancel an in-progress fetch operation."""
+    if cancel_event["event"] is not None:
+        cancel_event["event"].set()
+        terminal.warning("Cancellation requested... Please wait.")
+        ui.notify("Cancellation requested", type="warning")
+
+
 async def _run_fetch(
     state: AppState,
     terminal: TerminalOutput,
     progress_tree: ProgressTree,
     fetch_btn: ui.button,
+    cancel_btn: ui.button,
     fetch_in_progress: dict,
     fetch_complete: dict,
+    cancel_event: dict,
     on_step_change: Callable[[WorkflowStep], None],
     save_state: Callable[[], None],
     results_container: Optional[ui.column] = None,
@@ -421,6 +442,10 @@ async def _run_fetch(
     fetch_in_progress["value"] = True
     fetch_btn.disable()
     
+    # Initialize cancel event and show cancel button
+    cancel_event["event"] = threading.Event()
+    cancel_btn.classes(remove="hidden")
+    
     # Clear previous results panel if it exists
     if results_container is not None:
         results_container.clear()
@@ -439,7 +464,7 @@ async def _run_fetch(
         # Import fetch dependencies
         from importer.config import Settings
         from importer.client import DbtCloudClient
-        from importer.fetcher import fetch_account_snapshot
+        from importer.fetcher import fetch_account_snapshot, FetchCancelledException
         from importer.run_tracker import RunTracker
         from importer.reporter import generate_summary_report, generate_detailed_report
 
@@ -465,11 +490,15 @@ async def _run_fetch(
 
         # Run fetch in thread pool
         terminal.info("Connecting to dbt Platform API...")
+        threads = getattr(state.fetch, 'threads', 5) or 5
+        event = cancel_event["event"]
         
         def do_fetch():
             client = DbtCloudClient(settings)
             try:
-                return fetch_account_snapshot(client, progress=progress, threads=5)
+                return fetch_account_snapshot(
+                    client, progress=progress, threads=threads, cancel_event=event
+                )
             finally:
                 client.close()
 
@@ -561,6 +590,16 @@ async def _run_fetch(
             with results_container:
                 _create_results_section(state, on_step_change)
 
+    except FetchCancelledException:
+        terminal.warning("")
+        terminal.warning("━━━ FETCH CANCELLED ━━━")
+        terminal.warning("The fetch operation was cancelled by the user.")
+        
+        # Mark progress tree as cancelled
+        progress_tree.error("Cancelled")
+        
+        ui.notify("Fetch cancelled", type="warning")
+
     except Exception as e:
         terminal.error("")
         terminal.error(f"Fetch failed: {e}")
@@ -582,3 +621,5 @@ async def _run_fetch(
     finally:
         fetch_in_progress["value"] = False
         fetch_btn.enable()
+        cancel_btn.classes(add="hidden")
+        cancel_event["event"] = None

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Iterable, List, Optional, Protocol, runtime_checkable
 
@@ -29,6 +30,12 @@ from .models import (
 )
 
 log = logging.getLogger(__name__)
+
+
+class FetchCancelledException(Exception):
+    """Raised when a fetch operation is cancelled by the user."""
+
+    pass
 
 
 @runtime_checkable
@@ -76,6 +83,7 @@ def fetch_account_snapshot(
     client: DbtCloudClient,
     progress: Optional[FetchProgressCallback] = None,
     threads: int = 5,
+    cancel_event: Optional[threading.Event] = None,
 ) -> AccountSnapshot:
     """
     Fetch a complete account snapshot from dbt Cloud.
@@ -83,11 +91,26 @@ def fetch_account_snapshot(
     Args:
         client: The dbt Cloud API client.
         progress: Optional callback for progress reporting.
+        threads: Number of concurrent threads for parallel fetching.
+        cancel_event: Optional threading.Event to signal cancellation.
 
     Returns:
         An AccountSnapshot containing all fetched resources.
+
+    Raises:
+        FetchCancelledException: If the cancel_event is set during fetch.
     """
+
+    def _check_cancelled():
+        """Check if cancellation was requested and raise if so."""
+        if cancel_event and cancel_event.is_set():
+            log.info("Fetch cancelled by user")
+            raise FetchCancelledException("Fetch operation was cancelled by the user")
+
     log.info("Fetching dbt Cloud account snapshot ...")
+
+    # Check for cancellation at start
+    _check_cancelled()
 
     # Fetch account information
     log.info("Fetching account details (v2)")
@@ -154,6 +177,9 @@ def fetch_account_snapshot(
             webhooks=globals_results["webhooks"],
             privatelink_endpoints=globals_results["privatelink_endpoints"],
         )
+
+    # Check for cancellation after globals phase
+    _check_cancelled()
 
     # Phase 2: Projects
     if progress:
@@ -246,6 +272,9 @@ def fetch_account_snapshot(
         projects: list[Project] = []
 
         while pending:
+            # Check for cancellation at start of each iteration
+            _check_cancelled()
+
             for fut in as_completed(list(pending.keys()), timeout=None):
                 kind, pid, job_id = pending.pop(fut)
                 result = fut.result()

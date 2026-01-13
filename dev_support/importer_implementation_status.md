@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2026-01-13  
-**Current Importer Version:** 0.7.5  
+**Current Importer Version:** 0.7.6  
 **Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -666,6 +666,14 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2026-01-13 (v0.7.6)
+- **Version:** Incremented to 0.7.6 (patch release - Fetch cancel button, threads option, Explore type codes)
+- **Fetch Page: Cancel Button**: Cancel fetch operations in progress
+- **Fetch Page: Threads Option**: Configurable threads input (1-20) for parallel API requests
+- **Explore Tab: Display Codes**: Type dropdown shows "Name (CODE) [count]" format
+- **Explore Tab: Entity Dialog**: Badge and Type chip show "Name (CODE)" format
+- **Fetcher**: `fetch_account_snapshot` accepts optional `cancel_event` parameter for cancellation
 
 ### 2026-01-13 (v0.7.5)
 - **Version:** Incremented to 0.7.5 (patch release - Scope/Resource filters functional, repository-project linking)
