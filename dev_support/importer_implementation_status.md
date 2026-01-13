@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2026-01-13  
-**Current Importer Version:** 0.7.4  
+**Current Importer Version:** 0.7.5  
 **Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -666,6 +666,20 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2026-01-13 (v0.7.5)
+- **Version:** Incremented to 0.7.5 (patch release - Scope/Resource filters functional, repository-project linking)
+- **Map Page: Scope Settings Functional**: Filter by All Projects, Specific Projects, or Account Only
+- **Map Page: Resource Filters Functional**: Toggle entity types on/off for target config generation
+- **Map Page: Selection Summary Enhanced**: Shows "Effective (after filters)" count with per-type breakdown
+- **Map Page: Reset Filters Button**: Reset to "All Types" with "Selected Only" off
+- **Map Page: Auto-cascade Fix**: State updates immediately when toggle clicked (timing bug fixed)
+- **Map Page: Parent-child Selection**: Account entity excluded from cascade operations
+- **Normalizer Fixes**: Added `exclude_ids` filtering to environments, jobs, environment_variables
+- **Normalizer Fix**: Resource filter key mismatch corrected
+- **Pydantic Models**: Added `extra='allow'` to preserve `element_mapping_id` fields
+- **Repositories**: Now linked to parent projects via `metadata.project_id`
+- **Explore Tab**: Repositories show Project name and ID columns
 
 ### 2026-01-13 (v0.7.4)
 - **Version:** Incremented to 0.7.4 (patch release - Map page filter persistence)

@@ -615,14 +615,21 @@ def _normalize_environments(
     """Normalize environments for a project."""
     result = []
     exclude_keys = config.get_exclude_keys("environments")
+    exclude_ids = config.get_exclude_ids("environments")
     
     for env in project.environments:
+        element_id = _get_element_id(env)
+        
         if env.key in exclude_keys:
-            context.add_exclusion("environment", env.key, "Excluded by filter", _get_element_id(env))
+            context.add_exclusion("environment", env.key, "Excluded by key filter", element_id)
+            continue
+        
+        if element_id and element_id in exclude_ids:
+            context.add_exclusion("environment", env.key, "Excluded by element ID filter", element_id)
             continue
         
         if not _should_include(env, config):
-            context.add_exclusion("environment", env.key, "Inactive", _get_element_id(env))
+            context.add_exclusion("environment", env.key, "Inactive", element_id)
             continue
         
         normalized_key = context.resolve_collision(f"{project.key}_{env.key}", namespace="environments")
@@ -678,6 +685,7 @@ def _normalize_jobs(
     """Normalize jobs for a project."""
     result = []
     exclude_keys = config.get_exclude_keys("jobs")
+    exclude_ids = config.get_exclude_ids("jobs")
     
     # Build mapping of environment_id -> environment_key for deferral resolution
     env_id_to_key = {env.id: env.key for env in project.environments if env.id}
@@ -744,12 +752,18 @@ def _normalize_jobs(
     cycle_job_keys = _cycle_nodes(trigger_key_by_job_key)
     
     for job in project.jobs:
+        element_id = _get_element_id(job)
+        
         if job.key in exclude_keys:
-            context.add_exclusion("job", job.key, "Excluded by filter", _get_element_id(job))
+            context.add_exclusion("job", job.key, "Excluded by key filter", element_id)
+            continue
+        
+        if element_id and element_id in exclude_ids:
+            context.add_exclusion("job", job.key, "Excluded by element ID filter", element_id)
             continue
         
         if not _should_include(job, config):
-            context.add_exclusion("job", job.key, "Inactive", _get_element_id(job))
+            context.add_exclusion("job", job.key, "Inactive", element_id)
             continue
         
         # Resolve collision using full key (project_key + job_key) to ensure uniqueness
@@ -939,16 +953,23 @@ def _normalize_environment_variables(
 ) -> List[Dict[str, Any]]:
     """Normalize environment variables for a project."""
     result = []
+    exclude_ids = config.get_exclude_ids("environment_variables")
     
     for var in project.environment_variables:
+        # Check exclude_ids filter
+        element_id = _get_element_id(var)
+        if element_id and element_id in exclude_ids:
+            context.add_exclusion("environment_variable", var.name, "Excluded by element ID filter", element_id)
+            continue
+        
         # Skip secrets based on config
         if var.name.startswith("DBT_ENV_SECRET"):
             if config.get_secret_handling() == "omit":
-                context.add_exclusion("environment_variable", var.name, "Secret variable omitted", _get_element_id(var))
+                context.add_exclusion("environment_variable", var.name, "Secret variable omitted", element_id)
                 continue
         
         if not _should_include(var, config):
-            context.add_exclusion("environment_variable", var.name, "Inactive", _get_element_id(var))
+            context.add_exclusion("environment_variable", var.name, "Inactive", element_id)
             continue
         
         if _get_element_id(var):

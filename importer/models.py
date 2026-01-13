@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ImporterBaseModel(BaseModel):
-    model_config = ConfigDict(protected_namespaces=(), populate_by_name=True)
+    model_config = ConfigDict(protected_namespaces=(), populate_by_name=True, extra='allow')
 
 
 class Connection(ImporterBaseModel):

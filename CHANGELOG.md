@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-01-13
+
+### Added
+- **Map Page**: "Reset Filters" button to reset to "All Types" with "Selected Only" off
+- **Map Page**: Scope Settings now functional - filter by All Projects, Specific Projects, or Account Only
+- **Map Page**: Resource Filters now functional - toggle entity types on/off for target config generation
+- **Map Page**: Selection Summary shows "Effective (after filters)" count with per-type breakdown
+- **Repositories**: Now linked to their parent projects via `metadata.project_id`
+- **Explore Tab**: Repository entities now show Project name and ID columns
+
+### Fixed
+- **Map Page**: Auto-cascade timing bug - state now updates immediately when toggle clicked
+- **Map Page**: Parent-child selection excludes Account entity from cascade operations
+- **Map Page**: Scope and Resource filters now properly exclude items from generated YAML
+- **Normalizer**: Added `exclude_ids` filtering to `_normalize_environment_variables`, `_normalize_environments`, `_normalize_jobs`
+- **Normalizer**: Fixed resource filter key mismatch (`privatelinks` → `privatelink_endpoints`, `env_vars` → `environment_variables`)
+- **Pydantic Models**: Added `extra='allow'` to preserve `element_mapping_id` fields during JSON deserialization
+
+### Changed
+- **Hierarchy Index**: Repositories treated as project children (like ENV, VAR, JOB)
+- **Element IDs**: Projects registered first to enable repository-project linking
+
 ## [0.7.4] - 2026-01-13
 
 ### Added

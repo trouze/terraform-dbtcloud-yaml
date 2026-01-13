@@ -72,26 +72,9 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
         identifier=payload.get("account_id"),
     )
 
-    globals_block = payload.get("globals") or {}
-    for key, label, code in (
-        ("connections", "Connections", "CON"),
-        ("repositories", "Repositories", "REP"),
-        ("service_tokens", "Service Tokens", "TOK"),
-        ("groups", "Groups", "GRP"),
-        ("notifications", "Notifications", "NOT"),
-        ("webhooks", "Webhooks", "WEB"),
-        ("privatelink_endpoints", "PrivateLink Endpoints", "PLE"),
-    ):
-        resources = globals_block.get(key) or {}
-        for resource_key, resource in resources.items():
-            _register(
-                records,
-                resource,
-                code,
-                name=resource.get("name") or resource_key,
-                extra={"resource_group": label},
-            )
-
+    # First, register projects and build project_id -> mapping_id lookup
+    project_id_to_mapping = {}
+    project_key_to_mapping = {}
     for project in payload.get("projects", []):
         project_name = project.get("name") or project.get("key")
         project_mapping_id = _register(
@@ -99,8 +82,17 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
             project,
             "PRJ",
             name=project_name,
-            extra={"project_key": project.get("key")},
+            extra={
+                "project_key": project.get("key"),
+                "repository_key": project.get("repository_key"),
+            },
         )
+        
+        # Track project mappings for repository linking
+        if project.get("id"):
+            project_id_to_mapping[project.get("id")] = project_mapping_id
+        if project.get("key"):
+            project_key_to_mapping[project.get("key")] = project_mapping_id
 
         # Environment variables
         for var in project.get("environment_variables", []):
@@ -150,6 +142,56 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
                         "parent_project_id": project_mapping_id,
                     },
                 )
+
+    # Now register globals (after projects so we can link repositories)
+    globals_block = payload.get("globals") or {}
+    for key, label, code in (
+        ("connections", "Connections", "CON"),
+        ("service_tokens", "Service Tokens", "TOK"),
+        ("groups", "Groups", "GRP"),
+        ("notifications", "Notifications", "NOT"),
+        ("webhooks", "Webhooks", "WEB"),
+        ("privatelink_endpoints", "PrivateLink Endpoints", "PLE"),
+    ):
+        resources = globals_block.get(key) or {}
+        for resource_key, resource in resources.items():
+            _register(
+                records,
+                resource,
+                code,
+                name=resource.get("name") or resource_key,
+                extra={"resource_group": label},
+            )
+    
+    # Register repositories with parent project linking
+    repositories = globals_block.get("repositories") or {}
+    for resource_key, resource in repositories.items():
+        # Get project_id from metadata
+        metadata = resource.get("metadata") or {}
+        repo_project_id = metadata.get("project_id")
+        
+        # Find parent project mapping
+        parent_project_mapping = None
+        parent_project_name = None
+        if repo_project_id and repo_project_id in project_id_to_mapping:
+            parent_project_mapping = project_id_to_mapping[repo_project_id]
+            # Look up project name from records
+            for rec in records:
+                if rec.get("element_mapping_id") == parent_project_mapping:
+                    parent_project_name = rec.get("name")
+                    break
+        
+        _register(
+            records,
+            resource,
+            "REP",
+            name=resource.get("name") or resource_key,
+            extra={
+                "resource_group": "Repositories",
+                "parent_project_id": parent_project_mapping,
+                "project_name": parent_project_name,
+            },
+        )
 
     # Assign line numbers
     current = start_number

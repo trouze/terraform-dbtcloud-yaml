@@ -12,21 +12,22 @@ from nicegui import ui
 from importer.web.state import AppState, WorkflowStep, STEP_NAMES
 from importer.web.components.stepper import DBT_ORANGE
 from importer.web.components.selection_manager import SelectionManager
+from importer.web.components.hierarchy_index import HierarchyIndex, TYPE_DEPTH
 
-# Resource type display info (reuse from entity_table)
+# Resource type display info with new abbreviation codes
 RESOURCE_TYPES = {
-    "ACC": {"name": "Account", "icon": "cloud", "color": "#3B82F6"},
-    "CON": {"name": "Connection", "icon": "storage", "color": "#10B981"},
-    "REP": {"name": "Repository", "icon": "source", "color": "#8B5CF6"},
-    "TOK": {"name": "Service Token", "icon": "key", "color": "#EC4899"},
-    "GRP": {"name": "Group", "icon": "group", "color": "#6366F1"},
-    "NOT": {"name": "Notification", "icon": "notifications", "color": "#F97316"},
-    "WEB": {"name": "Webhook", "icon": "webhook", "color": "#84CC16"},
-    "PLE": {"name": "PrivateLink", "icon": "lock", "color": "#14B8A6"},
-    "PRJ": {"name": "Project", "icon": "folder", "color": "#F59E0B"},
-    "ENV": {"name": "Environment", "icon": "layers", "color": "#06B6D4"},
-    "VAR": {"name": "Env Variable", "icon": "code", "color": "#A855F7"},
-    "JOB": {"name": "Job", "icon": "schedule", "color": "#EF4444"},
+    "ACC": {"name": "Account", "code": "ACCNT", "icon": "cloud", "color": "#3B82F6"},
+    "CON": {"name": "Connection", "code": "CONN", "icon": "storage", "color": "#10B981"},
+    "REP": {"name": "Repository", "code": "REPO", "icon": "source", "color": "#8B5CF6"},
+    "TOK": {"name": "Service Token", "code": "SRVTKN", "icon": "key", "color": "#EC4899"},
+    "GRP": {"name": "Group", "code": "GRP", "icon": "group", "color": "#6366F1"},
+    "NOT": {"name": "Notification", "code": "NOTIFY", "icon": "notifications", "color": "#F97316"},
+    "WEB": {"name": "Webhook", "code": "WBHK", "icon": "webhook", "color": "#84CC16"},
+    "PLE": {"name": "PrivateLink", "code": "PRVLNK", "icon": "lock", "color": "#14B8A6"},
+    "PRJ": {"name": "Project", "code": "PRJCT", "icon": "folder", "color": "#F59E0B"},
+    "ENV": {"name": "Environment", "code": "ENV", "icon": "layers", "color": "#06B6D4"},
+    "VAR": {"name": "Env Variable", "code": "ENVVAR", "icon": "code", "color": "#A855F7"},
+    "JOB": {"name": "Job", "code": "JOB", "icon": "schedule", "color": "#EF4444"},
 }
 
 
@@ -59,6 +60,20 @@ def create_mapping_page(
             _create_no_data_message(on_step_change)
             return
         
+        # Build hierarchy index for parent-child relationships
+        hierarchy_index = HierarchyIndex(report_items)
+        
+        # Sort items in hierarchical order
+        hierarchical_order = hierarchy_index.get_hierarchical_order()
+        report_items_ordered = []
+        items_by_id = {r.get("element_mapping_id"): r for r in report_items}
+        for mapping_id in hierarchical_order:
+            if mapping_id in items_by_id:
+                item = items_by_id[mapping_id]
+                # Add depth for visual indentation
+                item["_depth"] = hierarchy_index.get_depth(mapping_id)
+                report_items_ordered.append(item)
+        
         # Initialize selection manager
         selection_manager = SelectionManager(
             account_id=state.source_account.account_id or "unknown",
@@ -67,7 +82,7 @@ def create_mapping_page(
         selection_manager.load()
         
         # Reconcile selections with current entities
-        reconcile_result = selection_manager.reconcile_with_entities(report_items)
+        reconcile_result = selection_manager.reconcile_with_entities(report_items_ordered)
         
         # Update state counts
         counts = selection_manager.get_selection_counts()
@@ -85,10 +100,10 @@ def create_mapping_page(
             "min-height: 0;"
         ):
             # Left: Entity selection
-            _create_selection_panel(report_items, selection_manager, state, save_state, summary_refresh_ref)
+            _create_selection_panel(report_items_ordered, selection_manager, state, save_state, summary_refresh_ref, hierarchy_index)
             
             # Right: Results/action panel
-            _create_action_panel(state, selection_manager, report_items, on_step_change, save_state, summary_refresh_ref)
+            _create_action_panel(state, selection_manager, report_items_ordered, on_step_change, save_state, summary_refresh_ref, hierarchy_index)
         
         # Row 3: Navigation
         _create_navigation(state, on_step_change)
@@ -146,6 +161,7 @@ def _create_selection_panel(
     state: AppState,
     save_state: Callable[[], None],
     summary_refresh_ref: dict,
+    hierarchy_index: HierarchyIndex,
 ) -> None:
     """Create the entity selection panel with table and controls."""
     
@@ -160,6 +176,7 @@ def _create_selection_panel(
         }
         show_selected_btn_ref = {"button": None}
         type_select_ref = {"select": None}
+        hierarchy_ref = {"index": hierarchy_index}
         # Flag to prevent circular updates
         programmatic_update = {"active": False}
         
@@ -230,7 +247,7 @@ def _create_selection_panel(
                 set(item.get("element_type_code", "UNK") for item in report_items)
             )
             type_options = {"all": "All Types"} | {
-                t: f"{RESOURCE_TYPES.get(t, {}).get('name', t)}" 
+                t: f"{RESOURCE_TYPES.get(t, {}).get('name', t)} ({RESOURCE_TYPES.get(t, {}).get('code', t)})" 
                 for t in types_in_data
             }
             
@@ -258,6 +275,125 @@ def _create_selection_panel(
                 ui.button("Select All", icon="check_box", on_click=on_select_all).props("outline dense")
                 ui.button("Deselect All", icon="check_box_outline_blank", on_click=on_deselect_all).props("outline dense")
                 ui.button("Invert", icon="flip", on_click=on_invert).props("outline dense")
+            
+            # Cascade selection controls
+            cascade_btns_ref = {"children": None, "parents": None}
+            
+            async def on_select_children():
+                """Select all children of currently selected entities (excludes account-level cascade)."""
+                selected_ids = selection_manager.get_selected_ids()
+                new_selections = set()
+                
+                for mapping_id in selected_ids:
+                    # Skip account entity - selecting account children is effectively "select all"
+                    entity = hierarchy_ref["index"].get_entity(mapping_id)
+                    if entity and entity.get("element_type_code") == "ACC":
+                        continue
+                    
+                    descendants = hierarchy_ref["index"].get_all_descendants(mapping_id)
+                    new_selections.update(descendants)
+                
+                if new_selections:
+                    selection_manager.select_all(new_selections)
+                    update_count_display()
+                    if grid_ref["grid"]:
+                        programmatic_update["active"] = True
+                        if filter_ref.get("selected_only") and filter_ref.get("refresh_grid"):
+                            filter_ref["refresh_grid"]()
+                        else:
+                            await _refresh_grid_selections(grid_ref["grid"], selection_manager, True)
+                        programmatic_update["active"] = False
+                    ui.notify(f"Selected {len(new_selections)} child entities", type="positive")
+                else:
+                    ui.notify("No children found for selected entities", type="info")
+            
+            async def on_select_parents():
+                """Select all required parents of currently selected entities (excludes account)."""
+                selected_ids = selection_manager.get_selected_ids()
+                new_selections = set()
+                hierarchy = hierarchy_ref["index"]
+                
+                for mapping_id in selected_ids:
+                    ancestors = hierarchy.get_required_ancestors(mapping_id)
+                    # Filter out account entity - don't auto-select account
+                    for ancestor_id in ancestors:
+                        ancestor = hierarchy.get_entity(ancestor_id)
+                        if ancestor and ancestor.get("element_type_code") != "ACC":
+                            new_selections.add(ancestor_id)
+                
+                # Only add parents that aren't already selected
+                new_selections -= selected_ids
+                
+                if new_selections:
+                    selection_manager.select_all(new_selections)
+                    update_count_display()
+                    if grid_ref["grid"]:
+                        programmatic_update["active"] = True
+                        if filter_ref.get("selected_only") and filter_ref.get("refresh_grid"):
+                            filter_ref["refresh_grid"]()
+                        else:
+                            await _refresh_grid_selections(grid_ref["grid"], selection_manager, True)
+                        programmatic_update["active"] = False
+                    ui.notify(f"Selected {len(new_selections)} parent entities", type="positive")
+                else:
+                    ui.notify("All required parents already selected", type="info")
+            
+            with ui.row().classes("gap-2"):
+                cascade_btns_ref["children"] = ui.button(
+                    "Select Children", 
+                    icon="account_tree", 
+                    on_click=on_select_children
+                ).props("outline dense").tooltip("Select all descendants of selected entities")
+                
+                cascade_btns_ref["parents"] = ui.button(
+                    "Select Parents", 
+                    icon="north", 
+                    on_click=on_select_parents
+                ).props("outline dense").tooltip("Select required parent entities")
+            
+            # Auto-cascade toggle with confirmation
+            auto_cascade_ref = {"switch": None, "enabled": state.map.auto_cascade_children}
+            
+            async def confirm_auto_cascade():
+                """Show confirmation dialog when enabling auto-cascade."""
+                result = await ui.run_javascript(
+                    'confirm("Enable auto-cascade?\\n\\n'
+                    'When ON, selecting a parent entity will automatically select all its children.\\n\\n'
+                    'Note: This will NOT retroactively cascade existing selections.")'
+                )
+                return result
+            
+            async def on_auto_cascade_change(e):
+                new_value = e.value
+                
+                # Update immediately so checkbox clicks work while confirmation is shown
+                auto_cascade_ref["enabled"] = new_value
+                state.map.auto_cascade_children = new_value
+                
+                if new_value:
+                    # Enabling - show confirmation
+                    confirmed = await confirm_auto_cascade()
+                    if not confirmed:
+                        # User cancelled - revert state
+                        auto_cascade_ref["enabled"] = False
+                        state.map.auto_cascade_children = False
+                        if auto_cascade_ref["switch"]:
+                            auto_cascade_ref["switch"].set_value(False)
+                        return
+                
+                save_state()
+                
+                if new_value:
+                    ui.notify("Auto-cascade enabled. Selecting parents will auto-select children.", type="info")
+                else:
+                    ui.notify("Auto-cascade disabled.", type="info")
+            
+            with ui.row().classes("gap-2 items-center"):
+                auto_cascade_ref["switch"] = ui.switch(
+                    "Auto-cascade",
+                    value=state.map.auto_cascade_children,
+                    on_change=on_auto_cascade_change
+                ).tooltip("When ON, selecting a parent auto-selects all its children")
                 
                 # Toggle to show only selected
                 def refresh_grid_with_filters():
@@ -305,6 +441,29 @@ def _create_selection_panel(
                         icon="filter_list", 
                         on_click=toggle_selected_only
                     ).props("outline dense")
+                
+                def reset_filters():
+                    """Reset filters to defaults (All Types, Selected Only off) without changing selections."""
+                    # Reset type filter
+                    filter_ref["type"] = "all"
+                    state.map.type_filter = "all"
+                    if type_select_ref.get("select"):
+                        type_select_ref["select"].set_value("all")
+                    
+                    # Reset selected only
+                    filter_ref["selected_only"] = False
+                    state.map.selected_only_filter = False
+                    _update_selected_only_button_style()
+                    
+                    save_state()
+                    refresh_grid_with_filters()
+                    ui.notify("Filters reset", type="info")
+                
+                ui.button(
+                    "Reset Filters", 
+                    icon="filter_alt_off", 
+                    on_click=reset_filters
+                ).props("outline dense").tooltip("Reset to All Types with Selected Only off")
             
             # Count display
             counts = selection_manager.get_selection_counts()
@@ -314,7 +473,7 @@ def _create_selection_panel(
         
         # Entity table with checkboxes
         with ui.element("div").classes("w-full flex-1").style("overflow: hidden; min-height: 200px;"):
-            _create_selection_grid(report_items, selection_manager, grid_ref, count_ref, state, programmatic_update, summary_refresh_ref, filter_ref)
+            _create_selection_grid(report_items, selection_manager, grid_ref, count_ref, state, programmatic_update, summary_refresh_ref, filter_ref, hierarchy_ref, auto_cascade_ref)
 
 
 def _get_filtered_items(report_items: list, type_filter: str) -> list:
@@ -324,13 +483,24 @@ def _get_filtered_items(report_items: list, type_filter: str) -> list:
     return [r for r in report_items if r.get("element_type_code") == type_filter]
 
 
+# Map old type codes to new display codes
+TYPE_CODE_MAP = {
+    "ACC": "ACCNT", "CON": "CONN", "REP": "REPO", "TOK": "SRVTKN",
+    "GRP": "GRP", "NOT": "NOTIFY", "WEB": "WBHK", "PLE": "PRVLNK",
+    "PRJ": "PRJCT", "ENV": "ENV", "VAR": "ENVVAR", "JOB": "JOB",
+}
+
+
 def _add_selection_column(items: list, selection_manager: SelectionManager) -> list:
-    """Add selection state to items for grid display."""
+    """Add selection state and display type to items for grid display."""
     result = []
     for item in items:
         item_copy = dict(item)
         mapping_id = item.get("element_mapping_id")
         item_copy["_selected"] = selection_manager.is_selected(mapping_id) if mapping_id else True
+        # Add display type with new code
+        old_type = item.get("element_type_code", "")
+        item_copy["_display_type"] = TYPE_CODE_MAP.get(old_type, old_type)
         result.append(item_copy)
     return result
 
@@ -366,6 +536,8 @@ def _create_selection_grid(
     programmatic_update: dict,
     summary_refresh_ref: dict,
     filter_ref: dict,
+    hierarchy_ref: dict,
+    auto_cascade_ref: dict,
 ) -> None:
     """Create the AG Grid with selection checkboxes."""
     
@@ -390,18 +562,24 @@ def _create_selection_grid(
             "cellStyle": {"textAlign": "center"},
         },
         {
-            "field": "element_type_code",
+            "field": "_display_type",  # Use pre-computed display type
             "colId": "element_type_code", 
             "headerName": "Type",
-            "width": 80,
-            "pinned": "left",
+            "width": 90,
         },
         {
             "field": "name",
             "colId": "name",
             "headerName": "Name",
-            "width": 250,
+            "width": 300,
             "filter": "agTextColumnFilter",
+            # Custom cell renderer for indentation based on depth
+            "cellRenderer": "function(params) { "
+                "var depth = params.data._depth || 0; "
+                "var indent = depth * 20; "
+                "var name = params.value || ''; "
+                "return '<span style=\"padding-left: ' + indent + 'px;\">' + name + '</span>'; "
+            "}",
         },
         {
             "field": "project_name",
@@ -428,8 +606,8 @@ def _create_selection_grid(
         "columnDefs": column_defs,
         "rowData": row_data,
         "pagination": True,
-        "paginationPageSize": 50,
-        "paginationPageSizeSelector": [25, 50, 100, 200],
+        "paginationPageSize": 200,
+        "paginationPageSizeSelector": [100, 200, 500, 1000],
         "headerHeight": 36,
         "defaultColDef": {
             "resizable": True,
@@ -456,11 +634,36 @@ def _create_selection_grid(
                 if mapping_id:
                     selection_manager.set_selected(mapping_id, new_value)
                     
+                    # Auto-cascade: if enabling and auto-cascade is on, select children
+                    # Skip cascade for account entity - that's effectively "select all"
+                    cascade_count = 0
+                    auto_cascade_enabled = auto_cascade_ref.get("enabled", False)
+                    if new_value and auto_cascade_enabled and hierarchy_ref.get("index"):
+                        entity = hierarchy_ref["index"].get_entity(mapping_id)
+                        if not entity or entity.get("element_type_code") != "ACC":
+                            descendants = hierarchy_ref["index"].get_all_descendants(mapping_id)
+                            if descendants:
+                                selection_manager.select_all(descendants, auto_save=False)
+                                cascade_count = len(descendants)
+                                selection_manager.save()  # Save once after all updates
+                    
                     # Update count display
                     counts = selection_manager.get_selection_counts()
                     state.map.selection_counts = counts
                     if count_ref["label"]:
                         count_ref["label"].set_text(f"{counts['selected']} of {counts['total']} selected")
+                    
+                    # If we cascaded, update the grid to reflect child selections
+                    if cascade_count > 0:
+                        programmatic_update["active"] = True
+                        # Refresh row data to show updated selections
+                        current_row_data = grid.options.get("rowData", [])
+                        for row in current_row_data:
+                            rid = row.get("element_mapping_id")
+                            if rid:
+                                row["_selected"] = selection_manager.is_selected(rid)
+                        grid.update()
+                        programmatic_update["active"] = False
                     
                     # Refresh summary panel
                     if summary_refresh_ref.get("refresh"):
@@ -478,10 +681,11 @@ def _create_action_panel(
     on_step_change: Callable[[WorkflowStep], None],
     save_state: Callable[[], None],
     summary_refresh_ref: dict,
+    hierarchy_index: HierarchyIndex,
 ) -> None:
     """Create the right-side action panel with normalize button and results."""
     
-    with ui.card().classes("w-full h-full p-4").style("overflow-y: auto;"):
+    with ui.card().classes("w-full h-full p-4").style("overflow-y: auto; overflow-x: hidden;"):
         # Selection summary
         ui.label("Selection Summary").classes("text-lg font-bold mb-2")
         
@@ -491,13 +695,297 @@ def _create_action_panel(
         @ui.refreshable
         def refreshable_summary():
             counts = selection_manager.get_selection_counts()
-            _create_summary_stats(counts, report_items, selection_manager)
+            _create_summary_stats(counts, report_items, selection_manager, hierarchy_index, state)
         
         with summary_container:
             refreshable_summary()
         
         # Store the refresh function so it can be called from elsewhere
         summary_refresh_ref["refresh"] = refreshable_summary.refresh
+        
+        ui.separator()
+        
+        # Scope Settings (US-028)
+        with ui.expansion("Scope Settings", icon="filter_alt").classes("w-full"):
+            ui.label("Control which projects are included in the configuration.").classes(
+                "text-xs text-slate-600 dark:text-slate-400 mb-2"
+            )
+            
+            # Get list of projects from report items
+            projects_in_data = []
+            for item in report_items:
+                if item.get("element_type_code") == "PRJ":
+                    projects_in_data.append({
+                        "id": item.get("element_mapping_id"),
+                        "name": item.get("name", "Unknown"),
+                        "key": item.get("key", ""),
+                    })
+            
+            # Scope mode radio
+            scope_options = {
+                "all_projects": "All Projects",
+                "specific_projects": "Specific Projects",
+                "account_only": "Account Level Only (globals)",
+            }
+            
+            project_select_container = ui.column().classes("w-full")
+            
+            def on_project_select_change(e):
+                state.map.selected_project_ids = list(e.value)
+                save_state()
+                if summary_refresh_ref.get("refresh"):
+                    summary_refresh_ref["refresh"]()
+            
+            def on_scope_change(e):
+                state.map.scope_mode = e.value
+                save_state()
+                # Show/hide project picker
+                project_select_container.clear()
+                if e.value == "specific_projects" and projects_in_data:
+                    with project_select_container:
+                        project_options = {p["id"]: p["name"] for p in projects_in_data}
+                        ui.select(
+                            options=project_options,
+                            value=state.map.selected_project_ids,
+                            multiple=True,
+                            label="Select Projects",
+                            on_change=on_project_select_change,
+                        ).props("outlined dense use-chips").classes("w-full")
+                # Refresh summary to show filter impact
+                if summary_refresh_ref.get("refresh"):
+                    summary_refresh_ref["refresh"]()
+            
+            ui.radio(
+                options=scope_options,
+                value=state.map.scope_mode,
+                on_change=on_scope_change,
+            ).classes("w-full")
+            
+            # Initial project picker if needed
+            if state.map.scope_mode == "specific_projects" and projects_in_data:
+                with project_select_container:
+                    project_options = {p["id"]: p["name"] for p in projects_in_data}
+                    ui.select(
+                        options=project_options,
+                        value=state.map.selected_project_ids,
+                        multiple=True,
+                        label="Select Projects",
+                        on_change=on_project_select_change,
+                    ).props("outlined dense use-chips").classes("w-full")
+        
+        # Resource Filters (US-029)
+        with ui.expansion("Resource Filters", icon="tune").classes("w-full"):
+            ui.label("Enable/disable resource types for configuration generation.").classes(
+                "text-xs text-slate-600 dark:text-slate-400 mb-2"
+            )
+            
+            # Count entities by type
+            type_counts = {}
+            for item in report_items:
+                type_code = item.get("element_type_code", "UNK")
+                if type_code not in type_counts:
+                    type_counts[type_code] = 0
+                type_counts[type_code] += 1
+            
+            # Resource filter mapping
+            resource_filter_map = {
+                "CON": ("connections", "Connections"),
+                "REP": ("repositories", "Repositories"),
+                "TOK": ("service_tokens", "Service Tokens"),
+                "GRP": ("groups", "Groups"),
+                "NOT": ("notifications", "Notifications"),
+                "WEB": ("webhooks", "Webhooks"),
+                "PLE": ("privatelink_endpoints", "PrivateLink Endpoints"),
+                "PRJ": ("projects", "Projects"),
+                "ENV": ("environments", "Environments"),
+                "JOB": ("jobs", "Jobs"),
+                "VAR": ("environment_variables", "Env Variables"),
+            }
+            
+            def create_filter_toggle(type_code: str, filter_key: str, label: str, count: int):
+                """Create a toggle for a resource type."""
+                type_info = RESOURCE_TYPES.get(type_code, {"icon": "help", "color": "#6B7280", "code": type_code})
+                code = type_info.get("code", type_code)
+                
+                def on_toggle(e):
+                    state.map.resource_filters[filter_key] = e.value
+                    save_state()
+                    # Refresh summary to show filter impact
+                    if summary_refresh_ref.get("refresh"):
+                        summary_refresh_ref["refresh"]()
+                
+                with ui.row().classes("w-full justify-between items-center py-1"):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.icon(type_info["icon"], size="xs").style(f"color: {type_info['color']};")
+                        ui.label(f"{label} ({code}) [{count}]").classes("text-sm")
+                    ui.switch(
+                        value=state.map.resource_filters.get(filter_key, True),
+                        on_change=on_toggle,
+                    )
+            
+            # Create toggles for each resource type
+            for type_code, (filter_key, label) in resource_filter_map.items():
+                count = type_counts.get(type_code, 0)
+                if count > 0:  # Only show if there are entities of this type
+                    create_filter_toggle(type_code, filter_key, label, count)
+        
+        # Normalization Options (US-031)
+        with ui.expansion("Advanced Options", icon="settings").classes("w-full"):
+            ui.label("Configure how entities are normalized for Terraform.").classes(
+                "text-xs text-slate-600 dark:text-slate-400 mb-2"
+            )
+            
+            # Strip Source IDs toggle
+            with ui.row().classes("w-full justify-between items-center py-1"):
+                with ui.column().classes("gap-0"):
+                    ui.label("Strip Source IDs").classes("text-sm font-medium")
+                    ui.label("Remove dbt Cloud IDs from output YAML").classes("text-xs text-slate-500")
+                ui.switch(
+                    value=state.map.normalization_options.get("strip_source_ids", True),
+                    on_change=lambda e: (
+                        state.map.normalization_options.update({"strip_source_ids": e.value}),
+                        save_state()
+                    ),
+                )
+            
+            ui.separator().classes("my-2")
+            
+            # Secret Handling dropdown
+            ui.label("Secret Handling").classes("text-sm font-medium")
+            ui.label("How to handle sensitive values (API keys, tokens, etc.)").classes(
+                "text-xs text-slate-500 mb-1"
+            )
+            secret_options = {
+                "redact": "Redact - Replace with [REDACTED]",
+                "omit": "Omit - Remove secret fields entirely",
+                "placeholder": "Placeholder - Use LOOKUP placeholders",
+            }
+            ui.select(
+                options=secret_options,
+                value=state.map.normalization_options.get("secret_handling", "redact"),
+                on_change=lambda e: (
+                    state.map.normalization_options.update({"secret_handling": e.value}),
+                    save_state()
+                ),
+            ).props("outlined dense").classes("w-full")
+            
+            ui.separator().classes("my-2")
+            
+            # Name Collision Strategy dropdown
+            ui.label("Name Collision Strategy").classes("text-sm font-medium")
+            ui.label("What to do when entity names would conflict").classes(
+                "text-xs text-slate-500 mb-1"
+            )
+            collision_options = {
+                "suffix": "Suffix - Add numeric suffix (_1, _2, etc.)",
+                "error": "Error - Fail if names conflict",
+                "skip": "Skip - Skip duplicate entities",
+            }
+            ui.select(
+                options=collision_options,
+                value=state.map.normalization_options.get("name_collision_strategy", "suffix"),
+                on_change=lambda e: (
+                    state.map.normalization_options.update({"name_collision_strategy": e.value}),
+                    save_state()
+                ),
+            ).props("outlined dense").classes("w-full")
+        
+        ui.separator()
+        
+        # Config file management (US-032, US-033)
+        ui.label("Configuration Files").classes("text-lg font-bold mt-2 mb-2")
+        
+        config_status = ui.label("").classes("text-xs text-slate-500 mb-2")
+        
+        async def on_load_config(e):
+            """Load configuration from uploaded YAML file."""
+            import yaml
+            try:
+                content = e.content.read().decode("utf-8")
+                config_data = yaml.safe_load(content)
+                
+                if not isinstance(config_data, dict):
+                    ui.notify("Invalid config file format", type="negative")
+                    return
+                
+                # Apply scope settings
+                scope = config_data.get("scope", {})
+                state.map.scope_mode = scope.get("mode", "all_projects")
+                state.map.selected_project_ids = scope.get("project_ids", [])
+                
+                # Apply resource filters
+                resource_filters = config_data.get("resource_filters", {})
+                for key, value in resource_filters.items():
+                    if isinstance(value, dict):
+                        state.map.resource_filters[key] = value.get("include", True)
+                    else:
+                        state.map.resource_filters[key] = bool(value)
+                
+                # Apply normalization options
+                norm_opts = config_data.get("normalization_options", {})
+                state.map.normalization_options.update(norm_opts)
+                
+                save_state()
+                config_status.set_text(f"Loaded: {e.name}")
+                ui.notify(f"Configuration loaded from {e.name}", type="positive")
+                
+                # Reload page to reflect changes
+                ui.navigate.reload()
+                
+            except yaml.YAMLError as ye:
+                ui.notify(f"YAML parsing error: {ye}", type="negative")
+            except Exception as ex:
+                ui.notify(f"Error loading config: {ex}", type="negative")
+        
+        async def on_save_config():
+            """Save current configuration to YAML file."""
+            import yaml
+            from datetime import datetime
+            
+            config = {
+                "version": 1,
+                "generated_at": datetime.now().isoformat(),
+                "scope": {
+                    "mode": state.map.scope_mode,
+                    "project_ids": state.map.selected_project_ids,
+                },
+                "resource_filters": {
+                    k: {"include": v} for k, v in state.map.resource_filters.items()
+                },
+                "normalization_options": state.map.normalization_options,
+            }
+            
+            yaml_content = yaml.dump(config, default_flow_style=False, sort_keys=False)
+            
+            # Use JavaScript to trigger download
+            # Escape backticks for JS template literal
+            escaped_yaml = yaml_content.replace('`', '\\`')
+            js_code = f'''
+                const blob = new Blob([`{escaped_yaml}`], {{type: 'text/yaml'}});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'importer_mapping.yml';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            '''
+            await ui.run_javascript(js_code)
+            ui.notify("Configuration saved to importer_mapping.yml", type="positive")
+        
+        with ui.row().classes("w-full gap-2"):
+            ui.upload(
+                label="Load Config",
+                auto_upload=True,
+                on_upload=on_load_config,
+            ).props("accept=.yml,.yaml flat dense").classes("flex-1")
+            
+            ui.button(
+                "Save Config",
+                icon="download",
+                on_click=on_save_config,
+            ).props("outline dense")
         
         ui.separator()
         
@@ -512,11 +1000,11 @@ def _create_action_panel(
         
         # Normalize button
         async def on_normalize():
-            await _run_normalize(state, selection_manager, status_container, save_state)
+            await _run_normalize(state, selection_manager, report_items, status_container, save_state)
         
         normalize_btn = ui.button(
-            "Normalize Selected Entities",
-            icon="transform",
+            "Generate Target Config",
+            icon="settings_suggest",
             on_click=on_normalize,
         ).style(f"background-color: {DBT_ORANGE};").classes("w-full")
         
@@ -528,13 +1016,119 @@ def _create_action_panel(
                 _create_results_display(state, on_step_change)
 
 
-def _create_summary_stats(counts: dict, report_items: list, selection_manager: SelectionManager) -> None:
-    """Create summary statistics display."""
+def _get_effective_selection(
+    selection_manager: SelectionManager,
+    report_items: list,
+    state: AppState,
+) -> tuple[set, dict]:
+    """Get effective selection after applying scope and resource filters.
     
-    # Overall count
+    Returns:
+        Tuple of (effective_ids set, filter_stats dict with counts)
+    """
+    selected_ids = selection_manager.get_selected_ids()
+    
+    # Build lookup maps
+    item_by_id = {item.get("element_mapping_id"): item for item in report_items}
+    
+    # Get project IDs and their children for scope filtering
+    project_children = {}  # project_id -> set of child entity IDs
+    for item in report_items:
+        mapping_id = item.get("element_mapping_id")
+        parent_project_id = item.get("parent_project_id")
+        if parent_project_id:
+            if parent_project_id not in project_children:
+                project_children[parent_project_id] = set()
+            project_children[parent_project_id].add(mapping_id)
+    
+    # Resource filter mapping (type_code -> filter_key)
+    # Must match keys in resource_filter_map used by the UI toggles
+    type_to_filter = {
+        "CON": "connections", "REP": "repositories", "TOK": "service_tokens",
+        "GRP": "groups", "NOT": "notifications", "WEB": "webhooks",
+        "PLE": "privatelink_endpoints", "PRJ": "projects", "ENV": "environments",
+        "VAR": "environment_variables", "JOB": "jobs",
+    }
+    
+    effective_ids = set()
+    filter_stats = {
+        "raw_selected": len(selected_ids),
+        "scope_excluded": 0,
+        "resource_excluded": 0,
+    }
+    
+    for mapping_id in selected_ids:
+        item = item_by_id.get(mapping_id)
+        if not item:
+            continue
+        
+        type_code = item.get("element_type_code", "")
+        
+        # Apply scope filter
+        scope_mode = state.map.scope_mode
+        if scope_mode == "account_only":
+            # Only include globals (no parent_project_id) and account itself
+            if item.get("parent_project_id"):
+                filter_stats["scope_excluded"] += 1
+                continue
+        elif scope_mode == "specific_projects":
+            selected_project_ids = set(state.map.selected_project_ids)
+            if type_code == "PRJ":
+                # Only include selected projects
+                if mapping_id not in selected_project_ids:
+                    filter_stats["scope_excluded"] += 1
+                    continue
+            elif item.get("parent_project_id"):
+                # Only include children of selected projects
+                if item.get("parent_project_id") not in selected_project_ids:
+                    filter_stats["scope_excluded"] += 1
+                    continue
+        # "all_projects" includes everything
+        
+        # Apply resource filter
+        filter_key = type_to_filter.get(type_code)
+        if filter_key and not state.map.resource_filters.get(filter_key, True):
+            filter_stats["resource_excluded"] += 1
+            continue
+        
+        effective_ids.add(mapping_id)
+    
+    filter_stats["effective_count"] = len(effective_ids)
+    return effective_ids, filter_stats
+
+
+def _create_summary_stats(
+    counts: dict, 
+    report_items: list, 
+    selection_manager: SelectionManager,
+    hierarchy_index: HierarchyIndex,
+    state: AppState,
+) -> None:
+    """Create summary statistics display with dependency warnings."""
+    
+    # Get effective selection after filters
+    effective_ids, filter_stats = _get_effective_selection(selection_manager, report_items, state)
+    has_filters = filter_stats["scope_excluded"] > 0 or filter_stats["resource_excluded"] > 0
+    
+    # Overall count - show raw and filtered if different
     with ui.row().classes("w-full justify-between items-center"):
-        ui.label("Total Selected").classes("text-sm")
+        ui.label("Selected").classes("text-sm")
         ui.label(f"{counts['selected']} / {counts['total']}").classes("font-bold")
+    
+    # Show effective count if filters applied
+    if has_filters:
+        with ui.row().classes("w-full justify-between items-center bg-blue-50 dark:bg-blue-900/30 p-1 rounded"):
+            with ui.row().classes("items-center gap-1"):
+                ui.icon("filter_alt", size="xs").classes("text-blue-600 dark:text-blue-400")
+                ui.label("Effective (after filters)").classes("text-sm text-blue-700 dark:text-blue-300")
+            ui.label(f"{filter_stats['effective_count']}").classes("font-bold text-blue-700 dark:text-blue-300")
+        
+        # Filter breakdown
+        with ui.column().classes("w-full text-xs text-slate-500 dark:text-slate-400 ml-2"):
+            if filter_stats["scope_excluded"] > 0:
+                ui.label(f"• Scope filter: -{filter_stats['scope_excluded']}")
+            if filter_stats["resource_excluded"] > 0:
+                ui.label(f"• Resource filter: -{filter_stats['resource_excluded']}")
     
     # Progress bar
     if counts['total'] > 0:
@@ -544,32 +1138,78 @@ def _create_summary_stats(counts: dict, report_items: list, selection_manager: S
     # By type breakdown - use report_items to get type info
     ui.label("By Type:").classes("text-sm font-medium mt-2")
     
-    # Count by type using report items
+    # Count by type using report items (raw selected and effective)
     type_counts = {}
     for item in report_items:
         type_code = item.get("element_type_code", "UNK")
         mapping_id = item.get("element_mapping_id")
         
         if type_code not in type_counts:
-            type_counts[type_code] = {"selected": 0, "total": 0}
+            type_counts[type_code] = {"selected": 0, "effective": 0, "total": 0}
         type_counts[type_code]["total"] += 1
         
-        if mapping_id and selection_manager.is_selected(mapping_id):
-            type_counts[type_code]["selected"] += 1
+        if mapping_id:
+            if selection_manager.is_selected(mapping_id):
+                type_counts[type_code]["selected"] += 1
+            if mapping_id in effective_ids:
+                type_counts[type_code]["effective"] += 1
     
     for type_code in sorted(type_counts.keys()):
         tc = type_counts[type_code]
         type_info = RESOURCE_TYPES.get(type_code, {"name": type_code, "icon": "help", "color": "#6B7280"})
+        
+        # Check if this type has filtered items
+        type_has_filter = tc["selected"] != tc["effective"]
+        
         with ui.row().classes("w-full justify-between items-center"):
             with ui.row().classes("items-center gap-1"):
                 ui.icon(type_info["icon"], size="xs").style(f"color: {type_info['color']};")
-                ui.label(type_info["name"]).classes("text-xs")
-            ui.label(f"{tc['selected']}/{tc['total']}").classes("text-xs font-medium")
+                ui.label(f"{type_info['name']} ({type_info.get('code', type_code)})").classes("text-xs")
+            
+            if type_has_filter and has_filters:
+                # Show both raw and effective with strikethrough on raw
+                with ui.row().classes("items-center gap-1"):
+                    ui.label(f"{tc['selected']}").classes("text-xs line-through text-slate-400")
+                    ui.label(f"→ {tc['effective']}/{tc['total']}").classes("text-xs font-medium text-blue-600 dark:text-blue-400")
+            else:
+                ui.label(f"{tc['selected']}/{tc['total']}").classes("text-xs font-medium")
+    
+    # Dependency warnings
+    selected_ids = selection_manager.get_selected_ids()
+    warnings = hierarchy_index.check_missing_dependencies(selected_ids)
+    
+    if warnings:
+        ui.separator().classes("my-2")
+        with ui.card().classes("w-full p-2 bg-amber-50 dark:bg-amber-900/30"):
+            with ui.row().classes("items-center gap-2 mb-1"):
+                ui.icon("warning", size="sm").classes("text-amber-600 dark:text-amber-400")
+                ui.label(f"{len(warnings)} Missing Dependencies").classes(
+                    "text-sm font-bold text-amber-700 dark:text-amber-300"
+                )
+            
+            # Show first few warnings with details
+            shown_warnings = warnings[:5]
+            for w in shown_warnings:
+                with ui.row().classes("items-center gap-1 ml-6"):
+                    ui.label(f"• {w['entity']}").classes("text-xs text-amber-700 dark:text-amber-300")
+                    ui.label(f"→ needs {w['missing_type']} '{w['missing']}'").classes(
+                        "text-xs text-amber-600 dark:text-amber-400"
+                    )
+            
+            if len(warnings) > 5:
+                ui.label(f"  ... and {len(warnings) - 5} more").classes(
+                    "text-xs text-amber-600 dark:text-amber-400 ml-6"
+                )
+            
+            ui.label(
+                "Tip: Use 'Select Parents' to add missing dependencies."
+            ).classes("text-xs text-amber-600 dark:text-amber-400 mt-2 italic")
 
 
 async def _run_normalize(
     state: AppState,
     selection_manager: SelectionManager,
+    report_items: list,
     status_container,
     save_state: Callable[[], None],
 ) -> None:
@@ -586,11 +1226,33 @@ async def _run_normalize(
     state.map.normalize_error = None
     
     try:
+        # Get effective selection after applying scope and resource filters
+        effective_ids, filter_stats = _get_effective_selection(selection_manager, report_items, state)
+        
+        # Build exclusion map by type (mapping_id -> type_code)
+        item_type_map = {
+            item.get("element_mapping_id"): item.get("element_type_code")
+            for item in report_items if item.get("element_mapping_id")
+        }
+        
+        # Compute exclusion IDs grouped by type
+        all_ids = set(item_type_map.keys())
+        exclude_ids = all_ids - effective_ids
+        
+        # Group exclusions by type for the normalizer
+        exclude_by_type = {}
+        for eid in exclude_ids:
+            type_code = item_type_map.get(eid)
+            if type_code:
+                if type_code not in exclude_by_type:
+                    exclude_by_type[type_code] = []
+                exclude_by_type[type_code].append(eid)
+        
         # Run normalize in background thread
         result = await asyncio.to_thread(
             _do_normalize,
             state.fetch.last_fetch_file,
-            selection_manager.get_deselected_ids(),
+            exclude_by_type,
             state.fetch.output_dir,
         )
         
@@ -630,10 +1292,16 @@ async def _run_normalize(
 
 def _do_normalize(
     input_file: str,
-    exclude_ids: set,
+    exclude_by_type: dict,
     output_dir: str,
 ) -> dict:
-    """Perform the actual normalization (runs in background thread)."""
+    """Perform the actual normalization (runs in background thread).
+    
+    Args:
+        input_file: Path to the snapshot JSON file
+        exclude_by_type: Dict mapping type_code -> list of mapping IDs to exclude
+        output_dir: Directory for output files
+    """
     import yaml
     from pathlib import Path
     
@@ -655,6 +1323,21 @@ def _do_normalize(
     # Reconstruct snapshot
     snapshot = AccountSnapshot(**snapshot_data)
     
+    # Map type codes to resource filter names
+    type_to_filter = {
+        "CON": "connections",
+        "REP": "repositories", 
+        "TOK": "service_tokens",
+        "GRP": "groups",
+        "NOT": "notifications",
+        "WEB": "webhooks",
+        "PLE": "privatelink_endpoints",
+        "PRJ": "projects",
+        "ENV": "environments",
+        "JOB": "jobs",
+        "VAR": "environment_variables",
+    }
+    
     # Create mapping config with exclusions
     config_data = {
         "version": 1,
@@ -666,35 +1349,12 @@ def _do_normalize(
         },
     }
     
-    # Add exclude_ids to resource filters
-    if exclude_ids:
-        # Group exclude IDs by resource type
-        exclude_by_type = {}
-        for eid in exclude_ids:
-            if "-" in eid:
-                type_code = eid.split("-")[0]
-                # Map type code to resource filter name
-                type_to_filter = {
-                    "CON": "connections",
-                    "REP": "repositories", 
-                    "TOK": "service_tokens",
-                    "GRP": "groups",
-                    "NOT": "notifications",
-                    "WEB": "webhooks",
-                    "PLE": "privatelink_endpoints",
-                    "PRJ": "projects",
-                    "ENV": "environments",
-                    "JOB": "jobs",
-                    "VAR": "environment_variables",
-                }
-                filter_name = type_to_filter.get(type_code)
-                if filter_name:
-                    if filter_name not in exclude_by_type:
-                        exclude_by_type[filter_name] = []
-                    exclude_by_type[filter_name].append(eid)
-        
-        for filter_name, ids in exclude_by_type.items():
-            config_data["resource_filters"][filter_name] = {"exclude_ids": ids}
+    # Add exclusions to resource filters (already grouped by type)
+    if exclude_by_type:
+        for type_code, ids in exclude_by_type.items():
+            filter_name = type_to_filter.get(type_code)
+            if filter_name and ids:
+                config_data["resource_filters"][filter_name] = {"exclude_ids": ids}
     
     config = MappingConfig(**config_data)
     
@@ -746,6 +1406,69 @@ def _create_results_display(state: AppState, on_step_change: Callable[[WorkflowS
         if yaml_path.exists():
             size_kb = yaml_path.stat().st_size / 1024
             ui.label(f"({size_kb:.1f} KB)").classes("text-xs text-slate-400 ml-6")
+            
+            # View YAML button
+            async def show_yaml_preview():
+                """Show YAML preview in a modal."""
+                try:
+                    yaml_content = yaml_path.read_text(encoding="utf-8")
+                    
+                    with ui.dialog() as dialog, ui.card().classes("w-full max-w-4xl").style("max-height: 80vh;"):
+                        with ui.row().classes("w-full items-center justify-between mb-2"):
+                            ui.label("Generated YAML Preview").classes("text-lg font-bold")
+                            ui.button(icon="close", on_click=dialog.close).props("flat round")
+                        
+                        # Search input
+                        search_container = ui.row().classes("w-full mb-2 items-center gap-2")
+                        with search_container:
+                            search_input = ui.input(
+                                placeholder="Search in YAML...",
+                            ).props("outlined dense").classes("flex-1")
+                            ui.label(f"{len(yaml_content)} chars").classes("text-xs text-slate-400")
+                        
+                        # YAML content with syntax highlighting
+                        with ui.scroll_area().classes("w-full").style("height: 50vh;"):
+                            ui.code(yaml_content, language="yaml").classes("w-full text-sm")
+                        
+                        # Action buttons
+                        with ui.row().classes("w-full justify-end gap-2 mt-4"):
+                            # Escape backticks for JS template literals
+                            escaped_content = yaml_content.replace('`', '\\`')
+                            
+                            async def copy_yaml():
+                                await ui.run_javascript(
+                                    f'navigator.clipboard.writeText(`{escaped_content}`)'
+                                )
+                                ui.notify("Copied to clipboard", type="positive")
+                            
+                            async def download_yaml():
+                                fname = yaml_path.name
+                                js_code = f'''
+                                    const blob = new Blob([`{escaped_content}`], {{type: 'text/yaml'}});
+                                    const url = URL.createObjectURL(blob);
+                                    const a = document.createElement('a');
+                                    a.href = url;
+                                    a.download = '{fname}';
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    document.body.removeChild(a);
+                                    URL.revokeObjectURL(url);
+                                '''
+                                await ui.run_javascript(js_code)
+                            
+                            ui.button("Copy", icon="content_copy", on_click=copy_yaml).props("outline")
+                            ui.button("Download", icon="download", on_click=download_yaml).props("outline")
+                    
+                    dialog.open()
+                    
+                except Exception as ex:
+                    ui.notify(f"Error loading YAML: {ex}", type="negative")
+            
+            ui.button(
+                "View YAML",
+                icon="visibility",
+                on_click=show_yaml_preview,
+            ).props("outline dense").classes("ml-6 mt-1")
     
     # Lookups count
     if state.map.lookups_count > 0:

@@ -33,6 +33,12 @@ def _load_full_data_for_type(state: AppState, type_code: str) -> List[Dict[str, 
     results = []
     globals_block = snapshot.get("globals", {})
     
+    # Build project_id -> project_name lookup for linking repos to projects
+    project_id_to_name = {}
+    for project in snapshot.get("projects", []):
+        if project.get("id"):
+            project_id_to_name[project.get("id")] = project.get("name")
+    
     # Map type codes to data extraction logic
     if type_code == "ACC":
         # Account is the root level
@@ -47,6 +53,15 @@ def _load_full_data_for_type(state: AppState, type_code: str) -> List[Dict[str, 
     elif type_code == "REP":
         for key, repo in globals_block.get("repositories", {}).items():
             repo["_key"] = key
+            # Look up project and name from metadata
+            metadata = repo.get("metadata") or {}
+            # Populate name from metadata if not at top level
+            if not repo.get("name") and metadata.get("name"):
+                repo["name"] = metadata.get("name")
+            repo_project_id = metadata.get("project_id")
+            if repo_project_id and repo_project_id in project_id_to_name:
+                repo["project_name"] = project_id_to_name[repo_project_id]
+                repo["project_id"] = repo_project_id
             results.append(repo)
     
     elif type_code == "TOK":

@@ -140,6 +140,9 @@ class MapState:
     type_filter: str = "all"
     selected_only_filter: bool = False
     
+    # Auto-cascade setting
+    auto_cascade_children: bool = False
+    
     # Normalization state
     normalize_running: bool = False
     normalize_complete: bool = False
