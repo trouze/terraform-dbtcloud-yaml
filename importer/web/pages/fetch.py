@@ -15,15 +15,18 @@ from importer.web.components.credential_form import (
     validate_credentials,
 )
 from importer.web.components.terminal_output import (
+    CombinedProgressHandler,
     FetchProgressHandler,
     LogLevel,
     TerminalOutput,
 )
+from importer.web.components.progress_tree import ProgressTree
 from importer.web.env_manager import (
     load_source_credentials,
     save_source_credentials,
     load_account_info_from_env,
 )
+from importer.element_ids import apply_element_ids
 
 
 # dbt brand colors
@@ -42,14 +45,17 @@ def create_fetch_page(
         on_step_change: Callback to navigate to a step
         save_state: Callback to persist state
     """
-    # Terminal output for progress
+    # Terminal output for progress logs
     terminal = TerminalOutput(show_timestamps=True)
+    
+    # Progress tree for structured hierarchy
+    progress_tree = ProgressTree()
     
     # State for tracking fetch progress
     fetch_in_progress = {"value": False}
     fetch_complete = {"value": state.fetch.fetch_complete}
     
-    with ui.column().classes("w-full max-w-4xl mx-auto p-8 gap-6"):
+    with ui.column().classes("w-full max-w-6xl mx-auto p-6 gap-4"):
         # Page header
         with ui.row().classes("w-full items-center gap-4"):
             ui.icon("cloud_download", size="2rem").style(f"color: {DBT_ORANGE};")
@@ -59,10 +65,10 @@ def create_fetch_page(
             "Configure your source dbt Platform account credentials and fetch the account data."
         ).classes("text-slate-600 dark:text-slate-400")
 
-        # Two-column layout
+        # Two-column layout: 1/3 credentials, 2/3 output
         with ui.row().classes("w-full gap-6"):
-            # Left column: Credentials
-            with ui.column().classes("flex-1 gap-4"):
+            # Left column: Credentials and Options (1/3 width)
+            with ui.column().classes("w-1/3 min-w-[300px] gap-4"):
                 create_source_credential_form(
                     state=state,
                     on_credentials_change=lambda creds: _on_credentials_change(state, save_state),
@@ -73,38 +79,33 @@ def create_fetch_page(
                 # Fetch Options
                 _create_fetch_options(state, save_state)
 
-            # Right column: Output and actions
-            with ui.column().classes("flex-1 gap-4"):
-                # Action buttons
+            # Right column: Actions, Progress, and Output (2/3 width)
+            with ui.column().classes("flex-grow gap-4"):
+                # Action buttons row
                 with ui.card().classes("w-full p-4"):
                     with ui.row().classes("w-full items-center justify-between"):
                         ui.label("Actions").classes("font-semibold")
                         
-                        # Test connection button - pass async function directly, NiceGUI handles it
+                        # Test connection button
                         test_btn = ui.button(
                             "Test Connection",
                             icon="network_check",
                             on_click=lambda: _test_connection(state, terminal),
                         ).props("outline")
 
-                    # Fetch button - pass async function directly, NiceGUI handles it
-                    with ui.row().classes("w-full mt-4"):
-                        fetch_btn = ui.button(
-                            "Fetch Account Data",
-                            icon="cloud_download",
-                            on_click=lambda: _run_fetch(
-                                state,
-                                terminal,
-                                fetch_btn,
-                                fetch_in_progress,
-                                fetch_complete,
-                                on_step_change,
-                                save_state,
-                            ),
-                        ).classes("w-full").style(f"background-color: {DBT_ORANGE};")
+                    # Fetch button - defined after results_container
+                    fetch_btn_container = ui.row().classes("w-full mt-4")
 
-                # Terminal output
-                terminal.create(height="350px")
+                # Progress Tree (structured hierarchy) and Terminal Output
+                with ui.row().classes("w-full gap-4"):
+                    # Progress tree panel
+                    with ui.card().classes("w-1/3 min-w-[220px] p-4"):
+                        ui.label("Progress").classes("font-semibold mb-2")
+                        progress_tree.create()
+                    
+                    # Terminal output (scrolling logs)
+                    with ui.column().classes("flex-grow"):
+                        terminal.create(height="400px")
 
         # Results section (shown after fetch completes)
         results_container = ui.column().classes("w-full gap-4")
@@ -112,6 +113,24 @@ def create_fetch_page(
         if state.fetch.fetch_complete:
             with results_container:
                 _create_results_section(state, on_step_change)
+
+        # Now add the fetch button with access to results_container
+        with fetch_btn_container:
+            fetch_btn = ui.button(
+                "Fetch Account Data",
+                icon="cloud_download",
+                on_click=lambda: _run_fetch(
+                    state,
+                    terminal,
+                    progress_tree,
+                    fetch_btn,
+                    fetch_in_progress,
+                    fetch_complete,
+                    on_step_change,
+                    save_state,
+                    results_container,
+                ),
+            ).classes("w-full").style(f"background-color: {DBT_ORANGE};")
 
 
 def _create_fetch_options(state: AppState, save_state: Callable[[], None]) -> None:
@@ -314,11 +333,13 @@ async def _test_connection(state: AppState, terminal: TerminalOutput) -> None:
 async def _run_fetch(
     state: AppState,
     terminal: TerminalOutput,
+    progress_tree: ProgressTree,
     fetch_btn: ui.button,
     fetch_in_progress: dict,
     fetch_complete: dict,
     on_step_change: Callable[[WorkflowStep], None],
     save_state: Callable[[], None],
+    results_container: Optional[ui.column] = None,
 ) -> None:
     """Run the fetch operation."""
     creds = state.source_credentials
@@ -339,7 +360,10 @@ async def _run_fetch(
     fetch_in_progress["value"] = True
     fetch_btn.disable()
     
+    # Start progress tracking
     terminal.clear()
+    progress_tree.start()
+    
     terminal.info("Starting fetch operation...")
     terminal.info(f"Host: {creds.host_url}")
     terminal.info(f"Account ID: {creds.account_id}")
@@ -371,8 +395,8 @@ async def _run_fetch(
         terminal.info(f"Run ID: {run_id}, Timestamp: {timestamp}")
         terminal.info("")
 
-        # Create progress handler
-        progress = FetchProgressHandler(terminal)
+        # Create combined progress handler that updates both terminal and tree
+        progress = CombinedProgressHandler(terminal, progress_tree)
 
         # Run fetch in thread pool
         terminal.info("Connecting to dbt Platform API...")
@@ -399,14 +423,22 @@ async def _run_fetch(
         report_filename = run_tracker.get_filename(
             settings.account_id, run_id, timestamp, "report", "md"
         )
+        report_items_filename = run_tracker.get_filename(
+            settings.account_id, run_id, timestamp, "report_items", "json"
+        )
 
         # Write files
         json_path = output_dir / json_filename
         summary_path = output_dir / summary_filename
         report_path = output_dir / report_filename
+        report_items_path = output_dir / report_items_filename
 
         terminal.info(f"Writing {json_filename}...")
-        payload = snapshot.to_dict()
+        payload = snapshot.model_dump(mode="json")
+        
+        # Apply element IDs and generate report_items
+        report_items = apply_element_ids(payload)
+        
         json_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
         terminal.info(f"Writing {summary_filename}...")
@@ -414,12 +446,16 @@ async def _run_fetch(
 
         terminal.info(f"Writing {report_filename}...")
         report_path.write_text(generate_detailed_report(snapshot), encoding="utf-8")
+        
+        terminal.info(f"Writing {report_items_filename}...")
+        report_items_path.write_text(json.dumps(report_items, indent=2), encoding="utf-8")
 
         # Update state
         state.fetch.fetch_complete = True
         state.fetch.last_fetch_file = str(json_path)
         state.fetch.last_summary_file = str(summary_path)
         state.fetch.last_report_file = str(report_path)
+        state.fetch.last_report_items_file = str(report_items_path)
         state.fetch.account_name = snapshot.account_name
         
         # Calculate resource counts
@@ -449,14 +485,23 @@ async def _run_fetch(
         terminal.info(f"  Connections: {state.fetch.resource_counts.get('connections', 0)}")
         terminal.info(f"  Repositories: {state.fetch.resource_counts.get('repositories', 0)}")
 
+        # Mark progress tree as complete
+        progress_tree.complete()
+        
         ui.notify("Fetch completed successfully!", type="positive")
 
-        # Reload to show results
-        ui.navigate.reload()
+        # Dynamically add results section (instead of reloading)
+        if results_container is not None:
+            results_container.clear()
+            with results_container:
+                _create_results_section(state, on_step_change)
 
     except Exception as e:
         terminal.error("")
         terminal.error(f"Fetch failed: {e}")
+        
+        # Mark progress tree as error
+        progress_tree.error(f"Failed: {type(e).__name__}")
         
         # Provide specific guidance for common errors
         error_str = str(e).lower()

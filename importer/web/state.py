@@ -234,6 +234,8 @@ class AppState:
                 "fetch_complete": self.fetch.fetch_complete,
                 "last_fetch_file": self.fetch.last_fetch_file,
                 "last_summary_file": self.fetch.last_summary_file,
+                "last_report_file": self.fetch.last_report_file,
+                "last_report_items_file": self.fetch.last_report_items_file,
                 "account_name": self.fetch.account_name,
                 "resource_counts": self.fetch.resource_counts,
             },
@@ -293,6 +295,8 @@ class AppState:
             state.fetch.fetch_complete = f.get("fetch_complete", False)
             state.fetch.last_fetch_file = f.get("last_fetch_file")
             state.fetch.last_summary_file = f.get("last_summary_file")
+            state.fetch.last_report_file = f.get("last_report_file")
+            state.fetch.last_report_items_file = f.get("last_report_items_file")
             state.fetch.account_name = f.get("account_name")
             state.fetch.resource_counts = f.get("resource_counts", {})
 
