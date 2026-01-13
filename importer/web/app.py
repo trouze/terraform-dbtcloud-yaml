@@ -10,6 +10,7 @@ from importer.web.components.stepper import create_nav_drawer, create_progress_h
 from importer.web.pages.home import create_home_page
 from importer.web.pages.requirements import create_requirements_page
 from importer.web.pages.fetch import create_fetch_page
+from importer.web.pages.explore import create_explore_page
 from importer.web.env_manager import load_account_info_from_env
 
 # Static files directory
@@ -110,7 +111,7 @@ def create_page_content(state: AppState) -> None:
     elif step == WorkflowStep.FETCH:
         create_fetch_page(state, navigate_to_step, save_state)
     elif step == WorkflowStep.EXPLORE:
-        _create_placeholder_page("Explore", "Browse entities, view reports, export data", state)
+        create_explore_page(state, navigate_to_step, save_state)
     elif step == WorkflowStep.MAP:
         _create_placeholder_page("Map", "Select entities and configure normalization", state)
     elif step == WorkflowStep.TARGET:
@@ -271,7 +272,7 @@ def run_app(
         port=port,
         show=show,
         reload=reload,
-        title="dbt Platform Account Migration Tool",
+        title="dbt Platform Account Exploration and Migration Tool",
         favicon=str(favicon_path),
         storage_secret="dbt-cloud-importer-secret",  # For user storage
     )

@@ -38,7 +38,7 @@ def _create_welcome_section(on_step_change: Callable[[WorkflowStep], None]) -> N
         with ui.column().classes("gap-4"):
             with ui.row().classes("items-center gap-4"):
                 ui.image("/static/favicon.svg").classes("w-12 h-12")
-                ui.label("dbt Platform Account Migration Tool").classes("text-3xl font-bold")
+                ui.label("dbt Platform Account Exploration and Migration Tool").classes("text-3xl font-bold")
 
             ui.markdown("""
                 Migrate dbt Platform configurations between accounts with a guided workflow:

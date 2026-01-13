@@ -4,6 +4,7 @@ from typing import Callable
 
 from nicegui import ui
 
+from importer.web import __version__
 from importer.web.state import STEP_ICONS, STEP_NAMES, AppState, WorkflowStep
 from importer.web.components.account_selector import create_account_cards
 
@@ -39,7 +40,8 @@ def create_nav_drawer(
         with ui.column().classes("w-full items-center py-6 border-b border-slate-700"):
             ui.image("/static/favicon.svg").classes("w-14 h-14")
             ui.label("dbt Platform").classes("text-xl font-bold mt-3 text-white")
-            ui.label("Account Migration Tool").classes("text-sm text-slate-400")
+            ui.label("Exploration & Migration").classes("text-sm text-slate-400")
+            ui.label(f"v{__version__}").classes("text-xs text-slate-500 mt-1")
 
         # Workflow steps
         ui.label("WORKFLOW").classes("px-4 pt-6 pb-2 text-xs text-slate-500 font-semibold tracking-wider")

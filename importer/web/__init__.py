@@ -1,6 +1,13 @@
-"""dbt Platform Account Migration Tool.
+"""dbt Platform Account Exploration and Migration Tool.
 
 A NiceGUI-based web interface for the fetch → explore → map → deploy workflow.
 """
 
-__version__ = "0.1.0"
+from pathlib import Path
+
+# Read version from the main importer VERSION file
+_version_file = Path(__file__).parent.parent / "VERSION"
+if _version_file.exists():
+    __version__ = _version_file.read_text().strip()
+else:
+    __version__ = "0.7.1"
