@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-01-13
+
+### Added
+- **Map Page**: Filter state persistence across theme toggles and page reloads
+  - Type filter selection now persists in session state
+  - "Selected Only" filter toggle persists in session state
+  - Filters survive normalization operation (which triggers page reload)
+
+### Fixed
+- **Map Page**: "Selected Only" button now correctly shows highlighted state on page load when active
+- **Map Page**: Grid applies persisted filters on initial render
+
 ## [0.7.3] - 2026-01-13
 
 ### Added

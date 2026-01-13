@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2026-01-13  
-**Current Importer Version:** 0.7.3  
+**Current Importer Version:** 0.7.4  
 **Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -666,6 +666,14 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2026-01-13 (v0.7.4)
+- **Version:** Incremented to 0.7.4 (patch release - Map page filter persistence)
+- **Map Page: Filter State Persistence**: Filters now survive theme toggles, normalization, and page reloads
+  - Type filter selection persists in session state
+  - "Selected Only" filter toggle persists in session state
+  - Filters applied on initial grid render from persisted state
+- **Map Page: Visual State**: "Selected Only" button shows correct highlighted state on page load when active
 
 ### 2026-01-13 (v0.7.3)
 - **Version:** Incremented to 0.7.3 (patch release - Web UI entity table fixes)

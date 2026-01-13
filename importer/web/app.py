@@ -11,6 +11,7 @@ from importer.web.pages.home import create_home_page
 from importer.web.pages.requirements import create_requirements_page
 from importer.web.pages.fetch import create_fetch_page
 from importer.web.pages.explore import create_explore_page
+from importer.web.pages.mapping import create_mapping_page
 from importer.web.env_manager import load_account_info_from_env
 
 # Static files directory
@@ -113,7 +114,7 @@ def create_page_content(state: AppState) -> None:
     elif step == WorkflowStep.EXPLORE:
         create_explore_page(state, navigate_to_step, save_state)
     elif step == WorkflowStep.MAP:
-        _create_placeholder_page("Map", "Select entities and configure normalization", state)
+        create_mapping_page(state, navigate_to_step, save_state)
     elif step == WorkflowStep.TARGET:
         _create_placeholder_page("Target", "Configure target account credentials", state)
     elif step == WorkflowStep.DEPLOY:

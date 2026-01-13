@@ -132,10 +132,23 @@ class MapState:
             "name_collision_strategy": "suffix",
         }
     )
+    # Selection tracking
+    selections_loaded: bool = False
+    selection_counts: dict = field(default_factory=lambda: {"selected": 0, "total": 0})
+    
+    # View filter state (persisted across reloads)
+    type_filter: str = "all"
+    selected_only_filter: bool = False
+    
+    # Normalization state
+    normalize_running: bool = False
     normalize_complete: bool = False
+    normalize_error: Optional[str] = None
     last_yaml_file: Optional[str] = None
     last_lookups_file: Optional[str] = None
     last_exclusions_file: Optional[str] = None
+    lookups_count: int = 0
+    exclusions_count: int = 0
 
 
 @dataclass
@@ -252,6 +265,12 @@ class AppState:
                 "selected_project_ids": self.map.selected_project_ids,
                 "resource_filters": self.map.resource_filters,
                 "normalization_options": self.map.normalization_options,
+                "normalize_complete": self.map.normalize_complete,
+                "last_yaml_file": self.map.last_yaml_file,
+                "last_lookups_file": self.map.last_lookups_file,
+                "last_exclusions_file": self.map.last_exclusions_file,
+                "lookups_count": self.map.lookups_count,
+                "exclusions_count": self.map.exclusions_count,
             },
         }
 
@@ -321,5 +340,11 @@ class AppState:
                 state.map.resource_filters.update(m["resource_filters"])
             if "normalization_options" in m:
                 state.map.normalization_options.update(m["normalization_options"])
+            state.map.normalize_complete = m.get("normalize_complete", False)
+            state.map.last_yaml_file = m.get("last_yaml_file")
+            state.map.last_lookups_file = m.get("last_lookups_file")
+            state.map.last_exclusions_file = m.get("last_exclusions_file")
+            state.map.lookups_count = m.get("lookups_count", 0)
+            state.map.exclusions_count = m.get("exclusions_count", 0)
 
         return state
