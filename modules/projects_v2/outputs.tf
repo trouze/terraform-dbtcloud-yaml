@@ -129,6 +129,29 @@ output "github_integration_discovery" {
   }
 }
 
+# Debug outputs for job deferral
+output "job_deferral_debug" {
+  description = "Debug: Job deferring environment resolution"
+  value = {
+    # All environment keys from all_environments
+    all_environments_keys = [for env in local.all_environments : "${env.project_key}_${env.env_key}"]
+    # Direct environment resource keys
+    environment_resource_keys = keys(dbtcloud_environment.environments)
+    # Job deferral lookups
+    deferring_env_lookups = {
+      for key, item in local.jobs_map :
+      key => {
+        project_key               = item.project_key
+        deferring_environment_key = try(item.job_data.deferring_environment_key, "NULL")
+        lookup_key                = "${item.project_key}_${try(item.job_data.deferring_environment_key, "NULL")}"
+        key_exists_in_envs        = contains(keys(dbtcloud_environment.environments), "${item.project_key}_${try(item.job_data.deferring_environment_key, "")}")
+        run_compare_changes       = try(item.job_data.run_compare_changes, false)
+      }
+      if try(item.job_data.deferring_environment_key, null) != null
+    }
+  }
+}
+
 # Debug outputs for environment variables
 output "env_var_debug" {
   description = "Debug: Environment variable processing status"

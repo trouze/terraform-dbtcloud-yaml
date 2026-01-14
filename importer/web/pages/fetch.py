@@ -1,4 +1,4 @@
-"""Fetch step page for configuring source credentials and fetching account data."""
+cd """Fetch step page for configuring source credentials and fetching account data."""
 
 import asyncio
 import json
@@ -175,13 +175,13 @@ def _create_fetch_options(state: AppState, save_state: Callable[[], None]) -> No
         with ui.expansion("Advanced Options", icon="settings").classes("w-full mt-4"):
             def _update_threads(e):
                 # For on("update:model-value"), value is in e.args
-                val = e.args if e.args is not None else 5
-                state.fetch.threads = int(val) if val else 5
+                val = e.args if e.args is not None else 15
+                state.fetch.threads = int(val) if val else 15
                 save_state()
             
             ui.number(
                 label="Threads",
-                value=getattr(state.fetch, 'threads', 5) or 5,
+                value=getattr(state.fetch, 'threads', 15) or 15,
                 min=1,
                 max=20,
             ).classes("w-full").props('outlined').tooltip(
@@ -505,7 +505,7 @@ async def _run_fetch(
 
         # Run fetch in thread pool
         terminal.info("Connecting to dbt Platform API...")
-        threads = getattr(state.fetch, 'threads', 5) or 5
+        threads = getattr(state.fetch, 'threads', 15) or 15
         terminal.info(f"Using {threads} threads for parallel fetching")
         event = cancel_event["event"]
         

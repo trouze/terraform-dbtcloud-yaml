@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2026-01-14  
-**Current Importer Version:** 0.7.8  
+**Current Importer Version:** 0.7.9  
 **Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -420,9 +420,9 @@ Before starting end-to-end testing with a real account, verify:
 ## Version Tracking
 
 ### Importer Version
-- **Current:** 0.6.11
+- **Current:** 0.7.9
 - **File:** `importer/VERSION`
-- **Last Updated:** 2026-01-09
+- **Last Updated:** 2026-01-14
 
 ### Terraform Module Version
 - **Current:** Supports v1 and v2 schemas
@@ -666,6 +666,16 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2026-01-14 (v0.7.9)
+- **Version:** Incremented to 0.7.9 (patch release - Job deferral fixes, Deploy page improvements)
+- **Job Deferral Fixes**: Fixed `self_deferring` and `deferring_environment_id` conflict handling
+- **Normalizer**: Added self-deferral detection from `deferring_job_definition_id`
+- **Job Validation**: `run_compare_changes` disabled when job defers to same environment (API requirement)
+- **Deploy Page**: Added View Output buttons for Generate/Init/Validate, View Apply logs button
+- **Deploy Page**: Added Terraform validate step, auto-open View Plan after successful plan
+- **Deploy Page**: Redesigned layout with horizontal tiles and side-by-side Plan/Apply with terminal
+- **Map Page**: Renamed scope controls, fixed connection dependency warnings, auto-refresh on bulk select
 
 ### 2026-01-14 (v0.7.8)
 - **Version:** Incremented to 0.7.8 (patch release - Phase 2 Map complete)

@@ -246,6 +246,27 @@ class TerminalOutput:
         ''')
         ui.notify(f"Copied {len(filtered_messages)} messages to clipboard", type="positive")
 
+    def get_text(self) -> str:
+        """Get all messages as plain text."""
+        level_labels = {
+            LogLevel.DEBUG: "DEBUG",
+            LogLevel.INFO: "INFO",
+            LogLevel.SUCCESS: "SUCCESS",
+            LogLevel.WARNING: "WARN",
+            LogLevel.ERROR: "ERROR",
+        }
+        
+        text_lines = []
+        for msg in self.messages:
+            level_str = level_labels.get(msg.level, "INFO")
+            if self.show_timestamps and msg.timestamp:
+                timestamp_str = msg.timestamp.strftime("%H:%M:%S")
+                text_lines.append(f"[{timestamp_str}] [{level_str}] {msg.text}")
+            else:
+                text_lines.append(f"[{level_str}] {msg.text}")
+        
+        return "\n".join(text_lines)
+
 
 class FetchProgressHandler:
     """Progress handler that streams fetch progress to a TerminalOutput component.

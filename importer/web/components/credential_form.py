@@ -215,10 +215,10 @@ def create_target_credential_form(
         # Token type selector
         ui.select(
             label="Token Type",
-            options=[
-                {"label": "Service Token", "value": "service_token"},
-                {"label": "User Token (PAT)", "value": "user_token"},
-            ],
+            options={
+                "service_token": "Service Token",
+                "user_token": "User Token (PAT)",
+            },
             value=creds.token_type,
         ).classes("w-full mt-4").props('outlined').on(
             'update:model-value',

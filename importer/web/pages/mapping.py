@@ -92,6 +92,8 @@ def create_mapping_page(
         # Row 2: Main content (split into selection panel and results panel)
         # Ref for summary refresh callback
         summary_refresh_ref = {"refresh": None}
+        # Ref for grid refresh callback (used when selections change externally)
+        grid_refresh_ref = {"refresh": None}
         
         with ui.element("div").style(
             "display: grid; "
@@ -101,10 +103,10 @@ def create_mapping_page(
             "min-height: 0;"
         ):
             # Left: Entity selection
-            _create_selection_panel(report_items_ordered, selection_manager, state, save_state, summary_refresh_ref, hierarchy_index)
+            _create_selection_panel(report_items_ordered, selection_manager, state, save_state, summary_refresh_ref, hierarchy_index, grid_refresh_ref)
             
             # Right: Results/action panel
-            _create_action_panel(state, selection_manager, report_items_ordered, on_step_change, save_state, summary_refresh_ref, hierarchy_index)
+            _create_action_panel(state, selection_manager, report_items_ordered, on_step_change, save_state, summary_refresh_ref, hierarchy_index, grid_refresh_ref)
         
         # Row 3: Navigation
         _create_navigation(state, on_step_change)
@@ -163,6 +165,7 @@ def _create_selection_panel(
     save_state: Callable[[], None],
     summary_refresh_ref: dict,
     hierarchy_index: HierarchyIndex,
+    grid_refresh_ref: dict,
 ) -> None:
     """Create the entity selection panel with table and controls."""
     
@@ -428,6 +431,8 @@ def _create_selection_panel(
                 
                 # Store refresh function for use by select all/deselect all
                 filter_ref["refresh_grid"] = refresh_grid_with_filters
+                # Also store in shared ref for external callers (like Bulk Select Resources)
+                grid_refresh_ref["refresh"] = refresh_grid_with_filters
                 
                 # Create button with initial state from persistence
                 if filter_ref["selected_only"]:
@@ -695,6 +700,7 @@ def _create_action_panel(
     save_state: Callable[[], None],
     summary_refresh_ref: dict,
     hierarchy_index: HierarchyIndex,
+    grid_refresh_ref: dict,
 ) -> None:
     """Create the right-side action panel with normalize button and results."""
     
@@ -718,8 +724,8 @@ def _create_action_panel(
         
         ui.separator()
         
-        # Scope Settings (US-028)
-        with ui.expansion("Scope Settings", icon="filter_alt").classes("w-full"):
+        # Bulk Project Selector (US-028)
+        with ui.expansion("Bulk Project Selector", icon="checklist").classes("w-full"):
             ui.label("Control which projects are included in the configuration.").classes(
                 "text-xs text-slate-600 dark:text-slate-400 mb-2"
             )
@@ -785,6 +791,54 @@ def _create_action_panel(
                         label="Select Projects",
                         on_change=on_project_select_change,
                     ).props("outlined dense use-chips").classes("w-full")
+            
+            # Global resource inclusion toggles
+            ui.label("Include Globals").classes("text-sm font-medium mt-4 mb-2")
+            ui.label("Select which account-level resources to include.").classes(
+                "text-xs text-slate-600 dark:text-slate-400 mb-2"
+            )
+            
+            def make_global_toggle_handler(field_name: str):
+                def handler(e):
+                    setattr(state.map, field_name, e.value)
+                    save_state()
+                return handler
+            
+            with ui.row().classes("flex-wrap gap-x-4 gap-y-2"):
+                ui.checkbox(
+                    "Groups", 
+                    value=state.map.include_groups,
+                    on_change=make_global_toggle_handler("include_groups")
+                ).props("dense")
+                ui.checkbox(
+                    "Notifications", 
+                    value=state.map.include_notifications,
+                    on_change=make_global_toggle_handler("include_notifications")
+                ).props("dense")
+                ui.checkbox(
+                    "Service Tokens", 
+                    value=state.map.include_service_tokens,
+                    on_change=make_global_toggle_handler("include_service_tokens")
+                ).props("dense")
+                ui.checkbox(
+                    "Webhooks", 
+                    value=state.map.include_webhooks,
+                    on_change=make_global_toggle_handler("include_webhooks")
+                ).props("dense")
+                ui.checkbox(
+                    "PrivateLink", 
+                    value=state.map.include_privatelink,
+                    on_change=make_global_toggle_handler("include_privatelink")
+                ).props("dense")
+            
+            # Bulk Select Resources button
+            ui.button(
+                "Bulk Select Resources",
+                icon="filter_alt",
+                on_click=lambda: _apply_scope_selection(
+                    state, selection_manager, report_items, hierarchy_index, save_state, summary_refresh_ref, grid_refresh_ref
+                ),
+            ).props("outline dense").classes("w-full mt-4")
         
         # Resource Filters (US-029)
         with ui.expansion("Resource Filters", icon="tune").classes("w-full"):
@@ -1027,6 +1081,99 @@ def _create_action_panel(
         with results_container:
             if state.map.normalize_complete and state.map.last_yaml_file:
                 _create_results_display(state, on_step_change)
+
+
+def _apply_scope_selection(
+    state: AppState,
+    selection_manager: SelectionManager,
+    report_items: list,
+    hierarchy_index: HierarchyIndex,
+    save_state: Callable[[], None],
+    summary_refresh_ref: dict,
+    grid_refresh_ref: dict,
+) -> None:
+    """Bulk select resources: clear all selections and select scoped resources.
+    
+    This clears all selections, then selects:
+    1. Projects based on scope mode (all or specific)
+    2. All descendants of those projects (environments, jobs, variables)
+    3. Connections referenced by the selected environments
+    4. Global resources based on toggle settings (groups, notifications, etc.)
+    """
+    # Build lookup maps
+    item_by_id = {item.get("element_mapping_id"): item for item in report_items}
+    
+    # 1. Clear all selections
+    selection_manager.deselect_all(auto_save=False)
+    
+    # 2. Get target projects based on scope mode
+    if state.map.scope_mode == "all_projects":
+        target_projects = {
+            item.get("element_mapping_id") 
+            for item in report_items 
+            if item.get("element_type_code") == "PRJ"
+        }
+    elif state.map.scope_mode == "specific_projects":
+        target_projects = set(state.map.selected_project_ids)
+    else:  # account_only
+        target_projects = set()
+    
+    # 3. Select projects and cascade to all descendants (ENV, JOB, VAR, REP)
+    selected_env_ids = set()
+    for project_id in target_projects:
+        selection_manager.set_selected(project_id, True, auto_save=False)
+        for child_id in hierarchy_index.get_all_descendants(project_id):
+            selection_manager.set_selected(child_id, True, auto_save=False)
+            # Track environments for connection lookup
+            child_item = item_by_id.get(child_id)
+            if child_item and child_item.get("element_type_code") == "ENV":
+                selected_env_ids.add(child_id)
+    
+    # 4. Find and select connections referenced by selected environments
+    used_connection_keys = set()
+    for env_id in selected_env_ids:
+        env_item = item_by_id.get(env_id)
+        if env_item:
+            conn_key = env_item.get("connection_key")
+            if conn_key:
+                used_connection_keys.add(conn_key)
+    
+    for item in report_items:
+        if item.get("element_type_code") == "CON":
+            conn_key = item.get("key")
+            if conn_key in used_connection_keys:
+                selection_manager.set_selected(item.get("element_mapping_id"), True, auto_save=False)
+    
+    # 5. Select globals based on toggle settings
+    global_toggles = {
+        "GRP": state.map.include_groups,
+        "NOT": state.map.include_notifications,
+        "TOK": state.map.include_service_tokens,
+        "WEB": state.map.include_webhooks,
+        "PLE": state.map.include_privatelink,
+    }
+    for item in report_items:
+        type_code = item.get("element_type_code")
+        if type_code in global_toggles and global_toggles[type_code]:
+            selection_manager.set_selected(item.get("element_mapping_id"), True, auto_save=False)
+    
+    # Save selections
+    selection_manager.save()
+    
+    # Update selection counts in state
+    counts = selection_manager.get_selection_counts()
+    state.map.selection_counts = counts
+    save_state()
+    
+    # Refresh summary display
+    if summary_refresh_ref.get("refresh"):
+        summary_refresh_ref["refresh"]()
+    
+    # Refresh grid (especially important when "Selected Only" filter is active)
+    if grid_refresh_ref.get("refresh"):
+        grid_refresh_ref["refresh"]()
+    
+    ui.notify(f"Bulk selected {counts['selected']} resources", type="positive")
 
 
 def _get_effective_selection(
