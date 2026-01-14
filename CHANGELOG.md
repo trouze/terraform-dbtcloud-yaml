@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.9] - 2026-01-14
+
+### Added
+- **Deploy Page**: View Output buttons for Generate, Init, and Validate steps
+- **Deploy Page**: View Apply logs button after apply completes
+- **Deploy Page**: Terraform validate step between Init and Plan
+- **Deploy Page**: Auto-open View Plan dialog after successful plan
+- **Normalizer**: Self-deferral detection from `deferring_job_definition_id`
+
+### Changed
+- **Deploy Page**: Redesigned layout with horizontal tiles (Generate/Init/Validate) and side-by-side Plan/Apply with terminal
+- **Deploy Page**: Compact deployment summary with resource tiles on right
+- **Map Page**: Renamed "Scope Settings" to "Bulk Project Selector" and "Apply Scope Selection" to "Bulk Select Resources"
+
+### Fixed
+- **Job Deferral**: `self_deferring` now correctly omitted when `deferring_environment_id` is set (they conflict)
+- **Job Deferral**: `deferring_job_id` removed from Terraform resource (conflicts with environment deferral)
+- **Job Deferral**: `run_compare_changes` disabled when job defers to same environment (API requirement)
+- **Deploy Page**: Green checkmarks now appear after Generate, Init, Validate, and Plan complete
+- **Deploy Page**: Apply button correctly enables after successful plan
+- **Map Page**: Fixed "Missing Dependencies" warnings for connections (removed incorrect parent link)
+- **Map Page**: Grid auto-refreshes after "Bulk Select Resources" when filter is active
+
 ## [0.7.8] - 2026-01-14
 
 ### Added

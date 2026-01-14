@@ -798,6 +798,12 @@ def _normalize_jobs(
             # Explicitly set to null to ensure all jobs have the same structure
             job_data["deferring_environment_key"] = None
         
+        # Check for self-deferral: when deferring_job_definition_id equals the job's own ID
+        deferring_job_id = job.settings.get("deferring_job_definition_id")
+        job_id = job.settings.get("id") or job.id
+        if deferring_job_id is not None and deferring_job_id == job_id:
+            job_data["self_deferring"] = True
+        
         # Schedule settings - ALWAYS include for Terraform type consistency
         #
         # Important: the dbt Cloud Jobs API returns schedule nested:

@@ -144,6 +144,13 @@ class MapState:
     # Auto-cascade setting
     auto_cascade_children: bool = False
     
+    # Global resource inclusion toggles (for Apply Scope Selection)
+    include_groups: bool = False
+    include_notifications: bool = False
+    include_service_tokens: bool = False
+    include_webhooks: bool = False
+    include_privatelink: bool = False
+    
     # Normalization state
     normalize_running: bool = False
     normalize_complete: bool = False
@@ -160,10 +167,17 @@ class DeployState:
     """State for the deploy step."""
 
     connection_configs: dict = field(default_factory=dict)
+    files_generated: bool = False
+    terraform_dir: str = ""  # Path to terraform output directory
+    last_generate_output: str = ""  # Output from generate step
     terraform_initialized: bool = False
+    last_init_output: str = ""  # Output from terraform init
+    last_validate_success: bool = False
+    last_validate_output: str = ""  # Output from terraform validate
     last_plan_success: bool = False
     last_plan_output: str = ""
     apply_complete: bool = False
+    last_apply_output: str = ""  # Output from terraform apply
     apply_results: Optional[dict] = None
 
 

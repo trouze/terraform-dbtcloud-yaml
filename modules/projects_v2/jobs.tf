@@ -27,31 +27,29 @@ locals {
     "${item.project_key}_${item.job_key}" => item
   }
 
+  # Map of environment keys to environment IDs (separate local for clarity)
+  environment_id_by_key = {
+    for env_item in local.all_environments :
+    "${env_item.project_key}_${env_item.env_key}" => dbtcloud_environment.environments["${env_item.project_key}_${env_item.env_key}"].environment_id
+  }
+
   # Helper to resolve deferring environment ID by key
   resolve_deferring_environment_id = {
     for key, item in local.jobs_map :
     key => (
       try(item.job_data.deferring_environment_key, null) != null ?
       lookup(
-        {
-          for env_item in local.all_environments :
-          "${env_item.project_key}_${env_item.env_key}" => dbtcloud_environment.environments["${env_item.project_key}_${env_item.env_key}"].environment_id
-        },
+        local.environment_id_by_key,
         "${item.project_key}_${item.job_data.deferring_environment_key}",
         null
       ) : null
     )
   }
 
-  # Helper to resolve deferring job ID by key
-  # Note: deferring_job_id cannot be resolved at plan time due to circular dependency.
-  # If deferring_job_key is specified, deferring_job_id will be null initially.
-  # Jobs with deferral should reference existing jobs by numeric ID, or deferral
-  # can be configured after initial creation via Terraform update.
-  resolve_deferring_job_id = {
-    for key, item in local.jobs_map :
-    key => null # Set to null - deferring_job_id requires job to exist first (circular dependency)
-  }
+  # Note: deferring_job_id is intentionally not supported in this module.
+  # It conflicts with deferring_environment_id and self_deferring.
+  # Use deferring_environment_key in YAML for environment-based deferral,
+  # or self_deferring for job self-deferral.
 
   # Validate run_compare_changes compatibility
   # State-aware orchestration (run_compare_changes) is only available for:
@@ -75,6 +73,11 @@ locals {
         contains(
           ["staging", "production"],
           local.env_deployment_type_by_job[key] != null ? local.env_deployment_type_by_job[key] : ""
+        ) &&
+        # Must defer to a DIFFERENT environment (same-env deferral doesn't count for compare changes)
+        (
+          try(item.job_data.deferring_environment_key, null) != null &&
+          item.job_data.deferring_environment_key != item.environment_key
         )
       ) : false
     )
@@ -147,8 +150,11 @@ resource "dbtcloud_job" "jobs" {
   # Optional fields
   description              = try(each.value.job_data.description, null)
   dbt_version              = try(each.value.job_data.dbt_version, null)
-  deferring_environment_id = local.resolve_deferring_environment_id[each.key]
-  deferring_job_id         = local.resolve_deferring_job_id[each.key]
+  # Deferring environment ID: Look up from the referenced environment key
+  # Note: deferring_job_id is not set - it conflicts with deferring_environment_id
+  deferring_environment_id = (
+    try(each.value.job_data.deferring_environment_key, null) != null
+  ) ? try(dbtcloud_environment.environments["${each.value.project_key}_${each.value.job_data.deferring_environment_key}"].environment_id, null) : null
   errors_on_lint_failure   = try(each.value.job_data.errors_on_lint_failure, true)
   generate_docs            = try(each.value.job_data.generate_docs, false)
   is_active                = try(each.value.job_data.is_active, true)
@@ -167,7 +173,10 @@ resource "dbtcloud_job" "jobs" {
   target_name           = try(each.value.job_data.target_name, null)
   timeout_seconds       = try(each.value.job_data.timeout_seconds, 0)
   triggers_on_draft_pr  = try(each.value.job_data.triggers_on_draft_pr, false)
-  self_deferring        = try(each.value.job_data.self_deferring, null)
+  # self_deferring conflicts with deferring_environment_id - only set when no environment deferral
+  self_deferring = (
+    try(each.value.job_data.deferring_environment_key, null) == null
+  ) ? try(each.value.job_data.self_deferring, null) : null
 
   lifecycle {
     ignore_changes = [

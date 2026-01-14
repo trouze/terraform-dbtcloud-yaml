@@ -70,3 +70,8 @@ output "v2_notification_ids" {
   description = "Map of notification keys to notification IDs (v2 only)"
   value       = local.schema_version == 2 ? module.projects_v2[0].notification_ids : null
 }
+
+output "v2_job_deferral_debug" {
+  description = "Debug: Job deferral resolution (v2 only)"
+  value       = local.schema_version == 2 ? module.projects_v2[0].job_deferral_debug : null
+}

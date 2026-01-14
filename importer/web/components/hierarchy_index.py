@@ -166,12 +166,10 @@ class HierarchyIndex:
             if env_mapping_id:
                 self._link_parent_child(env_mapping_id, mapping_id)
             
-            # Check for connection_key (ENV has this - links environment to its connection)
-            if entity_type == "ENV":
-                connection_key = entity.get("connection_key")
-                if connection_key and connection_key in self._connection_by_key:
-                    conn_mapping_id = self._connection_by_key[connection_key]
-                    self._link_parent_child(mapping_id, conn_mapping_id)
+            # Note: We intentionally do NOT link connections as children of environments.
+            # Environments REFERENCE connections, but connections aren't CONTAINED by environments.
+            # Connections are global resources owned by the Account, not by environments.
+            # The connection_key on ENV is tracked in _connection_by_key for lookup purposes only.
             
             # Link globals (without parent_project_id) to account
             if entity_type in {"CON", "TOK", "GRP", "NOT", "WEB", "PLE"}:

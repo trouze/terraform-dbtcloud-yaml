@@ -12,6 +12,8 @@ from importer.web.pages.requirements import create_requirements_page
 from importer.web.pages.fetch import create_fetch_page
 from importer.web.pages.explore import create_explore_page
 from importer.web.pages.mapping import create_mapping_page
+from importer.web.pages.target import create_target_page
+from importer.web.pages.deploy import create_deploy_page
 from importer.web.env_manager import load_account_info_from_env
 
 # Static files directory
@@ -116,9 +118,9 @@ def create_page_content(state: AppState) -> None:
     elif step == WorkflowStep.MAP:
         create_mapping_page(state, navigate_to_step, save_state)
     elif step == WorkflowStep.TARGET:
-        _create_placeholder_page("Target", "Configure target account credentials", state)
+        create_target_page(state, navigate_to_step, save_state)
     elif step == WorkflowStep.DEPLOY:
-        _create_placeholder_page("Deploy", "Generate Terraform and deploy", state)
+        create_deploy_page(state, navigate_to_step, save_state)
 
 
 def _create_placeholder_page(title: str, description: str, state: AppState) -> None:
