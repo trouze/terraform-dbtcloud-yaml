@@ -8,6 +8,12 @@ from typing import Optional
 
 from nicegui import ui
 
+from importer.web.utils.log_export import (
+    messages_to_otlp_json,
+    messages_to_log_text,
+    generate_log_filename,
+)
+
 
 class LogLevel(Enum):
     """Log level for terminal messages."""
@@ -85,12 +91,12 @@ class TerminalOutput:
             with ui.row().classes("w-full items-center justify-between px-3 py-2 border-b border-slate-700"):
                 self._title_label = ui.label(title).classes("text-sm font-mono text-slate-400")
                 
-                with ui.row().classes("gap-2 items-center"):
-                    # Search input
+                with ui.row().classes("gap-3 items-center"):
+                    # Search input (wider for better usability)
                     self._search_input = ui.input(
-                        placeholder="Search...",
+                        placeholder="Search logs...",
                     ).props("dense borderless dark").classes("text-slate-300").style(
-                        "width: 250px; background-color: #2d2d4a; border-radius: 4px;"
+                        "width: 320px; background-color: #2d2d4a; border-radius: 4px; padding: 4px 8px;"
                     )
                     self._search_input.on("update:model-value", self._on_search_change)
                     
@@ -107,7 +113,11 @@ class TerminalOutput:
                         on_click=lambda: self._go_to_search_match("next"),
                     ).props("flat dense size=sm").classes("text-slate-400 hidden")
                     
-                    # Log level selector - ordered from least to most verbose (ERROR shows least, DEBUG shows all)
+                    # Separator
+                    ui.element("div").classes("w-px h-5 bg-slate-600")
+                    
+                    # Log level selector with label
+                    ui.label("Log Level:").classes("text-xs text-slate-500")
                     self._level_select = ui.select(
                         options={
                             "error": "ERROR only",
@@ -119,8 +129,24 @@ class TerminalOutput:
                         value=self._min_level.value,
                         on_change=self._on_level_change,
                     ).props("dense borderless options-dense").classes("text-slate-300").style(
-                        "min-width: 110px; background-color: #2d2d4a; border-radius: 4px;"
-                    ).tooltip("Minimum log level to show")
+                        "min-width: 120px; background-color: #2d2d4a; border-radius: 4px;"
+                    ).tooltip("Filter messages by minimum severity level")
+                    
+                    # Separator
+                    ui.element("div").classes("w-px h-5 bg-slate-600")
+                    
+                    # Download logs button with menu
+                    with ui.button(icon="download").props("flat dense size=sm").classes("text-slate-400") as download_btn:
+                        download_btn.tooltip("Download logs")
+                        with ui.menu():
+                            ui.menu_item(
+                                "Download as .log (human-readable)",
+                                on_click=lambda: self._download_logs("log"),
+                            )
+                            ui.menu_item(
+                                "Download as .json (OTLP format)",
+                                on_click=lambda: self._download_logs("json"),
+                            )
                     
                     ui.button(
                         icon="content_copy",
@@ -317,6 +343,37 @@ class TerminalOutput:
                 text_lines.append(f"[{level_str}] {msg.text}")
         
         return "\n".join(text_lines)
+
+    def _download_logs(self, format_type: str) -> None:
+        """Download logs in the specified format.
+
+        Args:
+            format_type: Either "log" for human-readable or "json" for OTLP JSON
+        """
+        if not self.messages:
+            ui.notify("No logs to download", type="info")
+            return
+
+        # Generate filename based on current title/context
+        title_slug = self._current_title.lower().replace(" ", "-").replace("—", "-")
+        title_slug = "".join(c for c in title_slug if c.isalnum() or c == "-")
+        prefix = title_slug or "output"
+
+        if format_type == "json":
+            # OTLP JSON format
+            content = messages_to_otlp_json(
+                self.messages,
+                operation_name=prefix,
+            )
+            filename = generate_log_filename(prefix, "json")
+            ui.download(content.encode("utf-8"), filename)
+            ui.notify(f"Downloaded {filename}", type="positive")
+        else:
+            # Human-readable .log format
+            content = messages_to_log_text(self.messages, include_timestamps=self.show_timestamps)
+            filename = generate_log_filename(prefix, "log")
+            ui.download(content.encode("utf-8"), filename)
+            ui.notify(f"Downloaded {filename}", type="positive")
 
     async def _on_search_change(self, e) -> None:
         """Handle search input change."""

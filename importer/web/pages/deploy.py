@@ -650,12 +650,13 @@ def _create_apply_section(
             is_enabled = state.deploy.last_plan_success
             is_complete = state.deploy.apply_complete
             
+            async def on_apply_click():
+                await _confirm_apply(state, terminal, save_state, deploy_state)
+            
             apply_btn = ui.button(
                 "Run terraform apply",
                 icon="rocket_launch",
-                on_click=lambda: _run_terraform_apply(
-                    state, terminal, save_state, deploy_state
-                ),
+                on_click=on_apply_click,
             ).classes("w-full")
             
             # Style based on state
@@ -941,26 +942,34 @@ def _get_terraform_env(state: AppState) -> dict:
     
     Sets TF_VAR_* variables for terraform input variables and
     DBT_CLOUD_* for provider fallback (same pattern as e2e test).
+    
+    Requires credentials to be loaded via the Target step.
     """
     import os
+    
     env = dict(os.environ)
+    
+    # Get credentials from state (must be loaded via Target step)
+    api_token = state.target_credentials.api_token
+    account_id = state.target_credentials.account_id
+    host_url = state.target_credentials.host_url
     
     # Normalize host URL: strip trailing slash and ensure /api suffix
     # This matches the e2e test pattern
-    base_host = (state.target_credentials.host_url or "https://cloud.getdbt.com").rstrip("/")
+    base_host = (host_url or "https://cloud.getdbt.com").rstrip("/")
     if not base_host.endswith("/api"):
         host_url = f"{base_host}/api"
     else:
         host_url = base_host
     
     # TF_VAR_* for terraform input variables
-    env["TF_VAR_dbt_account_id"] = str(state.target_credentials.account_id)
-    env["TF_VAR_dbt_token"] = state.target_credentials.api_token or ""
+    env["TF_VAR_dbt_account_id"] = str(account_id)
+    env["TF_VAR_dbt_token"] = api_token
     env["TF_VAR_dbt_host_url"] = host_url
     
     # DBT_CLOUD_* for provider fallback
-    env["DBT_CLOUD_ACCOUNT_ID"] = str(state.target_credentials.account_id)
-    env["DBT_CLOUD_TOKEN"] = state.target_credentials.api_token or ""
+    env["DBT_CLOUD_ACCOUNT_ID"] = str(account_id)
+    env["DBT_CLOUD_TOKEN"] = api_token
     env["DBT_CLOUD_HOST_URL"] = host_url
     
     return env
@@ -1337,6 +1346,117 @@ async def _run_terraform_plan(
 
     finally:
         deploy_state["plan_running"] = False
+
+
+def _parse_plan_summary(plan_output: str) -> dict:
+    """Parse terraform plan output to extract add/change/destroy counts."""
+    import re
+    
+    summary = {"add": 0, "change": 0, "destroy": 0}
+    
+    # Look for the "Plan: X to add, Y to change, Z to destroy" line
+    match = re.search(r"Plan:\s*(\d+)\s*to add,\s*(\d+)\s*to change,\s*(\d+)\s*to destroy", plan_output)
+    if match:
+        summary["add"] = int(match.group(1))
+        summary["change"] = int(match.group(2))
+        summary["destroy"] = int(match.group(3))
+    else:
+        # Fallback: count individual resource lines
+        for line in plan_output.split("\n"):
+            if "will be created" in line:
+                summary["add"] += 1
+            elif "will be updated" in line or "will be changed" in line:
+                summary["change"] += 1
+            elif "will be destroyed" in line:
+                summary["destroy"] += 1
+    
+    return summary
+
+
+async def _confirm_apply(
+    state: AppState,
+    terminal: TerminalOutput,
+    save_state: Callable[[], None],
+    deploy_state: dict,
+) -> None:
+    """Show confirmation dialog before applying changes."""
+    from importer.web.utils.yaml_viewer import create_plan_viewer_dialog
+    
+    if not state.deploy.last_plan_success:
+        terminal.warning("Run terraform plan first")
+        ui.notify("Run plan first", type="warning")
+        return
+    
+    # Get plan output and parse summary
+    plan_output = deploy_state.get("last_plan_output") or state.deploy.last_plan_output or ""
+    summary = _parse_plan_summary(plan_output)
+    
+    total_changes = summary["add"] + summary["change"] + summary["destroy"]
+    
+    with ui.dialog() as dialog:
+        with ui.card().classes("w-full max-w-lg"):
+            with ui.row().classes("items-center gap-2 mb-2"):
+                ui.icon("rocket_launch", size="md").classes("text-orange-500")
+                ui.label("Confirm Apply").classes("text-lg font-semibold")
+            
+            ui.label(
+                "You are about to apply the planned changes to your dbt Cloud account. "
+                "Please review the summary below."
+            ).classes("text-sm text-slate-600 dark:text-slate-400 mt-2")
+            
+            # Change summary badges
+            with ui.row().classes("w-full gap-3 mt-4 justify-center"):
+                if summary["add"] > 0:
+                    with ui.row().classes("items-center gap-1"):
+                        ui.icon("add_circle", size="sm").classes("text-green-500")
+                        ui.label(f"{summary['add']} to add").classes("text-sm font-medium text-green-600")
+                
+                if summary["change"] > 0:
+                    with ui.row().classes("items-center gap-1"):
+                        ui.icon("change_circle", size="sm").classes("text-yellow-500")
+                        ui.label(f"{summary['change']} to change").classes("text-sm font-medium text-yellow-600")
+                
+                if summary["destroy"] > 0:
+                    with ui.row().classes("items-center gap-1"):
+                        ui.icon("remove_circle", size="sm").classes("text-red-500")
+                        ui.label(f"{summary['destroy']} to destroy").classes("text-sm font-medium text-red-600")
+            
+            if total_changes == 0:
+                ui.label("No changes detected in plan.").classes("text-sm text-slate-500 mt-2 text-center")
+            
+            # Info banner
+            with ui.row().classes("w-full items-center gap-2 p-3 rounded mt-4").style(
+                "background-color: rgba(251, 146, 60, 0.15); border: 1px solid rgba(251, 146, 60, 0.3);"
+            ):
+                ui.icon("info", size="sm").classes("text-orange-500")
+                ui.label(
+                    "This will make changes to your dbt Cloud account. "
+                    "Ensure you have reviewed the plan before proceeding."
+                ).classes("text-xs text-orange-600")
+            
+            with ui.row().classes("w-full justify-between mt-4"):
+                # View Plan button on the left
+                ui.button(
+                    "View Plan",
+                    icon="visibility",
+                    on_click=lambda: create_plan_viewer_dialog(plan_output, "Terraform Plan").open(),
+                ).props("outline")
+                
+                # Cancel and Apply buttons on the right
+                with ui.row().classes("gap-2"):
+                    ui.button("Cancel", on_click=dialog.close).props("outline")
+                    
+                    async def do_apply():
+                        dialog.close()
+                        await _run_terraform_apply(state, terminal, save_state, deploy_state)
+                    
+                    ui.button(
+                        "Apply Changes",
+                        icon="rocket_launch",
+                        on_click=do_apply,
+                    ).style(f"background-color: {DBT_ORANGE}; color: white;")
+    
+    dialog.open()
 
 
 async def _run_terraform_apply(

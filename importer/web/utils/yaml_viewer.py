@@ -8,6 +8,12 @@ from typing import Any, Dict, List, Optional, Callable, Set, Tuple
 import yaml
 from nicegui import ui
 
+from importer.web.utils.log_export import (
+    text_to_otlp_json,
+    text_to_log_text,
+    generate_log_filename,
+)
+
 
 def load_yaml_file(yaml_path: str) -> Optional[Dict[str, Any]]:
     """Load and parse a YAML file.
@@ -552,13 +558,43 @@ def create_plan_viewer_dialog(
             search_input.on("update:model-value", on_search)
 
             # Actions
-            with ui.row().classes("w-full justify-end gap-2 mt-4"):
-                ui.button(
-                    "Copy to Clipboard",
-                    icon="content_copy",
-                    on_click=lambda: _copy_to_clipboard(plan_output),
-                ).props("outline")
-                ui.button("Close", on_click=dialog.close)
+            with ui.row().classes("w-full justify-between mt-4"):
+                # Download logs section
+                with ui.row().classes("gap-2"):
+                    # Generate filename based on title
+                    title_slug = title.lower().replace(" ", "-")
+                    title_slug = "".join(c for c in title_slug if c.isalnum() or c == "-")
+
+                    def download_log():
+                        content = text_to_log_text(plan_output)
+                        filename = generate_log_filename(title_slug or "output", "log")
+                        ui.download(content.encode("utf-8"), filename)
+                        ui.notify(f"Downloaded {filename}", type="positive")
+
+                    def download_json():
+                        content = text_to_otlp_json(plan_output, operation_name=title_slug or "terraform")
+                        filename = generate_log_filename(title_slug or "output", "json")
+                        ui.download(content.encode("utf-8"), filename)
+                        ui.notify(f"Downloaded {filename}", type="positive")
+
+                    with ui.button("Download Logs", icon="download").props("outline"):
+                        with ui.menu():
+                            ui.menu_item(
+                                "Download as .log (human-readable)",
+                                on_click=download_log,
+                            )
+                            ui.menu_item(
+                                "Download as .json (OTLP format)",
+                                on_click=download_json,
+                            )
+
+                with ui.row().classes("gap-2"):
+                    ui.button(
+                        "Copy to Clipboard",
+                        icon="content_copy",
+                        on_click=lambda: _copy_to_clipboard(plan_output),
+                    ).props("outline")
+                    ui.button("Close", on_click=dialog.close)
 
     return dialog
 
@@ -798,6 +834,7 @@ def create_state_viewer_dialog(
         "show_sensitive": False,
         "search_count": 0,
         "search_current": 0,
+        "current_search": "",  # Track active search term for re-highlighting after toggle
     }
     
     def get_current_content() -> str:
@@ -834,10 +871,96 @@ def create_state_viewer_dialog(
                     ui.label(state_path).classes("text-xs text-slate-500 font-mono")
                 
                 with ui.row().classes("items-center gap-2"):
-                    # Resource count
-                    resource_count = len(state_data.get("resources", []))
+                    # Resource count - count all instances across managed resources (exclude data sources)
+                    resource_count = sum(
+                        max(1, len(r.get("instances", [])))
+                        for r in state_data.get("resources", [])
+                        if r.get("mode") != "data"  # Exclude data sources
+                    )
                     ui.label(f"{resource_count} resources").classes("text-xs text-slate-400")
                     ui.label(f"{len(raw_content):,} chars").classes("text-xs text-slate-400")
+            
+            # Sensitive values toggle banner (prominent, full-width)
+            if sensitive_paths:
+                async def toggle_sensitive():
+                    viewer_state["show_sensitive"] = not viewer_state["show_sensitive"]
+                    # Update code display
+                    code_element.content = get_current_content()
+                    code_element.update()
+                    # Update toggle button appearance
+                    if viewer_state["show_sensitive"]:
+                        sensitive_toggle.text = "Sensitive Values: VISIBLE"
+                        sensitive_toggle.props("color=warning")
+                        toggle_icon.props(remove="name=visibility_off")
+                        toggle_icon.props("name=visibility")
+                        warning_banner.set_visibility(True)
+                    else:
+                        sensitive_toggle.text = "Sensitive Values: HIDDEN"
+                        sensitive_toggle.props(remove="color=warning")
+                        sensitive_toggle.props("color=positive")
+                        toggle_icon.props(remove="name=visibility")
+                        toggle_icon.props("name=visibility_off")
+                        warning_banner.set_visibility(False)
+                    
+                    # Re-apply search highlighting if there's an active search term
+                    # (toggling the content destroys the <mark> elements)
+                    search_term = viewer_state.get("current_search", "")
+                    if search_term:
+                        # Recount matches for the new content
+                        new_content = get_current_content()
+                        new_count = new_content.lower().count(search_term.lower())
+                        viewer_state["search_count"] = new_count
+                        viewer_state["search_current"] = 1 if new_count > 0 else 0
+                        
+                        # Update count label
+                        if new_count > 1:
+                            search_count_label.set_text(f"1 of {new_count}")
+                        elif new_count == 1:
+                            search_count_label.set_text("1 of 1")
+                        else:
+                            search_count_label.set_text("No matches")
+                        
+                        escaped_term = search_term.replace("'", "\\'").replace('"', '\\"')
+                        js_code = '''
+                            const codeEl = document.querySelector('.state-viewer-code code');
+                            if (codeEl) {
+                                const originalText = codeEl.textContent;
+                                const regex = new RegExp('(''' + escaped_term + ''')', 'gi');
+                                const highlighted = originalText.replace(regex, '<mark class="bg-yellow-300 dark:bg-yellow-600">$1</mark>');
+                                codeEl.innerHTML = highlighted;
+                                const firstMark = document.querySelector('.state-viewer-code mark');
+                                if (firstMark) {
+                                    firstMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    firstMark.classList.add('ring-2', 'ring-orange-500');
+                                }
+                            }
+                        '''
+                        await ui.run_javascript(js_code)
+                
+                with ui.row().classes("w-full items-center justify-between p-3 rounded mb-2").style(
+                    "background-color: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3);"
+                ):
+                    with ui.row().classes("items-center gap-3"):
+                        ui.icon("security", size="sm").classes("text-green-600")
+                        ui.label(f"This state contains {len(sensitive_paths)} sensitive value(s)").classes(
+                            "text-sm text-slate-600 dark:text-slate-300"
+                        )
+                    
+                    # Toggle button - large and clear
+                    with ui.button(on_click=toggle_sensitive).props("color=positive").classes("px-4") as sensitive_toggle:
+                        toggle_icon = ui.icon("visibility_off", size="xs").classes("mr-2")
+                        sensitive_toggle.text = "Sensitive Values: HIDDEN"
+                
+                # Warning banner when sensitive values are shown
+                warning_banner = ui.row().classes("w-full items-center gap-2 p-2 rounded mb-2").style(
+                    "background-color: rgba(220, 38, 38, 0.9); border: 1px solid rgba(185, 28, 28, 1);"
+                )
+                warning_banner.set_visibility(False)
+                with warning_banner:
+                    ui.icon("warning", size="xs").classes("text-white")
+                    ui.label("Sensitive values are currently visible. Do not share this screen.").classes(
+                        "text-xs text-white font-medium"
+                    )
             
             # Toolbar row
             with ui.row().classes("w-full mb-2 items-center gap-2"):
@@ -858,25 +981,6 @@ def create_state_viewer_dialog(
                     ).props("flat dense round size=sm").classes("hidden")
                 
                 search_count_label = ui.label("").classes("text-xs text-slate-400 min-w-[80px]")
-                
-                # Sensitive toggle (only show if there are sensitive values)
-                if sensitive_paths:
-                    def toggle_sensitive():
-                        viewer_state["show_sensitive"] = not viewer_state["show_sensitive"]
-                        # Update code display
-                        code_element.content = get_current_content()
-                        code_element.update()
-                        if viewer_state["show_sensitive"]:
-                            sensitive_btn.props("color=warning")
-                            sensitive_btn.tooltip("Click to mask sensitive values")
-                        else:
-                            sensitive_btn.props(remove="color=warning")
-                            sensitive_btn.tooltip("Click to reveal sensitive values")
-                    
-                    sensitive_btn = ui.button(
-                        icon="visibility_off",
-                        on_click=toggle_sensitive,
-                    ).props("flat dense").tooltip("Click to reveal sensitive values")
             
             # State content with syntax highlighting
             with ui.scroll_area().classes("w-full state-viewer-scroll").style("flex: 1; min-height: 0;"):
@@ -889,6 +993,9 @@ def create_state_viewer_dialog(
             async def on_search(e):
                 search_term = e.args if e.args else ""
                 current_content = get_current_content()
+                
+                # Track current search term for re-highlighting after toggle
+                viewer_state["current_search"] = search_term
                 
                 if not search_term:
                     search_count_label.set_text("")
@@ -924,20 +1031,21 @@ def create_state_viewer_dialog(
                 
                 # Highlight matches
                 escaped_term = search_term.replace("'", "\\'").replace('"', '\\"')
-                await ui.run_javascript(f'''
+                js_code = '''
                     const codeEl = document.querySelector('.state-viewer-code code');
-                    if (codeEl) {{
+                    if (codeEl) {
                         const originalText = codeEl.textContent;
-                        const regex = new RegExp('({escaped_term})', 'gi');
+                        const regex = new RegExp('(''' + escaped_term + ''')', 'gi');
                         const highlighted = originalText.replace(regex, '<mark class="bg-yellow-300 dark:bg-yellow-600">$1</mark>');
                         codeEl.innerHTML = highlighted;
                         const firstMark = document.querySelector('.state-viewer-code mark');
-                        if (firstMark) {{
-                            firstMark.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                        if (firstMark) {
+                            firstMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
                             firstMark.classList.add('ring-2', 'ring-orange-500');
-                        }}
-                    }}
-                ''')
+                        }
+                    }
+                '''
+                await ui.run_javascript(js_code)
             
             async def go_to_match(direction):
                 count = viewer_state["search_count"]
@@ -953,16 +1061,18 @@ def create_state_viewer_dialog(
                 viewer_state["search_current"] = new_idx
                 search_count_label.set_text(f"{new_idx} of {count}")
                 
-                await ui.run_javascript(f'''
+                js_code = '''
+                    const targetIdx = ''' + str(new_idx - 1) + ''';
                     const marks = document.querySelectorAll('.state-viewer-code mark');
-                    marks.forEach((m, i) => {{
+                    marks.forEach((m, i) => {
                         m.classList.remove('ring-2', 'ring-orange-500');
-                        if (i === {new_idx - 1}) {{
+                        if (i === targetIdx) {
                             m.classList.add('ring-2', 'ring-orange-500');
-                            m.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
-                        }}
-                    }});
-                ''')
+                            m.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                    });
+                '''
+                await ui.run_javascript(js_code)
             
             prev_btn.on("click", lambda: go_to_match("prev"))
             next_btn.on("click", lambda: go_to_match("next"))

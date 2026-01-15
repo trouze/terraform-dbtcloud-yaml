@@ -240,6 +240,13 @@ class DeployState:
     apply_results: Optional[dict] = None
     destroy_complete: bool = False
 
+    def has_state_file(self) -> bool:
+        """Check if a Terraform state file exists."""
+        from pathlib import Path
+        tf_dir = self.terraform_dir or "deployments/migration"
+        state_path = Path(tf_dir) / "terraform.tfstate"
+        return state_path.exists()
+
 
 @dataclass
 class AppState:
@@ -306,7 +313,7 @@ class AppState:
                 return self.map.normalize_complete and self.target_credentials.is_complete()
             return self.map.normalize_complete
         elif step == WorkflowStep.DESTROY:
-            return self.deploy.terraform_initialized
+            return self.deploy.has_state_file()
         elif step == WorkflowStep.MATCH_TARGET:
             return self.map.normalize_complete
         return False

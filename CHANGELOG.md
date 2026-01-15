@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-01-15
+
+### Added
+- **Destroy Page**: Full destroy workflow with plan preview before destruction
+- **Destroy Page**: Resource selection table with Type and Name columns (cleaner than full addresses)
+- **Destroy Page**: Row click opens detailed resource popup with full state attributes
+- **Destroy Page**: Sensitive value masking with show/hide toggle in resource detail popup
+- **Destroy Page**: Cascade warning when dependent resources will also be destroyed
+- **Destroy Page**: "View Plan" button in destroy confirmation dialog
+- **Destroy Page**: Target info panel showing account ID and host URL
+- **Destroy Page**: State file panel with "View State" button
+- **Destroy Page**: Prerequisite checks for credentials and state file existence
+- **Deploy Page**: Apply confirmation dialog with change summary (X to add, Y to change, Z to destroy)
+- **Deploy Page**: "View Plan" button in apply confirmation dialog
+- **State Viewer**: Resource count now shows all instances (not just resource blocks)
+- **State Viewer**: Excludes data sources from resource count
+
+### Changed
+- **Destroy Page**: Buttons now match Deploy page styling (larger, more readable)
+- **Destroy Page**: "Destroy Selected" button has red background with white text
+- **Destroy Page**: "Destroy All" includes plan preview and type-to-confirm safety
+- **Destroy Page**: Resource table defaults to showing all rows (no pagination)
+- **Destroy Page**: Table selection now properly accumulates (incremental add/remove)
+- **Destroy Page**: Table refresh now works correctly after destroy operations
+- **Destroy Page**: Output log window height increased to 520px
+- **Credentials**: Removed auto-loading of .env credentials; must explicitly load via Target page
+- **Navigation**: Destroy step accessible when state file exists (not just after apply in current session)
+
+### Fixed
+- **Destroy Page**: Multi-select now works correctly (was only selecting last item)
+- **Destroy Page**: Refresh button properly updates table with in-place list modification
+- **State Viewer**: Resource count matches destroy page count (filters data sources)
+
 ## [0.8.1] - 2026-01-15
 
 ### Added
