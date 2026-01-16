@@ -126,6 +126,13 @@ output "github_integration_discovery" {
     installations_found    = length(local.github_installations)
     github_installation_id = local.github_installation_id
     host_url               = local.dbt_host_url
+    # Include raw response for debugging (status code, etc.)
+    http_status = var.dbt_pat != null && length(data.http.github_installations) > 0 ? (
+      try(data.http.github_installations[0].status_code, "unknown")
+    ) : "not_called"
+    raw_response_length = var.dbt_pat != null && length(data.http.github_installations) > 0 ? (
+      try(length(data.http.github_installations[0].response_body), 0)
+    ) : 0
   }
 }
 

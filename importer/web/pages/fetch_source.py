@@ -294,6 +294,7 @@ def _load_env_credentials(
         state.source_credentials.host_url = creds.get("host_url", "https://cloud.getdbt.com")
         state.source_credentials.account_id = creds.get("account_id", "")
         state.source_credentials.api_token = creds.get("api_token", "")
+        state.source_credentials.token_type = creds.get("token_type", "service_token")
         
         # Also update account info
         state.source_account = load_account_info_from_env("source")
@@ -336,6 +337,7 @@ def _load_env_from_upload(
         state.source_credentials.host_url = creds.get("host_url", "https://cloud.getdbt.com")
         state.source_credentials.account_id = creds.get("account_id", "")
         state.source_credentials.api_token = creds.get("api_token", "")
+        state.source_credentials.token_type = creds.get("token_type", "service_token")
         
         # Try to fetch account name to update account info
         if creds.get("account_id") and creds.get("api_token"):
@@ -610,6 +612,17 @@ async def _run_fetch(
         # Store raw account data
         state.account_data = payload
 
+        # Reset downstream state since source data has changed
+        # This ensures Match, Configure, and Deploy steps reflect fresh data
+        state.map.confirmed_mappings = []
+        state.map.suggested_matches = []
+        state.map.rejected_suggestions = set()
+        state.map.mapping_file_valid = False
+        state.map.mapping_file_path = None
+        state.map.normalize_complete = False  # Re-scope needed
+        state.deploy.configure_complete = False
+        state.deploy.disable_job_triggers = False
+
         save_state()
         fetch_complete["value"] = True
 
@@ -627,11 +640,8 @@ async def _run_fetch(
         
         ui.notify("Fetch completed successfully!", type="positive")
 
-        # Dynamically add results section (instead of reloading)
-        if results_container is not None:
-            results_container.clear()
-            with results_container:
-                _create_results_section(state, on_step_change)
+        # Reload to refresh sidebar with updated step completion status
+        ui.navigate.reload()
 
     except FetchCancelledException:
         terminal.warning("")

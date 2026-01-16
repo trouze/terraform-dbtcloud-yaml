@@ -84,7 +84,7 @@ def _check_prerequisites(
     
     # Check for target credentials
     if not state.target_credentials.is_complete():
-        errors.append(("Target credentials not configured", WorkflowStep.CONFIGURE))
+        errors.append(("Target credentials not configured", WorkflowStep.FETCH_TARGET))
     
     # Check if state file exists (allows destroy even if apply wasn't done in this session)
     state_path = _get_state_file_path(state, destroy_state)

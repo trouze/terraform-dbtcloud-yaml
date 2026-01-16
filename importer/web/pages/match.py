@@ -251,34 +251,61 @@ def _create_matching_content(
         clone_configs,
     )
     
-    # Stats from grid data
-    pending = sum(1 for r in grid_row_data if r.get("status") == "pending" and r.get("action") == "match")
-    confirmed = sum(1 for r in grid_row_data if r.get("status") == "confirmed")
-    create_new = sum(1 for r in grid_row_data if r.get("action") == "create_new")
-    skipped = sum(1 for r in grid_row_data if r.get("action") == "skip")
+    # Stats from grid data - separate primary resources from derived resources
+    # Derived resource types: JEVO (env var overrides), JCTG (job triggers), PREP (project repo links)
+    derived_types = {"JEVO", "JCTG", "PREP"}
+    primary_rows = [r for r in grid_row_data if r.get("source_type") not in derived_types]
+    derived_rows = [r for r in grid_row_data if r.get("source_type") in derived_types]
+    
+    pending = sum(1 for r in primary_rows if r.get("status") == "pending" and r.get("action") == "match")
+    confirmed = sum(1 for r in primary_rows if r.get("status") == "confirmed")
+    create_new_primary = sum(1 for r in primary_rows if r.get("action") == "create_new")
+    create_new_derived = len(derived_rows)  # All derived resources are create_new
+    create_new_total = create_new_primary + create_new_derived
+    skipped = sum(1 for r in primary_rows if r.get("action") == "skip")
+    
+    # Total rows in grid including overrides
+    total_grid_rows = len(grid_row_data)
     
     # Stat cards with selection info
     with ui.row().classes("w-full gap-4 mb-4 items-center"):
         _create_stat_card("Pending", pending, "text-amber-600", "hourglass_empty")
         _create_stat_card("Confirmed", confirmed, "text-green-600", "check_circle")
-        _create_stat_card("Create New", create_new, "text-orange-500", "add_circle")
+        
+        # Create New card - show total with breakdown if overrides exist
+        with ui.card().classes("p-3 min-w-[100px]"):
+            with ui.row().classes("items-center gap-2"):
+                ui.icon("add_circle", size="sm").classes("text-orange-500")
+                ui.label(str(create_new_total)).classes("text-2xl font-bold text-orange-500")
+            ui.label("Create New").classes("text-xs text-slate-500")
+            if create_new_derived > 0:
+                ui.label(f"({create_new_primary} + {create_new_derived} derived)").classes(
+                    "text-xs text-orange-400"
+                )
+        
         _create_stat_card("Skip", skipped, "text-slate-500", "block")
         
-        # Selected source items with total count - consistent sizing with other stat cards
+        # Selected source items with total count - shows primary resources + overrides
         with ui.card().classes("p-3 min-w-[120px]"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("upload", size="sm").classes("text-blue-600")
-                ui.label(f"{len(source_items)} of {total_source_count}").classes("text-2xl font-bold text-blue-600")
+                ui.label(f"{total_grid_rows} of {total_source_count + create_new_derived}").classes(
+                    "text-2xl font-bold text-blue-600"
+                )
             with ui.row().classes("items-center gap-2"):
-                ui.label("Selected Sources").classes("text-xs text-slate-500")
+                ui.label("Total Resources").classes("text-xs text-slate-500")
                 if on_step_change and total_source_count > len(source_items):
                     ui.button(
                         "Adjust",
                         icon="tune",
                         on_click=lambda: on_step_change(WorkflowStep.SCOPE),
                     ).props("flat dense size=xs")
+            if create_new_derived > 0:
+                ui.label(f"({len(source_items)} selected + {create_new_derived} derived)").classes(
+                    "text-xs text-blue-400"
+                )
         
-        _create_stat_card("Target Items", len(target_items), f"color: {DBT_TEAL}", "download")
+        _create_stat_card("Existing Target Items", len(target_items), f"color: {DBT_TEAL}", "download")
     
     # Store grid row data in a mutable container for callbacks
     grid_data_ref = {"data": grid_row_data}
@@ -403,18 +430,130 @@ def _create_matching_content(
         save_state()
         ui.navigate.reload()
     
+    def find_source_item(source_key: str) -> Optional[dict]:
+        """Find source item by key, checking both 'key' and 'element_mapping_id'."""
+        # Items with key=null use element_mapping_id as their key
+        for s in source_items:
+            item_key = s.get("key") or s.get("element_mapping_id", "")
+            if item_key == source_key:
+                return s
+        return None
+    
     def on_view_details(source_key: str):
         """View details for a resource."""
-        # Find the source item
-        source_item = next((s for s in source_items if s.get("key") == source_key), None)
+        # Check if this is a JEVO (job env var override) - synthetic key format
+        if "__override__" in source_key:
+            # Extract parent job key and variable name
+            parts = source_key.split("__override__", 1)
+            parent_job_key = parts[0]
+            var_name = parts[1] if len(parts) > 1 else "Unknown"
+            
+            # Find parent job to get override value
+            parent_job = find_source_item(parent_job_key)
+            if parent_job:
+                overrides = parent_job.get("environment_variable_overrides", {})
+                var_value = overrides.get(var_name, "N/A")
+                job_name = parent_job.get("name", parent_job_key)
+                
+                # Show simple dialog for override details
+                with ui.dialog() as dialog, ui.card().classes("p-4 min-w-[400px]"):
+                    ui.label("Environment Variable Override").classes("text-lg font-bold mb-4")
+                    
+                    with ui.column().classes("gap-2"):
+                        with ui.row().classes("gap-2"):
+                            ui.label("Variable:").classes("font-semibold w-24")
+                            ui.label(var_name).classes("font-mono")
+                        with ui.row().classes("gap-2"):
+                            ui.label("Value:").classes("font-semibold w-24")
+                            # Mask secret values
+                            display_value = "********" if "SECRET" in var_name.upper() else str(var_value)
+                            ui.label(display_value).classes("font-mono")
+                        with ui.row().classes("gap-2"):
+                            ui.label("Parent Job:").classes("font-semibold w-24")
+                            ui.label(job_name).classes("font-mono")
+                    
+                    ui.button("Close", on_click=dialog.close).classes("mt-4")
+                dialog.open()
+            else:
+                ui.notify(f"Parent job not found for override: {source_key}", type="warning")
+            return
+        
+        # Check if this is a JCTG (job completion trigger) - synthetic key format
+        if "__trigger__completion" in source_key:
+            parent_job_key = source_key.split("__trigger__completion")[0]
+            
+            parent_job = find_source_item(parent_job_key)
+            if parent_job:
+                job_name = parent_job.get("name", parent_job_key)
+                jctc = parent_job.get("job_completion_trigger_condition", {})
+                
+                # Extract trigger details
+                trigger_job_id = jctc.get("job_id") or jctc.get("condition", {}).get("job_id")
+                statuses = jctc.get("statuses") or jctc.get("condition", {}).get("statuses", [])
+                
+                # Map status codes to names
+                status_map = {10: "Success", 20: "Error", 30: "Cancelled"}
+                status_names = [status_map.get(s, str(s)) for s in statuses] if statuses else ["Unknown"]
+                
+                with ui.dialog() as dialog, ui.card().classes("p-4 min-w-[400px]"):
+                    ui.label("Job Completion Trigger").classes("text-lg font-bold mb-4")
+                    
+                    with ui.column().classes("gap-2"):
+                        with ui.row().classes("gap-2"):
+                            ui.label("Parent Job:").classes("font-semibold w-28")
+                            ui.label(job_name).classes("font-mono")
+                        with ui.row().classes("gap-2"):
+                            ui.label("Trigger Job ID:").classes("font-semibold w-28")
+                            ui.label(str(trigger_job_id) if trigger_job_id else "N/A").classes("font-mono")
+                        with ui.row().classes("gap-2"):
+                            ui.label("On Statuses:").classes("font-semibold w-28")
+                            ui.label(", ".join(status_names)).classes("font-mono")
+                    
+                    ui.button("Close", on_click=dialog.close).classes("mt-4")
+                dialog.open()
+            else:
+                ui.notify(f"Parent job not found for trigger: {source_key}", type="warning")
+            return
+        
+        # Check if this is a PREP (project repository link) - synthetic key format
+        if "__repo_link__" in source_key:
+            parts = source_key.split("__repo_link__", 1)
+            parent_project_key = parts[0]
+            repo_key = parts[1] if len(parts) > 1 else "Unknown"
+            
+            parent_project = find_source_item(parent_project_key)
+            if parent_project:
+                project_name = parent_project.get("name", parent_project_key)
+                
+                with ui.dialog() as dialog, ui.card().classes("p-4 min-w-[400px]"):
+                    ui.label("Project Repository Link").classes("text-lg font-bold mb-4")
+                    
+                    with ui.column().classes("gap-2"):
+                        with ui.row().classes("gap-2"):
+                            ui.label("Project:").classes("font-semibold w-28")
+                            ui.label(project_name).classes("font-mono")
+                        with ui.row().classes("gap-2"):
+                            ui.label("Repository:").classes("font-semibold w-28")
+                            ui.label(repo_key).classes("font-mono")
+                        ui.label(
+                            "This resource links the project to its repository in Terraform."
+                        ).classes("text-xs text-slate-500 mt-2")
+                    
+                    ui.button("Close", on_click=dialog.close).classes("mt-4")
+                dialog.open()
+            else:
+                ui.notify(f"Parent project not found for repository link: {source_key}", type="warning")
+            return
+        
+        # Regular resource - use standard detail dialog
+        source_item = find_source_item(source_key)
         if source_item:
             from importer.web.components.entity_table import show_entity_detail_dialog
             show_entity_detail_dialog(source_item, state)
     
     def on_configure_clone(source_key: str):
         """Configure clone for a resource set to Create New."""
-        # Find the source item
-        source_item = next((s for s in source_items if s.get("key") == source_key), None)
+        source_item = find_source_item(source_key)
         if not source_item:
             ui.notify(f"Source resource not found: {source_key}", type="negative")
             return
@@ -461,7 +600,8 @@ def _create_matching_content(
                     ui.label("How Matching Works").classes("font-semibold text-sm")
                     ui.label(
                         "Resources are auto-matched by exact name. Edit Action to change behavior: "
-                        "Match = import existing, Create New = create fresh, Skip = exclude from migration."
+                        "Match = import existing, Create New = create fresh, Skip = exclude from migration. "
+                        "Double-click a row to view details."
                     ).classes("text-xs text-slate-500")
             
             # Reset All Mappings button - use flat with explicit color for dark mode
@@ -648,10 +788,18 @@ def _create_navigation_with_grid_data(
             # - There are no confirmed mappings that need saving (all create-new)
             continue_enabled = state.map.mapping_file_valid or not has_unsaved_confirmed
             
+            def on_continue(unsaved=has_unsaved_confirmed):
+                # Mark mapping as valid if we're allowing continue without saving
+                # (this happens when all items are "Create New" - no matches to save)
+                if not unsaved and not state.map.mapping_file_valid:
+                    state.map.mapping_file_valid = True
+                    save_state()
+                on_step_change(WorkflowStep.CONFIGURE)
+            
             btn = ui.button(
                 f"Continue to {state.get_step_label(WorkflowStep.CONFIGURE)}",
                 icon="arrow_forward",
-                on_click=lambda: on_step_change(WorkflowStep.CONFIGURE),
+                on_click=on_continue,
             ).style(f"background-color: {DBT_ORANGE};")
             
             if not continue_enabled:

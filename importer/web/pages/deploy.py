@@ -1324,6 +1324,7 @@ def _get_terraform_env(state: AppState) -> dict:
     api_token = state.target_credentials.api_token
     account_id = state.target_credentials.account_id
     host_url = state.target_credentials.host_url
+    token_type = state.target_credentials.token_type
     
     # Normalize host URL: strip trailing slash and ensure /api suffix
     # This matches the e2e test pattern
@@ -1337,6 +1338,19 @@ def _get_terraform_env(state: AppState) -> dict:
     env["TF_VAR_dbt_account_id"] = str(account_id)
     env["TF_VAR_dbt_token"] = api_token
     env["TF_VAR_dbt_host_url"] = host_url
+    
+    # If using a PAT (user_token), also set TF_VAR_dbt_pat for GitHub App integration
+    # PATs can access the /integrations/github/installations/ endpoint
+    # Service tokens cannot, so they fall back to deploy_key strategy
+    # Also check token prefix as PATs start with 'dbtu_'
+    is_pat = token_type == "user_token" or (api_token and api_token.startswith("dbtu_"))
+    if is_pat:
+        env["TF_VAR_dbt_pat"] = api_token
+    
+    # Log PAT status for debugging
+    import logging
+    log = logging.getLogger(__name__)
+    log.info(f"Token type: {token_type}, Is PAT: {is_pat}, TF_VAR_dbt_pat set: {is_pat}")
     
     # DBT_CLOUD_* for provider fallback
     env["DBT_CLOUD_ACCOUNT_ID"] = str(account_id)
@@ -1619,6 +1633,16 @@ async def _run_terraform_plan(
     try:
         # Set TF_VAR_* environment variables for terraform
         env = _get_terraform_env(state)
+        
+        # Log PAT status
+        has_pat = "TF_VAR_dbt_pat" in env
+        terminal.info(f"Token type: {state.target_credentials.token_type}")
+        terminal.info(f"PAT configured: {'Yes' if has_pat else 'No'}")
+        if has_pat:
+            terminal.success("GitHub App integration will be attempted")
+        else:
+            terminal.warning("No PAT provided - repositories will use deploy key")
+        terminal.info("")
 
         result = await asyncio.to_thread(
             subprocess.run,

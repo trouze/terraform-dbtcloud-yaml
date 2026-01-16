@@ -6,11 +6,15 @@ import logging
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, List, Optional, Tuple
 
 from nicegui import ui
 
 from importer.web.state import AppState, WorkflowStep
+
+
+# Native integration strategies that require PAT for target operations
+NATIVE_INTEGRATION_STRATEGIES = {"github_app", "deploy_token", "azure_active_directory_app"}
 from importer.web.components.credential_form import (
     create_target_credential_form,
     validate_credentials,
@@ -37,6 +41,40 @@ DBT_ORANGE = "#FF694A"
 DBT_TEAL = "#047377"  # Primary color for target pages
 
 
+def _get_source_native_integration_repos(state: AppState) -> List[Tuple[str, str]]:
+    """Check if source has repositories using native integrations (github_app, deploy_token, etc.).
+    
+    Returns:
+        List of (repo_name, strategy) tuples for repos using native integrations.
+    """
+    if not state.fetch.last_report_items_file:
+        return []
+    
+    try:
+        report_path = Path(state.fetch.last_report_items_file)
+        if not report_path.exists():
+            return []
+        
+        report_items = json.loads(report_path.read_text(encoding="utf-8"))
+        native_repos = []
+        
+        for item in report_items:
+            if item.get("type") == "REP":
+                strategy = item.get("git_clone_strategy", "")
+                if strategy in NATIVE_INTEGRATION_STRATEGIES:
+                    name = item.get("name") or item.get("remote_url", "Unknown")
+                    native_repos.append((name, strategy))
+        
+        return native_repos
+    except Exception:
+        return []
+
+
+def _has_native_integration_repos(state: AppState) -> bool:
+    """Check if source has any repositories using native integrations."""
+    return len(_get_source_native_integration_repos(state)) > 0
+
+
 def create_fetch_target_page(
     state: AppState,
     on_step_change: Callable[[WorkflowStep], None],
@@ -60,6 +98,17 @@ def create_fetch_target_page(
     cancel_event = {"event": None}  # Will hold threading.Event during fetch
     fetch_complete = {"value": state.target_fetch.fetch_complete}
     
+    # Check for native integration repositories in source
+    native_repos = _get_source_native_integration_repos(state)
+    has_native_integrations = len(native_repos) > 0
+    
+    # Auto-set token type to user_token (PAT) if native integrations detected
+    # and user hasn't explicitly set credentials yet
+    if has_native_integrations and state.target_credentials.token_type == "service_token":
+        if not state.target_credentials.api_token:  # Only auto-switch if no token set yet
+            state.target_credentials.token_type = "user_token"
+            save_state()
+    
     with ui.column().classes("w-full max-w-6xl mx-auto p-6 gap-4"):
         # Page header
         with ui.row().classes("w-full items-center gap-4"):
@@ -69,6 +118,34 @@ def create_fetch_target_page(
         ui.label(
             "Configure your target dbt Platform account credentials and fetch the existing infrastructure data."
         ).classes("text-slate-600 dark:text-slate-400")
+        
+        # Warning banner if source has native integration repositories
+        if has_native_integrations:
+            strategy_names = {
+                "github_app": "GitHub App",
+                "deploy_token": "GitLab Deploy Token",
+                "azure_active_directory_app": "Azure AD App",
+            }
+            repo_details = ", ".join([
+                f"{name} ({strategy_names.get(strategy, strategy)})"
+                for name, strategy in native_repos[:3]  # Show first 3
+            ])
+            if len(native_repos) > 3:
+                repo_details += f" and {len(native_repos) - 3} more"
+            
+            with ui.card().classes("w-full p-3 border-l-4 border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20"):
+                with ui.column().classes("gap-2"):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.icon("warning", size="sm").classes("text-yellow-600")
+                        ui.label("PAT Required for Native Git Integration").classes("font-semibold text-yellow-800 dark:text-yellow-200")
+                    ui.label(
+                        f"Source contains repositories using native integrations: {repo_details}. "
+                        "A Personal Access Token (PAT) is required to discover GitHub/GitLab/Azure integration IDs "
+                        "in the target account. Service tokens cannot access the integrations API."
+                    ).classes("text-sm text-yellow-700 dark:text-yellow-300")
+                    ui.label(
+                        "Use a User Token (PAT) below, or repositories will fall back to deploy key authentication."
+                    ).classes("text-xs text-yellow-600 dark:text-yellow-400 italic")
         
         # Info banner explaining target fetch purpose
         with ui.card().classes("w-full p-3 border-l-4").style(f"border-color: {DBT_TEAL};"):
@@ -470,6 +547,35 @@ async def _run_fetch(
             terminal.error(err)
         ui.notify("Please fix credential errors", type="negative")
         return
+    
+    # Check for native integration repos and warn if using service token
+    native_repos = _get_source_native_integration_repos(state)
+    if native_repos and creds.token_type == "service_token":
+        strategy_names = {
+            "github_app": "GitHub App",
+            "deploy_token": "GitLab Deploy Token",
+            "azure_active_directory_app": "Azure AD App",
+        }
+        repo_list = ", ".join([f"{name} ({strategy_names.get(s, s)})" for name, s in native_repos[:3]])
+        if len(native_repos) > 3:
+            repo_list += f" and {len(native_repos) - 3} more"
+        
+        terminal.warning("⚠️ PAT REQUIRED FOR NATIVE GIT INTEGRATIONS")
+        terminal.warning(f"Source has repositories using native integrations: {repo_list}")
+        terminal.warning("Service tokens cannot access the integrations API.")
+        terminal.warning("Repositories will fall back to deploy key authentication in the target.")
+        terminal.warning("")
+        terminal.warning("To preserve native integrations, please:")
+        terminal.warning("  1. Change Token Type to 'User Token (PAT)' above")
+        terminal.warning("  2. Enter a Personal Access Token (starts with 'dbtu_')")
+        terminal.warning("")
+        
+        ui.notify(
+            "Service token detected with native integrations - repositories will use deploy key. "
+            "Switch to User Token (PAT) for native integration support.",
+            type="warning",
+            timeout=10000,
+        )
 
     # Prevent double-fetch
     if fetch_in_progress["value"]:
@@ -625,7 +731,8 @@ async def _run_fetch(
         state.map.mapping_file_valid = False
         state.map.mapping_file_path = None
         
-        # Reset deployment option - it should be set at deployment time, not affect matching
+        # Reset configure and deployment state - these depend on matching
+        state.deploy.configure_complete = False
         state.deploy.disable_job_triggers = False
 
         save_state()
@@ -645,11 +752,8 @@ async def _run_fetch(
         
         ui.notify("Target fetch completed successfully!", type="positive")
 
-        # Dynamically add results section
-        if results_container is not None:
-            results_container.clear()
-            with results_container:
-                _create_results_section(state, on_step_change)
+        # Reload to refresh sidebar with updated step completion status
+        ui.navigate.reload()
 
     except FetchCancelledException:
         terminal.warning("")

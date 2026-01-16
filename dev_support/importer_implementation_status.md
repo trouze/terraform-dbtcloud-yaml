@@ -1,8 +1,8 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2026-01-16  
-**Current Importer Version:** 0.11.0  
-**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support
+**Current Importer Version:** 0.11.1  
+**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
 > 
@@ -666,6 +666,16 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2026-01-16 (v0.11.1)
+- **Version:** Incremented to 0.11.1 (patch release - Native Integration Detection)
+- **Native Integration Detection**: Auto-detects GitHub App, GitLab, Azure DevOps native integrations from source repositories
+- **PAT Auto-Switch**: Auto-switches target credentials to PAT when native integrations detected
+- **Warning Banner**: Displays warning on Fetch Target page when source has native integration repos
+- **Token Type Auto-Detection**: Token type detected from prefix (`dbtc_*` = Service Token, `dbtu_*` = PAT)
+- **Terraform Plan Logging**: Added terminal output showing token type and PAT configuration status
+- **git_clone_strategy Fix**: Fixed showing as `(sensitive value)` in Terraform plan output
+- **GitHub Integration Debug**: Enhanced Terraform module output for debugging GitHub App integration discovery
 
 ### 2026-01-16 (v0.11.0)
 - **Version:** Incremented to 0.11.0 (minor release - SAO Support)

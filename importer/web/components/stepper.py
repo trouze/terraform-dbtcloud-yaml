@@ -7,7 +7,9 @@ from nicegui import ui
 from importer.web import __version__
 from importer.web.state import (
     STEP_ICONS,
+    STEP_NAMES,
     WORKFLOW_LABELS,
+    WORKFLOW_UTILITIES,
     AppState,
     WorkflowStep,
     WorkflowType,
@@ -79,6 +81,16 @@ def create_nav_drawer(
 
         for index, step in enumerate(workflow_steps, start=1):
             _create_step_item(state, step, index, on_step_change)
+
+        # Utility items (not numbered, shown after workflow steps)
+        utility_steps = WORKFLOW_UTILITIES.get(state.workflow, [])
+        if utility_steps:
+            # Small divider/label for utilities section
+            ui.label("UTILITIES").classes(
+                "px-4 pt-4 pb-2 text-xs text-slate-500 font-semibold tracking-wider"
+            )
+            for step in utility_steps:
+                _create_utility_item(state, step, on_step_change)
 
         # Account cards section (below workflow)
         # Hide target card in Account Explorer workflow
@@ -191,6 +203,50 @@ def _create_step_item(
             ui.icon("lock", size="xs").classes("text-slate-600")
 
 
+def _create_utility_item(
+    state: AppState,
+    step: WorkflowStep,
+    on_step_change: Callable[[WorkflowStep], None],
+) -> None:
+    """Create a utility item in the navigation (no step number)."""
+    is_current = state.current_step == step
+    is_accessible = state.step_is_accessible(step)
+
+    # Determine styling
+    if is_current:
+        bg_style = f"background-color: {DBT_ORANGE};"
+        text_class = "text-white"
+        icon_class = "text-white"
+    elif is_accessible:
+        bg_style = ""
+        text_class = "text-white"
+        icon_class = "text-slate-400"
+    else:
+        bg_style = ""
+        text_class = "text-slate-600"
+        icon_class = "text-slate-600"
+
+    cursor_class = "cursor-pointer" if is_accessible else "cursor-not-allowed"
+    hover_class = "hover:bg-slate-700" if is_accessible and not is_current else ""
+
+    def handle_click():
+        if is_accessible:
+            on_step_change(step)
+        else:
+            ui.notify("No Terraform state file found - run deploy first", type="warning")
+
+    with ui.row().classes(
+        f"w-full px-4 py-2 items-center gap-3 {hover_class} {cursor_class}"
+    ).style(bg_style).on("click", handle_click):
+        # Icon only (no step number)
+        ui.icon(STEP_ICONS[step], size="sm").classes(icon_class)
+        ui.label(STEP_NAMES.get(step, step.name.title())).classes(f"flex-grow font-medium {text_class}")
+
+        # Lock indicator for inaccessible utilities
+        if not is_accessible:
+            ui.icon("lock", size="xs").classes("text-slate-600")
+
+
 def create_progress_header(state: AppState) -> None:
     """Create the progress header showing current step and overall progress."""
     is_light = state.theme == "light"
@@ -219,8 +275,12 @@ def create_progress_header(state: AppState) -> None:
         if state.current_step == WorkflowStep.HOME:
             step_text = "Home"
         else:
-            step_number = state.get_step_number(state.current_step) or state.current_step.value
-            step_text = f"Step {step_number} of {total_steps}: {state.get_step_label(state.current_step)}"
+            step_number = state.get_step_number(state.current_step)
+            if step_number:
+                step_text = f"Step {step_number} of {total_steps}: {state.get_step_label(state.current_step)}"
+            else:
+                # Utility step (not numbered) - just show the label
+                step_text = state.get_step_label(state.current_step)
 
         ui.label(step_text).classes("text-lg font-semibold").style(f"color: {text_color};")
 

@@ -1070,7 +1070,7 @@ def _create_action_panel(
             await _run_normalize(state, selection_manager, report_items, status_container, save_state)
         
         normalize_btn = ui.button(
-            "Generate Target Config",
+            "Generate Selected Source YAML",
             icon="settings_suggest",
             on_click=on_normalize,
         ).style(f"background-color: {DBT_ORANGE};").classes("w-full")

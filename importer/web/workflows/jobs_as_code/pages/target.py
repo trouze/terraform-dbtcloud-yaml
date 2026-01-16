@@ -103,6 +103,7 @@ def create_jac_target_page(
                         state.target_credentials.host_url = creds.get("host_url", "https://cloud.getdbt.com")
                         state.target_credentials.account_id = creds.get("account_id", "")
                         state.target_credentials.api_token = creds.get("api_token", "")
+                        state.target_credentials.token_type = creds.get("token_type", "service_token")
                         save_state()
                         ui.notify("Loaded credentials from .env", type="positive")
                         ui.navigate.reload()
@@ -132,9 +133,11 @@ def create_jac_target_page(
                                 creds["api_token"] = value
                     
                     if creds:
+                        from importer.web.env_manager import detect_token_type
                         state.target_credentials.host_url = creds.get("host_url", "https://cloud.getdbt.com")
                         state.target_credentials.account_id = creds.get("account_id", "")
                         state.target_credentials.api_token = creds.get("api_token", "")
+                        state.target_credentials.token_type = detect_token_type(creds.get("api_token", ""))
                         save_state()
                         ui.notify(f"Loaded credentials from {filename}", type="positive")
                         ui.navigate.reload()

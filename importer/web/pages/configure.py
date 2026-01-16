@@ -298,8 +298,14 @@ def _create_navigation_section(
         ).props("outline")
 
         # Continue button
+        def on_continue():
+            # Mark configure step as complete
+            state.deploy.configure_complete = True
+            save_state()
+            on_step_change(WorkflowStep.DEPLOY)
+        
         ui.button(
             "Continue to Deploy",
             icon="arrow_forward",
-            on_click=lambda: on_step_change(WorkflowStep.DEPLOY),
+            on_click=on_continue,
         ).style(f"background-color: {DBT_ORANGE};")

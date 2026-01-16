@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-01-16
+
+### Added
+- **Native Integration Detection**: Automatically detects GitHub App, GitLab, and Azure DevOps native integrations from source repositories
+  - Warning banner on Fetch Target page when source has native integration repos
+  - Lists affected repositories and explains PAT requirement
+  - Auto-switches target credentials to "User Token (PAT)" when native integrations detected
+  - Runtime warnings if user attempts to fetch with service token when native integrations are present
+- **GitHub Integration Debug Output**: Enhanced Terraform module output for debugging GitHub App integration discovery
+  - Shows PAT status, HTTP response code, and installation count
+  - Helps diagnose why `github_installation_id` might not be discovered
+
+### Changed
+- **Token Type Auto-Detection**: Token type is now automatically detected from the token prefix
+  - `dbtc_*` tokens are identified as Service Tokens
+  - `dbtu_*` tokens are identified as Personal Access Tokens (PAT)
+  - Replaced manual token type dropdown with read-only indicator chip
+  - Token type indicator updates dynamically when token value changes
+  - Load .env now always auto-detects from prefix (ignores stale `DBT_*_TOKEN_TYPE` values)
+  - Added `token_type` field to `SourceCredentials` (previously only on `TargetCredentials`)
+  - Save to .env now stores auto-detected `DBT_SOURCE_TOKEN_TYPE` and `DBT_TARGET_TOKEN_TYPE`
+- **Terraform Plan Logging**: Added terminal output showing token type and PAT configuration status during plan
+
+### Fixed
+- **git_clone_strategy Sensitivity**: Fixed `git_clone_strategy` showing as `(sensitive value)` in Terraform plan output
+  - Wrapped strategy value in `nonsensitive()` since it's just a strategy name, not sensitive data
+- **Report Items**: Added `git_clone_strategy` and `remote_url` to report items for proper native integration detection
+- **Token Type Corruption**: Fixed bug where `token_type` could be corrupted to a dictionary instead of string
+
 ## [0.11.0] - 2026-01-16
 
 ### Added

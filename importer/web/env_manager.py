@@ -10,6 +10,24 @@ from dotenv import dotenv_values, set_key
 from importer.web.state import AccountInfo
 
 
+def detect_token_type(api_token: str) -> str:
+    """Detect token type from prefix.
+
+    Args:
+        api_token: The API token string
+
+    Returns:
+        "user_token" if token starts with "dbtu_" (PAT),
+        "service_token" if token starts with "dbtc_" or other prefix.
+    """
+    if not api_token:
+        return "service_token"
+    if api_token.startswith("dbtu_"):
+        return "user_token"
+    # dbtc_ is service token, and treat unknown prefixes as service token
+    return "service_token"
+
+
 def find_env_file(start_dir: Optional[str] = None) -> Path:
     """Find the .env file, starting from given directory or current working directory.
 
@@ -86,14 +104,20 @@ def load_source_credentials_from_content(content: str) -> dict:
         content: String content of a .env file
 
     Returns:
-        Dictionary with keys: host_url, account_id, api_token
+        Dictionary with keys: host_url, account_id, api_token, token_type
     """
     values = parse_env_content(content)
+    api_token = values.get("DBT_SOURCE_API_TOKEN", "")
+    
+    # Always auto-detect token type from prefix (ignore stored value)
+    # Token prefixes are authoritative: dbtc_* = service_token, dbtu_* = user_token
+    token_type = detect_token_type(api_token)
 
     return {
         "host_url": values.get("DBT_SOURCE_HOST_URL", "https://cloud.getdbt.com"),
         "account_id": values.get("DBT_SOURCE_ACCOUNT_ID", ""),
-        "api_token": values.get("DBT_SOURCE_API_TOKEN", ""),
+        "api_token": api_token,
+        "token_type": token_type,
     }
 
 
@@ -107,12 +131,17 @@ def load_target_credentials_from_content(content: str) -> dict:
         Dictionary with keys: host_url, account_id, api_token, token_type
     """
     values = parse_env_content(content)
+    api_token = values.get("DBT_TARGET_API_TOKEN", "")
+    
+    # Always auto-detect token type from prefix (ignore stored value)
+    # Token prefixes are authoritative: dbtc_* = service_token, dbtu_* = user_token
+    token_type = detect_token_type(api_token)
 
     return {
         "host_url": values.get("DBT_TARGET_HOST_URL", "https://cloud.getdbt.com"),
         "account_id": values.get("DBT_TARGET_ACCOUNT_ID", ""),
-        "api_token": values.get("DBT_TARGET_API_TOKEN", ""),
-        "token_type": values.get("DBT_TARGET_TOKEN_TYPE", "service_token"),
+        "api_token": api_token,
+        "token_type": token_type,
     }
 
 
@@ -120,14 +149,20 @@ def load_source_credentials(env_path: Optional[str] = None) -> dict:
     """Load source dbt Cloud credentials from .env file.
 
     Returns:
-        Dictionary with keys: host_url, account_id, api_token
+        Dictionary with keys: host_url, account_id, api_token, token_type
     """
     values = load_env_values(env_path)
+    api_token = values.get("DBT_SOURCE_API_TOKEN", "")
+    
+    # Always auto-detect token type from prefix (ignore stored value)
+    # Token prefixes are authoritative: dbtc_* = service_token, dbtu_* = user_token
+    token_type = detect_token_type(api_token)
 
     return {
         "host_url": values.get("DBT_SOURCE_HOST_URL", "https://cloud.getdbt.com"),
         "account_id": values.get("DBT_SOURCE_ACCOUNT_ID", ""),
-        "api_token": values.get("DBT_SOURCE_API_TOKEN", ""),
+        "api_token": api_token,
+        "token_type": token_type,
     }
 
 
@@ -138,12 +173,17 @@ def load_target_credentials(env_path: Optional[str] = None) -> dict:
         Dictionary with keys: host_url, account_id, api_token, token_type
     """
     values = load_env_values(env_path)
+    api_token = values.get("DBT_TARGET_API_TOKEN", "")
+    
+    # Always auto-detect token type from prefix (ignore stored value)
+    # Token prefixes are authoritative: dbtc_* = service_token, dbtu_* = user_token
+    token_type = detect_token_type(api_token)
 
     return {
         "host_url": values.get("DBT_TARGET_HOST_URL", "https://cloud.getdbt.com"),
         "account_id": values.get("DBT_TARGET_ACCOUNT_ID", ""),
-        "api_token": values.get("DBT_TARGET_API_TOKEN", ""),
-        "token_type": values.get("DBT_TARGET_TOKEN_TYPE", "service_token"),
+        "api_token": api_token,
+        "token_type": token_type,
     }
 
 
@@ -151,6 +191,7 @@ def save_source_credentials(
     host_url: str,
     account_id: str,
     api_token: str,
+    token_type: Optional[str] = None,
     env_path: Optional[str] = None,
 ) -> Path:
     """Save source dbt Cloud credentials to .env file.
@@ -161,6 +202,7 @@ def save_source_credentials(
         host_url: dbt Cloud host URL
         account_id: dbt Cloud account ID
         api_token: API token (PAT or service token)
+        token_type: Token type - auto-detected from prefix if None
         env_path: Path to .env file. If None, uses default location.
 
     Returns:
@@ -176,10 +218,15 @@ def save_source_credentials(
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
 
+    # Auto-detect token type if not provided
+    if token_type is None:
+        token_type = detect_token_type(api_token)
+
     # Use python-dotenv's set_key to preserve formatting
     set_key(str(path), "DBT_SOURCE_HOST_URL", host_url)
     set_key(str(path), "DBT_SOURCE_ACCOUNT_ID", account_id)
     set_key(str(path), "DBT_SOURCE_API_TOKEN", api_token)
+    set_key(str(path), "DBT_SOURCE_TOKEN_TYPE", token_type)
 
     return path
 
@@ -188,7 +235,7 @@ def save_target_credentials(
     host_url: str,
     account_id: str,
     api_token: str,
-    token_type: str = "service_token",
+    token_type: Optional[str] = None,
     env_path: Optional[str] = None,
 ) -> Path:
     """Save target dbt Cloud credentials to .env file.
@@ -199,7 +246,7 @@ def save_target_credentials(
         host_url: dbt Cloud host URL
         account_id: dbt Cloud account ID
         api_token: API token
-        token_type: Token type ("service_token" or "user_token")
+        token_type: Token type - auto-detected from prefix if None
         env_path: Path to .env file. If None, uses default location.
 
     Returns:
@@ -214,6 +261,10 @@ def save_target_credentials(
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.touch()
+
+    # Auto-detect token type if not provided
+    if token_type is None:
+        token_type = detect_token_type(api_token)
 
     set_key(str(path), "DBT_TARGET_HOST_URL", host_url)
     set_key(str(path), "DBT_TARGET_ACCOUNT_ID", account_id)

@@ -5,11 +5,32 @@ from typing import Callable, Optional, Union
 from nicegui import ui
 from nicegui.events import UploadEventArguments
 
+from importer.web.env_manager import detect_token_type
 from importer.web.state import AppState, SourceCredentials, TargetCredentials
 
 
 # dbt brand colors
 DBT_ORANGE = "#FF694A"
+
+
+def _render_token_type_indicator(token_type: str) -> None:
+    """Render a token type indicator chip.
+    
+    Args:
+        token_type: "service_token" or "user_token"
+    """
+    if token_type == "user_token":
+        ui.chip(
+            "PAT (User Token)",
+            icon="person",
+            color="blue-5",
+        ).props("dense outline")
+    else:
+        ui.chip(
+            "Service Token",
+            icon="settings",
+            color="green-5",
+        ).props("dense outline")
 
 
 def create_source_credential_form(
@@ -97,6 +118,18 @@ def create_source_credential_form(
         ).classes("w-full mt-4").props('outlined type=number')
         account_input.on('update:model-value', lambda e: _update_account_id(creds, e.args, on_credentials_change))
 
+        # Track token type indicator reference for updates
+        token_type_indicator = {"container": None}
+        
+        def update_token_type_display():
+            """Update the token type indicator based on current token."""
+            detected = detect_token_type(creds.api_token)
+            creds.token_type = detected
+            if token_type_indicator["container"]:
+                token_type_indicator["container"].clear()
+                with token_type_indicator["container"]:
+                    _render_token_type_indicator(detected)
+        
         # API Token field with show/hide toggle
         with ui.row().classes("w-full items-end gap-2 mt-4"):
             token_input = ui.input(
@@ -106,13 +139,25 @@ def create_source_credential_form(
                 password=True,
                 password_toggle_button=True,
             ).classes("flex-grow").props('outlined')
-            token_input.on('update:model-value', lambda e: _update_token(creds, e.args, on_credentials_change))
+            
+            def on_token_change(e):
+                _update_token(creds, e.args, on_credentials_change)
+                update_token_type_display()
+            
+            token_input.on('update:model-value', on_token_change)
+
+        # Token type indicator (read-only, auto-detected from prefix)
+        with ui.row().classes("w-full mt-4 items-center gap-2"):
+            ui.label("Token Type:").classes("text-sm text-slate-600")
+            token_type_indicator["container"] = ui.row().classes("items-center gap-1")
+            with token_type_indicator["container"]:
+                _render_token_type_indicator(creds.token_type)
 
         # Help text
         with ui.row().classes("w-full mt-4 items-center gap-2"):
             ui.icon("info", size="xs").classes("text-slate-500")
             ui.label(
-                "Use a Personal Access Token (PAT) or Service Token with read permissions."
+                "Token type auto-detected: dbtc_* = Service Token, dbtu_* = PAT"
             ).classes("text-xs text-slate-500")
 
 
@@ -201,6 +246,18 @@ def create_target_credential_form(
         ).classes("w-full mt-4").props('outlined type=number')
         account_input.on('update:model-value', lambda e: _update_target_account_id(creds, e.args, on_credentials_change))
 
+        # Track token type indicator reference for updates
+        token_type_indicator = {"container": None}
+        
+        def update_token_type_display():
+            """Update the token type indicator based on current token."""
+            detected = detect_token_type(creds.api_token)
+            creds.token_type = detected
+            if token_type_indicator["container"]:
+                token_type_indicator["container"].clear()
+                with token_type_indicator["container"]:
+                    _render_token_type_indicator(detected)
+        
         # API Token field with show/hide toggle
         with ui.row().classes("w-full items-end gap-2 mt-4"):
             token_input = ui.input(
@@ -210,26 +267,25 @@ def create_target_credential_form(
                 password=True,
                 password_toggle_button=True,
             ).classes("flex-grow").props('outlined')
-            token_input.on('update:model-value', lambda e: _update_target_token(creds, e.args, on_credentials_change))
+            
+            def on_token_change(e):
+                _update_target_token(creds, e.args, on_credentials_change)
+                update_token_type_display()
+            
+            token_input.on('update:model-value', on_token_change)
 
-        # Token type selector
-        ui.select(
-            label="Token Type",
-            options={
-                "service_token": "Service Token",
-                "user_token": "User Token (PAT)",
-            },
-            value=creds.token_type,
-        ).classes("w-full mt-4").props('outlined').on(
-            'update:model-value',
-            lambda e: _update_target_token_type(creds, e.args, on_credentials_change)
-        )
+        # Token type indicator (read-only, auto-detected from prefix)
+        with ui.row().classes("w-full mt-4 items-center gap-2"):
+            ui.label("Token Type:").classes("text-sm text-slate-600")
+            token_type_indicator["container"] = ui.row().classes("items-center gap-1")
+            with token_type_indicator["container"]:
+                _render_token_type_indicator(creds.token_type)
 
         # Help text
         with ui.row().classes("w-full mt-4 items-center gap-2"):
             ui.icon("info", size="xs").classes("text-slate-500")
             ui.label(
-                "Target account needs write permissions for deployment."
+                "Token type auto-detected: dbtc_* = Service Token, dbtu_* = PAT"
             ).classes("text-xs text-slate-500")
 
 
@@ -271,13 +327,6 @@ def _update_target_account_id(creds: TargetCredentials, value: str, callback: Op
 def _update_target_token(creds: TargetCredentials, value: str, callback: Optional[Callable] = None) -> None:
     """Update API token in target credentials."""
     creds.api_token = value if value else ""
-    if callback:
-        callback(creds)
-
-
-def _update_target_token_type(creds: TargetCredentials, value: str, callback: Optional[Callable] = None) -> None:
-    """Update token type in target credentials."""
-    creds.token_type = value if value else "service_token"
     if callback:
         callback(creds)
 

@@ -130,6 +130,11 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
             for job in project.get("jobs", []):
                 if job.get("environment_key") != env_key:
                     continue
+                # Include environment_variable_overrides for derived resource counting
+                env_var_overrides = job.get("environment_variable_overrides", {})
+                # Include job_completion_trigger_condition for derived resource counting
+                job_settings = job.get("settings", {})
+                jctc = job_settings.get("job_completion_trigger_condition", {})
                 _register(
                     records,
                     job,
@@ -141,6 +146,8 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
                         "environment_key": env_key,
                         "environment_mapping_id": env_mapping_id,
                         "parent_project_id": project_mapping_id,
+                        "environment_variable_overrides": env_var_overrides,
+                        "job_completion_trigger_condition": jctc,
                     },
                 )
 
@@ -191,6 +198,8 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
                 "resource_group": "Repositories",
                 "parent_project_id": parent_project_mapping,
                 "project_name": parent_project_name,
+                "git_clone_strategy": resource.get("git_clone_strategy"),
+                "remote_url": resource.get("remote_url"),
             },
         )
 

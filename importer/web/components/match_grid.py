@@ -48,6 +48,9 @@ RESOURCE_TYPE_INFO = {
     "ENV": {"name": "Environment", "icon": "layers", "color": "#06B6D4"},
     "VAR": {"name": "Env Variable", "icon": "code", "color": "#A855F7"},
     "JOB": {"name": "Job", "icon": "schedule", "color": "#EF4444"},
+    "JEVO": {"name": "EnvVar Ovr", "icon": "tune", "color": "#F472B6"},  # Job Env Var Override
+    "JCTG": {"name": "Job Trigger", "icon": "play_circle", "color": "#FB923C"},  # Job Completion Trigger
+    "PREP": {"name": "Repo Link", "icon": "link", "color": "#C084FC"},  # Project Repository link
 }
 
 
@@ -93,15 +96,36 @@ def build_grid_data(
         m.get("source_key"): m for m in confirmed_mappings
     }
     
+    # Build repository lookup by key for project linking
+    repo_by_key: dict[str, dict] = {}
+    repo_by_parent_project: dict[str, dict] = {}
+    for item in source_items:
+        if item.get("element_type_code") == "REP":
+            repo_key = item.get("key") or item.get("element_mapping_id", "")
+            if repo_key:
+                repo_by_key[repo_key] = item
+            # Also index by parent project mapping id
+            parent_project_id = item.get("parent_project_id")
+            if parent_project_id:
+                repo_by_parent_project[parent_project_id] = item
+    
+    # Track which repositories have been added (to avoid duplicates)
+    added_repo_keys: set[str] = set()
+    
     rows = []
     for source in source_items:
-        source_key = source.get("key", "")
+        # Skip repositories in main loop - they'll be added under their parent project
+        if source.get("element_type_code") == "REP":
+            continue
+        # Use key if available, otherwise fall back to element_mapping_id
+        # (Environment variables often have key=null)
+        source_key = source.get("key") or source.get("element_mapping_id", "")
         source_name = source.get("name", "")
         source_type = source.get("element_type_code", "")
         source_id = source.get("dbt_id")
         project_name = source.get("project_name", "")
         
-        # Skip if no key
+        # Skip if no key (should rarely happen now with element_mapping_id fallback)
         if not source_key:
             continue
         
@@ -185,6 +209,165 @@ def build_grid_data(
             }
         
         rows.append(row)
+        
+        # If this is a "create_new" job, add its derived resources after it
+        if source_type == "JOB" and row["action"] == "create_new":
+            # Add job environment variable override rows
+            overrides = source.get("environment_variable_overrides", {})
+            if overrides:
+                for var_name, var_value in sorted(overrides.items()):
+                    override_key = f"{source_key}__override__{var_name}"
+                    override_row = {
+                        "source_key": override_key,
+                        "source_name": f"  ↳ {var_name}",  # Indented to show hierarchy
+                        "source_type": "JEVO",  # Job Env Var Override
+                        "source_id": None,
+                        "project_name": project_name,
+                        "action": "create_new",  # Overrides are always new
+                        "target_id": "",
+                        "target_name": "",
+                        "status": "pending",
+                        "confidence": "derived",  # Derived from job definition
+                        "clone_configured": False,
+                        "clone_name": "",
+                        "parent_job_key": source_key,  # Reference to parent job
+                        "parent_job_name": source_name,
+                    }
+                    rows.append(override_row)
+            
+            # Add job completion trigger row if present
+            jctc = source.get("job_completion_trigger_condition", {})
+            # Check if it has meaningful content (job_id or condition)
+            has_trigger = False
+            if isinstance(jctc, dict):
+                has_trigger = bool(jctc.get("job_id") or jctc.get("condition"))
+            if has_trigger:
+                trigger_key = f"{source_key}__trigger__completion"
+                trigger_row = {
+                    "source_key": trigger_key,
+                    "source_name": f"  ↳ Completion Trigger",
+                    "source_type": "JCTG",  # Job Completion Trigger
+                    "source_id": None,
+                    "project_name": project_name,
+                    "action": "create_new",
+                    "target_id": "",
+                    "target_name": "",
+                    "status": "pending",
+                    "confidence": "derived",
+                    "clone_configured": False,
+                    "clone_name": "",
+                    "parent_job_key": source_key,
+                    "parent_job_name": source_name,
+                }
+                rows.append(trigger_row)
+        
+        # If this is a project, add its repository and repo link underneath
+        if source_type == "PRJ":
+            # Find the repository linked to this project
+            repo = repo_by_parent_project.get(source.get("element_mapping_id"))
+            if not repo:
+                # Try by repository_key
+                repo_key = source.get("repository_key")
+                if repo_key:
+                    repo = repo_by_key.get(repo_key)
+            
+            if repo:
+                repo_source_key = repo.get("key") or repo.get("element_mapping_id", "")
+                if repo_source_key and repo_source_key not in added_repo_keys:
+                    added_repo_keys.add(repo_source_key)
+                    repo_name = repo.get("name", "")
+                    repo_id = repo.get("dbt_id")
+                    
+                    # Check if repository is confirmed
+                    repo_confirmed = confirmed_by_source_key.get(repo_source_key)
+                    if repo_confirmed:
+                        repo_row = {
+                            "source_key": repo_source_key,
+                            "source_name": f"  ↳ {repo_name}",  # Indented under project
+                            "source_type": "REP",
+                            "source_id": repo_id,
+                            "project_name": source_name,
+                            "action": "match",
+                            "target_id": str(repo_confirmed.get("target_id", "")),
+                            "target_name": repo_confirmed.get("target_name", ""),
+                            "status": "confirmed",
+                            "confidence": repo_confirmed.get("match_type", "manual"),
+                            "clone_configured": False,
+                            "clone_name": "",
+                        }
+                    else:
+                        # Try auto-match for repository
+                        repo_lookup_key = ("REP", repo_name)
+                        repo_clone_config = clone_by_key.get(repo_source_key)
+                        
+                        if repo_source_key in rejected_keys:
+                            repo_row = {
+                                "source_key": repo_source_key,
+                                "source_name": f"  ↳ {repo_name}",
+                                "source_type": "REP",
+                                "source_id": repo_id,
+                                "project_name": source_name,
+                                "action": "create_new",
+                                "target_id": "",
+                                "target_name": "",
+                                "status": "skipped",
+                                "confidence": "none",
+                                "clone_configured": repo_clone_config is not None,
+                                "clone_name": repo_clone_config.new_name if repo_clone_config else "",
+                            }
+                        elif repo_lookup_key in target_by_type_name:
+                            target_repo = target_by_type_name[repo_lookup_key]
+                            repo_row = {
+                                "source_key": repo_source_key,
+                                "source_name": f"  ↳ {repo_name}",
+                                "source_type": "REP",
+                                "source_id": repo_id,
+                                "project_name": source_name,
+                                "action": "match",
+                                "target_id": str(target_repo.get("dbt_id", "")),
+                                "target_name": target_repo.get("name", ""),
+                                "status": "pending",
+                                "confidence": "exact_match",
+                                "clone_configured": False,
+                                "clone_name": "",
+                            }
+                        else:
+                            repo_row = {
+                                "source_key": repo_source_key,
+                                "source_name": f"  ↳ {repo_name}",
+                                "source_type": "REP",
+                                "source_id": repo_id,
+                                "project_name": source_name,
+                                "action": "create_new",
+                                "target_id": "",
+                                "target_name": "",
+                                "status": "pending",
+                                "confidence": "none",
+                                "clone_configured": repo_clone_config is not None,
+                                "clone_name": repo_clone_config.new_name if repo_clone_config else "",
+                            }
+                    rows.append(repo_row)
+                    
+                    # Add repo link (derived resource) if project is create_new
+                    if row["action"] == "create_new":
+                        link_key = f"{source_key}__repo_link__{repo_source_key}"
+                        link_row = {
+                            "source_key": link_key,
+                            "source_name": f"    ↳ Link",  # Double indented under repo
+                            "source_type": "PREP",
+                            "source_id": None,
+                            "project_name": source_name,
+                            "action": "create_new",
+                            "target_id": "",
+                            "target_name": "",
+                            "status": "pending",
+                            "confidence": "derived",
+                            "clone_configured": False,
+                            "clone_name": "",
+                            "parent_project_key": source_key,
+                            "repository_key": repo_source_key,
+                        }
+                        rows.append(link_row)
     
     return rows
 
@@ -237,6 +420,17 @@ def create_match_grid(
     # Note: cellClassRules work better than cellRenderer for styling in NiceGUI
     column_defs = [
         {
+            "field": "details_btn",
+            "headerName": "",
+            "width": 50,
+            "maxWidth": 50,
+            "sortable": False,
+            "filter": False,
+            "resizable": False,
+            "cellStyle": {"textAlign": "center", "cursor": "pointer"},
+            ":cellRenderer": """params => '<span style="font-size: 16px; cursor: pointer;" title="View Details">🔍</span>'""",
+        },
+        {
             "field": "source_type",
             "headerName": "Type",
             "width": 110,
@@ -247,6 +441,7 @@ def create_match_grid(
                     'TOK': 'Token', 'GRP': 'Group', 'NOT': 'Notify',
                     'WEB': 'Webhook', 'PLE': 'PrivateLink', 'PRJ': 'Project',
                     'ENV': 'Environment', 'VAR': 'EnvVar', 'JOB': 'Job',
+                    'JEVO': 'EnvVar Ovr', 'JCTG': 'Job Trigger', 'PREP': 'Repo Link',
                 };
                 return types[params.value] || params.value;
             }""",
@@ -256,7 +451,11 @@ def create_match_grid(
                 "type-job": "x === 'JOB'",
                 "type-connection": "x === 'CON'",
                 "type-repository": "x === 'REP'",
-                "type-other": "!['PRJ','ENV','JOB','CON','REP'].includes(x)",
+                "type-envvar": "x === 'VAR'",
+                "type-override": "x === 'JEVO'",
+                "type-trigger": "x === 'JCTG'",
+                "type-projrepo": "x === 'PREP'",
+                "type-other": "!['PRJ','ENV','JOB','CON','REP','VAR','JEVO','JCTG','PREP'].includes(x)",
             },
         },
         {
@@ -422,6 +621,28 @@ def create_match_grid(
     
     grid.on("cellValueChanged", on_cell_changed)
     
+    # Handle cell click - trigger details when clicking the details button column
+    def on_cell_clicked(e):
+        if e.args:
+            col = e.args.get("colId", "")
+            if col == "details_btn":
+                data = e.args.get("data", {})
+                source_key = data.get("source_key", "")
+                if source_key and on_view_details:
+                    on_view_details(source_key)
+    
+    grid.on("cellClicked", on_cell_clicked)
+    
+    # Also handle cell double-click anywhere to view details
+    def on_cell_double_clicked(e):
+        if e.args:
+            data = e.args.get("data", {})
+            source_key = data.get("source_key", "")
+            if source_key and on_view_details:
+                on_view_details(source_key)
+    
+    grid.on("cellDoubleClicked", on_cell_double_clicked)
+    
     # Custom CSS for cell class rules and row classes - with dark mode support
     ui.add_css("""
         /* Row background colors based on status */
@@ -441,6 +662,10 @@ def create_match_grid(
         .type-job { color: #EF4444 !important; font-weight: 600; }
         .type-connection { color: #10B981 !important; font-weight: 600; }
         .type-repository { color: #8B5CF6 !important; font-weight: 600; }
+        .type-envvar { color: #6B8E6B !important; font-weight: 600; }
+        .type-override { color: #EAB308 !important; font-weight: 600; }
+        .type-trigger { color: #FB923C !important; font-weight: 600; }
+        .type-projrepo { color: #C084FC !important; font-weight: 600; }
         .type-other { color: #6B7280 !important; }
         
         /* Action column colors */
@@ -478,6 +703,10 @@ def create_match_grid(
         .dark .type-job, .body--dark .type-job { color: #F87171 !important; }
         .dark .type-connection, .body--dark .type-connection { color: #34D399 !important; }
         .dark .type-repository, .body--dark .type-repository { color: #A78BFA !important; }
+        .dark .type-envvar, .body--dark .type-envvar { color: #8FBC8F !important; }
+        .dark .type-override, .body--dark .type-override { color: #FACC15 !important; }
+        .dark .type-trigger, .body--dark .type-trigger { color: #FDBA74 !important; }
+        .dark .type-projrepo, .body--dark .type-projrepo { color: #D8B4FE !important; }
         
         /* Dark mode status colors */
         .dark .status-pending, .body--dark .status-pending { color: #FCD34D !important; }

@@ -38,9 +38,10 @@ locals {
   # Determine effective git clone strategy for each repository
   # If github_app is specified but no PAT available, fallback to deploy_key
   # When github_installation_id is provided, API automatically uses github_app, so we must match that
+  # Use nonsensitive() to prevent strategy string from inheriting PAT's sensitivity
   effective_git_clone_strategy = {
     for key, repo in local.resolve_repository :
-    key => (
+    key => nonsensitive(
       # If github_installation_id is provided, API will use github_app regardless of what we send
       # So we must set it to github_app to match API behavior and avoid replacement
       local.effective_github_installation_id[key] != null ? "github_app" :

@@ -47,7 +47,7 @@ STEP_NAMES = {
     WorkflowStep.MATCH: "Match Existing",
     WorkflowStep.CONFIGURE: "Configure Migration",
     WorkflowStep.DEPLOY: "Deploy",
-    WorkflowStep.DESTROY: "Destroy",
+    WorkflowStep.DESTROY: "Destroy Target Resources",
     # Jobs as Code Generator steps
     WorkflowStep.JAC_SELECT: "Select Workflow",
     WorkflowStep.JAC_FETCH: "Fetch Jobs",
@@ -97,7 +97,6 @@ WORKFLOW_STEPS = {
         WorkflowStep.MATCH,
         WorkflowStep.CONFIGURE,
         WorkflowStep.DEPLOY,
-        WorkflowStep.DESTROY,
     ],
     WorkflowType.ACCOUNT_EXPLORER: [
         WorkflowStep.FETCH_SOURCE,
@@ -119,8 +118,13 @@ WORKFLOW_STEPS = {
         WorkflowStep.MATCH,
         WorkflowStep.CONFIGURE,
         WorkflowStep.DEPLOY,
-        WorkflowStep.DESTROY,
     ],
+}
+
+# Utility steps shown in sidebar but not numbered (available after deploy)
+WORKFLOW_UTILITIES = {
+    WorkflowType.MIGRATION: [WorkflowStep.DESTROY],
+    WorkflowType.IMPORT_ADOPT: [WorkflowStep.DESTROY],
 }
 
 # No workflow-specific name overrides needed - all steps have descriptive names now
@@ -145,6 +149,7 @@ class SourceCredentials:
     host_url: str = "https://cloud.getdbt.com"
     account_id: str = ""
     api_token: str = ""
+    token_type: str = "service_token"  # or "user_token" - auto-detected from prefix
 
     def is_complete(self) -> bool:
         """Check if all required fields are filled."""
@@ -321,6 +326,7 @@ class DeployState:
     """State for the deploy step."""
 
     connection_configs: dict = field(default_factory=dict)
+    configure_complete: bool = False  # Set when user proceeds from Configure to Deploy
     files_generated: bool = False
     terraform_dir: str = ""  # Path to terraform output directory
     last_generate_output: str = ""  # Output from generate step
@@ -347,10 +353,25 @@ class DeployState:
     disable_job_triggers: bool = False  # When True, sets all job triggers to false in generated YAML
 
     def has_state_file(self) -> bool:
-        """Check if a Terraform state file exists."""
+        """Check if a Terraform state file exists.
+        
+        Checks the configured terraform_dir (or default deployments/migration).
+        Uses absolute paths based on project root.
+        """
         from pathlib import Path
-        tf_dir = self.terraform_dir or "deployments/migration"
-        state_path = Path(tf_dir) / "terraform.tfstate"
+        
+        # Get the project root (terraform-dbtcloud-yaml directory)
+        project_root = Path(__file__).parent.parent.parent.resolve()
+        
+        # Determine the terraform directory to check
+        tf_dir = self.terraform_dir if self.terraform_dir else "deployments/migration"
+        
+        # Make path absolute if needed
+        tf_path = Path(tf_dir)
+        if not tf_path.is_absolute():
+            tf_path = project_root / tf_path
+        
+        state_path = tf_path / "terraform.tfstate"
         return state_path.exists()
     
     def has_pending_imports(self) -> bool:
@@ -515,7 +536,7 @@ class AppState:
             # Match is complete when mapping file is valid
             return self.map.mapping_file_valid
         elif step == WorkflowStep.CONFIGURE:
-            return self.deploy.files_generated
+            return self.deploy.configure_complete
         elif step == WorkflowStep.DEPLOY:
             return self.deploy.apply_complete
         elif step == WorkflowStep.DESTROY:
@@ -539,7 +560,9 @@ class AppState:
 
     def step_is_accessible(self, step: WorkflowStep) -> bool:
         """Check if a workflow step can be accessed."""
-        if step != WorkflowStep.HOME and step not in self.workflow_steps():
+        # Check if step is in workflow steps OR utility steps
+        utility_steps = WORKFLOW_UTILITIES.get(self.workflow, [])
+        if step != WorkflowStep.HOME and step not in self.workflow_steps() and step not in utility_steps:
             return False
         if step == WorkflowStep.HOME:
             return True
@@ -746,7 +769,13 @@ class AppState:
                 "host_url", "https://cloud.getdbt.com"
             )
             state.target_credentials.account_id = tc.get("account_id", "")
-            state.target_credentials.token_type = tc.get("token_type", "service_token")
+            # Sanitize token_type - handle corrupted state values
+            token_type = tc.get("token_type", "service_token")
+            if isinstance(token_type, dict):
+                token_type = token_type.get("value", "service_token")
+            if token_type not in ("service_token", "user_token"):
+                token_type = "service_token"
+            state.target_credentials.token_type = token_type
 
         if "source_account" in data:
             sa = data["source_account"]
