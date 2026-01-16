@@ -117,7 +117,7 @@ def _create_header(state: AppState) -> None:
     with ui.card().classes("w-full p-4"):
         with ui.row().classes("w-full items-center justify-between"):
             with ui.column().classes("gap-1"):
-                ui.label("Scope Entities for Migration").classes("text-2xl font-bold")
+                ui.label("Select Entities for Migration").classes("text-2xl font-bold")
                 ui.label(
                     "Select which entities to include in the Terraform configuration"
                 ).classes("text-slate-600 dark:text-slate-400")
