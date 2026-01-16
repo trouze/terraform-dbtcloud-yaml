@@ -33,10 +33,10 @@ STEP_NAMES = {
     WorkflowStep.HOME: "Home",
     WorkflowStep.FETCH_SOURCE: "Fetch Source",
     WorkflowStep.EXPLORE_SOURCE: "Explore Source",
-    WorkflowStep.SCOPE: "Scope",
+    WorkflowStep.SCOPE: "Select Source",
     WorkflowStep.FETCH_TARGET: "Fetch Target",
     WorkflowStep.EXPLORE_TARGET: "Explore Target",
-    WorkflowStep.MATCH: "Match",
+    WorkflowStep.MATCH: "Match Existing",
     WorkflowStep.CONFIGURE: "Configure Migration",
     WorkflowStep.DEPLOY: "Deploy",
     WorkflowStep.DESTROY: "Destroy",
@@ -301,6 +301,9 @@ class DeployState:
     terraform_version: Optional[str] = None
     imports_file_generated: bool = False
     last_import_output: str = ""
+    
+    # Job trigger control
+    disable_job_triggers: bool = False  # When True, sets all job triggers to false in generated YAML
 
     def has_state_file(self) -> bool:
         """Check if a Terraform state file exists."""

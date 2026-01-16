@@ -230,6 +230,41 @@ def _create_provider_config_section(state: AppState, save_state: Callable[[], No
             ui.label(
                 "• User Token: Your personal API token from Account Settings"
             ).classes("text-xs text-slate-500")
+        
+        ui.separator().classes("my-4")
+        
+        # Migration Options
+        with ui.row().classes("items-center gap-2 mb-3"):
+            ui.icon("tune", size="sm").style(f"color: {DBT_TEAL};")
+            ui.label("Migration Options").classes("font-semibold")
+        
+        # Disable scheduled triggers toggle
+        def on_toggle_triggers(e):
+            state.deploy.disable_job_triggers = e.value
+            save_state()
+        
+        with ui.row().classes("w-full items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 rounded"):
+            with ui.column().classes("gap-1"):
+                with ui.row().classes("items-center gap-2"):
+                    ui.icon("schedule_send", size="sm").classes("text-amber-500")
+                    ui.label("Disable Scheduled Triggers").classes("font-medium")
+                ui.label(
+                    "Jobs will remain active (is_active=true) but all schedule triggers "
+                    "will be set to false, preventing automatic runs during migration."
+                ).classes("text-xs text-slate-500 max-w-lg")
+            
+            ui.switch(
+                value=state.deploy.disable_job_triggers,
+                on_change=on_toggle_triggers,
+            )
+        
+        if state.deploy.disable_job_triggers:
+            with ui.card().classes("w-full mt-2 p-2 border-l-2 border-amber-500 bg-amber-50 dark:bg-amber-900/20"):
+                with ui.row().classes("items-center gap-2"):
+                    ui.icon("info", size="xs").classes("text-amber-600")
+                    ui.label(
+                        "Job triggers will be disabled. Remember to re-enable them after migration."
+                    ).classes("text-xs text-amber-700 dark:text-amber-300")
 
 
 def _update_token_type(state: AppState, value: str, save_state: Callable[[], None]) -> None:

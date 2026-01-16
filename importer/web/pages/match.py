@@ -98,19 +98,29 @@ def _create_header(state: AppState) -> None:
                     "Match source resources to existing target resources for Terraform import"
                 ).classes("text-slate-600 dark:text-slate-400")
             
-            # Show both account names
+            # Show both account details with ID and URL
             with ui.row().classes("gap-4"):
-                if state.fetch.account_name:
+                if state.fetch.account_name or state.source_account.account_id:
                     with ui.card().classes("p-2"):
-                        ui.label("Source").classes("text-xs text-slate-500")
-                        ui.label(state.fetch.account_name).classes("font-medium text-sm")
+                        ui.label("Source").classes("text-xs text-slate-500 font-semibold")
+                        ui.label(state.fetch.account_name or "Unknown").classes("font-medium text-sm")
+                        with ui.column().classes("gap-0 mt-1"):
+                            if state.source_account.account_id:
+                                ui.label(f"ID: {state.source_account.account_id}").classes("text-xs text-slate-400 font-mono")
+                            if state.source_account.host_url:
+                                ui.label(state.source_account.host_url).classes("text-xs text-slate-400 font-mono")
                 
                 ui.icon("arrow_forward").classes("text-slate-400 self-center")
                 
-                if state.target_fetch.account_name:
+                if state.target_fetch.account_name or state.target_account.account_id:
                     with ui.card().classes("p-2").style(f"border: 1px solid {DBT_TEAL};"):
-                        ui.label("Target").classes("text-xs text-slate-500")
-                        ui.label(state.target_fetch.account_name).classes("font-medium text-sm")
+                        ui.label("Target").classes("text-xs text-slate-500 font-semibold")
+                        ui.label(state.target_fetch.account_name or "Unknown").classes("font-medium text-sm")
+                        with ui.column().classes("gap-0 mt-1"):
+                            if state.target_account.account_id:
+                                ui.label(f"ID: {state.target_account.account_id}").classes("text-xs text-slate-400 font-mono")
+                            if state.target_account.host_url:
+                                ui.label(state.target_account.host_url).classes("text-xs text-slate-400 font-mono")
 
 
 def _create_prerequisite_message(
@@ -165,225 +175,254 @@ def _create_matching_content(
     target_items: list,
     save_state: Callable[[], None],
 ) -> None:
-    """Create the main matching interface."""
+    """Create the main matching interface with editable grid."""
+    from importer.web.components.match_grid import (
+        build_grid_data,
+        create_match_grid,
+        create_grid_toolbar,
+        export_mappings_to_csv,
+    )
     
-    # Generate suggestions if not already done
-    if not state.map.suggested_matches:
-        suggestions = generate_match_suggestions(source_items, target_items)
-        state.map.suggested_matches = [
-            {
-                "source_name": s.source_name,
-                "source_key": s.source_key,
-                "source_type": s.source_type,
-                "target_name": s.target_name,
-                "target_id": s.target_id,
-                "target_type": s.target_type,
-                "confidence": s.confidence,
-                "status": s.status,
-            }
-            for s in suggestions
-        ]
-        save_state()
+    # Build grid data from source/target items and existing mappings
+    rejected_keys = state.map.rejected_suggestions if isinstance(state.map.rejected_suggestions, set) else set(state.map.rejected_suggestions)
+    grid_row_data = build_grid_data(
+        source_items,
+        target_items,
+        state.map.confirmed_mappings,
+        rejected_keys,
+    )
     
-    # Convert suggested_matches to MatchSuggestion objects
-    suggestions = [
-        MatchSuggestion(
-            source_name=s["source_name"],
-            source_key=s["source_key"],
-            source_type=s["source_type"],
-            target_name=s["target_name"],
-            target_id=s["target_id"],
-            target_type=s["target_type"],
-            confidence=s.get("confidence", "exact_match"),
-            status=s.get("status", "suggested"),
-        )
-        for s in state.map.suggested_matches
-    ]
-    
-    # Stats summary
-    pending = sum(1 for s in suggestions if s.status == "suggested")
-    confirmed = len(state.map.confirmed_mappings)
-    rejected = len(state.map.rejected_suggestions)
+    # Stats from grid data
+    pending = sum(1 for r in grid_row_data if r.get("status") == "pending" and r.get("action") == "match")
+    confirmed = sum(1 for r in grid_row_data if r.get("status") == "confirmed")
+    create_new = sum(1 for r in grid_row_data if r.get("action") == "create_new")
+    skipped = sum(1 for r in grid_row_data if r.get("action") == "skip")
     
     with ui.row().classes("w-full gap-4 mb-4"):
         _create_stat_card("Pending", pending, "text-amber-600", "hourglass_empty")
         _create_stat_card("Confirmed", confirmed, "text-green-600", "check_circle")
-        _create_stat_card("Rejected", rejected, "text-slate-500", "cancel")
+        _create_stat_card("Create New", create_new, "text-orange-500", "add_circle")
+        _create_stat_card("Skip", skipped, "text-slate-500", "block")
         _create_stat_card("Source Items", len(source_items), "text-blue-600", "upload")
         _create_stat_card("Target Items", len(target_items), f"color: {DBT_TEAL}", "download")
     
-    # Info banner
-    with ui.card().classes("w-full p-3 mb-4").style(f"border-left: 4px solid {DBT_TEAL};"):
-        with ui.row().classes("items-start gap-2"):
-            ui.icon("info", size="sm").style(f"color: {DBT_TEAL};")
-            with ui.column().classes("gap-1"):
-                ui.label("How Matching Works").classes("font-semibold text-sm")
-                ui.label(
-                    "Resources are matched by exact name (case-sensitive). "
-                    "Confirm matches to import existing target resources into Terraform state, "
-                    "or reject them to create new resources instead."
-                ).classes("text-xs text-slate-500")
+    # Store grid row data in a mutable container for callbacks
+    grid_data_ref = {"data": grid_row_data}
     
-    # Two-column layout: Pending on left, Confirmed on right
-    with ui.row().classes("w-full gap-4"):
-        # Left: Pending Suggestions
-        with ui.card().classes("flex-1 p-4"):
-            ui.label("Pending Suggestions").classes("text-lg font-semibold mb-3")
-            
-            if pending == 0:
-                with ui.row().classes("items-center gap-2 p-4"):
-                    ui.icon("check_circle", size="md").classes("text-green-500")
-                    ui.label("All suggestions reviewed!").classes("text-slate-500")
-            else:
-                # Bulk actions
-                with ui.row().classes("w-full gap-2 mb-3"):
-                    def confirm_all():
-                        for s in state.map.suggested_matches:
-                            if s["status"] == "suggested":
-                                state.map.confirmed_mappings.append({
-                                    "resource_type": s["source_type"],
-                                    "source_name": s["source_name"],
-                                    "source_key": s["source_key"],
-                                    "target_id": s["target_id"],
-                                    "target_name": s["target_name"],
-                                    "match_type": "auto",
-                                })
-                                s["status"] = "confirmed"
-                        save_state()
-                        ui.navigate.reload()
-                    
-                    def reject_all():
-                        for s in state.map.suggested_matches:
-                            if s["status"] == "suggested":
-                                state.map.rejected_suggestions.add(s["source_key"])
-                                s["status"] = "rejected"
-                        save_state()
-                        ui.navigate.reload()
-                    
-                    ui.button(
-                        f"Confirm All ({pending})",
-                        icon="check",
-                        on_click=confirm_all,
-                    ).props("size=sm color=positive outline")
-                    
-                    ui.button(
-                        "Reject All",
-                        icon="close",
-                        on_click=reject_all,
-                    ).props("size=sm color=negative outline")
-                
-                # Suggestions list
-                with ui.element("div").style("max-height: 400px; overflow-y: auto;"):
-                    for s in suggestions:
-                        if s.status != "suggested":
-                            continue
-                        
-                        with ui.card().classes("w-full p-3 mb-2"):
-                            with ui.row().classes("w-full items-center justify-between"):
-                                with ui.column().classes("gap-0 flex-1"):
-                                    with ui.row().classes("items-center gap-2"):
-                                        ui.label(s.source_type).classes("text-xs px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700")
-                                        ui.label(s.source_name).classes("font-mono font-medium")
-                                    
-                                    with ui.row().classes("items-center gap-1 mt-1"):
-                                        ui.icon("arrow_forward", size="xs").classes("text-slate-400")
-                                        ui.label(f"{s.target_name} (ID: {s.target_id})").classes("text-xs text-slate-500")
-                                
-                                with ui.row().classes("gap-1"):
-                                    def make_confirm(suggestion):
-                                        def confirm():
-                                            state.map.confirmed_mappings.append({
-                                                "resource_type": suggestion.source_type,
-                                                "source_name": suggestion.source_name,
-                                                "source_key": suggestion.source_key,
-                                                "target_id": suggestion.target_id,
-                                                "target_name": suggestion.target_name,
-                                                "match_type": "auto",
-                                            })
-                                            for m in state.map.suggested_matches:
-                                                if m["source_key"] == suggestion.source_key:
-                                                    m["status"] = "confirmed"
-                                                    break
-                                            save_state()
-                                            ui.navigate.reload()
-                                        return confirm
-                                    
-                                    def make_reject(suggestion):
-                                        def reject():
-                                            state.map.rejected_suggestions.add(suggestion.source_key)
-                                            for m in state.map.suggested_matches:
-                                                if m["source_key"] == suggestion.source_key:
-                                                    m["status"] = "rejected"
-                                                    break
-                                            save_state()
-                                            ui.navigate.reload()
-                                        return reject
-                                    
-                                    ui.button(
-                                        icon="check",
-                                        on_click=make_confirm(s),
-                                    ).props("size=sm color=positive flat round")
-                                    ui.button(
-                                        icon="close",
-                                        on_click=make_reject(s),
-                                    ).props("size=sm color=negative flat round")
+    # Reset all mappings function
+    def reset_all_mappings():
+        """Reset all mappings and re-generate suggestions."""
+        # Clear confirmed mappings
+        state.map.confirmed_mappings = []
+        # Clear suggested matches
+        state.map.suggested_matches = []
+        # Clear rejected suggestions
+        state.map.rejected_suggestions = set()
+        # Invalidate mapping file
+        state.map.mapping_file_valid = False
         
-        # Right: Confirmed Mappings
-        with ui.card().classes("flex-1 p-4"):
-            ui.label("Confirmed Mappings").classes("text-lg font-semibold mb-3")
-            
-            if not state.map.confirmed_mappings:
-                with ui.row().classes("items-center gap-2 p-4"):
-                    ui.icon("info", size="md").classes("text-slate-400")
-                    ui.label("No confirmed mappings yet").classes("text-slate-500")
-            else:
-                with ui.element("div").style("max-height: 400px; overflow-y: auto;"):
-                    for mapping in state.map.confirmed_mappings:
-                        with ui.card().classes("w-full p-3 mb-2 border-l-2 border-green-500"):
-                            with ui.row().classes("w-full items-center justify-between"):
-                                with ui.column().classes("gap-0 flex-1"):
-                                    with ui.row().classes("items-center gap-2"):
-                                        ui.label(mapping.get("resource_type", "")).classes("text-xs px-2 py-0.5 rounded bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300")
-                                        ui.label(mapping.get("source_name", "")).classes("font-mono font-medium")
-                                    
-                                    with ui.row().classes("items-center gap-1 mt-1"):
-                                        ui.icon("arrow_forward", size="xs").classes("text-green-500")
-                                        ui.label(f"{mapping.get('target_name', '')} (ID: {mapping.get('target_id', '')})").classes("text-xs text-slate-500")
-                                
-                                def make_remove(m):
-                                    def remove():
-                                        state.map.confirmed_mappings.remove(m)
-                                        # Reset the suggestion status
-                                        for s in state.map.suggested_matches:
-                                            if s["source_key"] == m.get("source_key"):
-                                                s["status"] = "suggested"
-                                                break
-                                        save_state()
-                                        ui.navigate.reload()
-                                    return remove
-                                
-                                ui.button(
-                                    icon="delete",
-                                    on_click=make_remove(mapping),
-                                ).props("size=sm color=negative flat round")
+        # Delete mapping file if exists
+        if state.map.mapping_file_path:
+            mapping_path = Path(state.map.mapping_file_path)
+            if mapping_path.exists():
+                try:
+                    mapping_path.unlink()
+                except Exception as e:
+                    logging.warning(f"Could not delete mapping file: {e}")
+            state.map.mapping_file_path = None
+        
+        save_state()
+        ui.notify("All mappings reset. Suggestions will be regenerated.", type="info")
+        ui.navigate.reload()
     
-    # Save mapping file section
-    if state.map.confirmed_mappings:
+    def accept_all_pending():
+        """Accept all pending matches."""
+        for row in grid_data_ref["data"]:
+            if row.get("status") == "pending" and row.get("action") == "match" and row.get("target_id"):
+                state.map.confirmed_mappings.append({
+                    "resource_type": row.get("source_type"),
+                    "source_name": row.get("source_name"),
+                    "source_key": row.get("source_key"),
+                    "target_id": row.get("target_id"),
+                    "target_name": row.get("target_name"),
+                    "match_type": "auto" if row.get("confidence") == "exact_match" else "manual",
+                })
+        save_state()
+        ui.navigate.reload()
+    
+    def reject_all_pending():
+        """Reject all pending matches - set them to create new."""
+        for row in grid_data_ref["data"]:
+            if row.get("status") == "pending" and row.get("action") == "match":
+                if isinstance(state.map.rejected_suggestions, set):
+                    state.map.rejected_suggestions.add(row.get("source_key"))
+                else:
+                    state.map.rejected_suggestions = set(state.map.rejected_suggestions)
+                    state.map.rejected_suggestions.add(row.get("source_key"))
+        save_state()
+        ui.navigate.reload()
+    
+    async def export_csv():
+        """Export current mappings to CSV."""
+        csv_content = export_mappings_to_csv(grid_data_ref["data"])
+        escaped = csv_content.replace('`', '\\`')
+        await ui.run_javascript(f'''
+            const blob = new Blob([`{escaped}`], {{type: 'text/csv'}});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'resource_mappings.csv';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        ''')
+        ui.notify("CSV exported", type="positive")
+    
+    def on_row_change(row_data: dict):
+        """Handle row data changes from the grid."""
+        source_key = row_data.get("source_key")
+        action = row_data.get("action")
+        status = row_data.get("status")
+        
+        # Update grid data ref
+        for i, row in enumerate(grid_data_ref["data"]):
+            if row.get("source_key") == source_key:
+                grid_data_ref["data"][i] = row_data
+                break
+        
+        # If action is match and has valid target, it can be confirmed
+        # If action is skip or create_new, remove from confirmed if present
+        if action in ("skip", "create_new"):
+            state.map.confirmed_mappings = [
+                m for m in state.map.confirmed_mappings 
+                if m.get("source_key") != source_key
+            ]
+        
+        save_state()
+    
+    def on_accept(source_key: str):
+        """Accept a single suggestion."""
+        for row in grid_data_ref["data"]:
+            if row.get("source_key") == source_key:
+                if row.get("target_id"):
+                    state.map.confirmed_mappings.append({
+                        "resource_type": row.get("source_type"),
+                        "source_name": row.get("source_name"),
+                        "source_key": source_key,
+                        "target_id": row.get("target_id"),
+                        "target_name": row.get("target_name"),
+                        "match_type": "manual",
+                    })
+                    row["status"] = "confirmed"
+                break
+        save_state()
+        ui.navigate.reload()
+    
+    def on_reject(source_key: str):
+        """Reject a single suggestion."""
+        if isinstance(state.map.rejected_suggestions, set):
+            state.map.rejected_suggestions.add(source_key)
+        else:
+            state.map.rejected_suggestions = set(state.map.rejected_suggestions)
+            state.map.rejected_suggestions.add(source_key)
+        save_state()
+        ui.navigate.reload()
+    
+    def on_view_details(source_key: str):
+        """View details for a resource."""
+        # Find the source item
+        source_item = next((s for s in source_items if s.get("key") == source_key), None)
+        if source_item:
+            from importer.web.components.entity_table import show_entity_detail_dialog
+            show_entity_detail_dialog(source_item, state)
+    
+    # Info banner with Reset button
+    with ui.card().classes("w-full p-3 mb-4").style(f"border-left: 4px solid {DBT_TEAL};"):
+        with ui.row().classes("w-full items-start justify-between"):
+            with ui.row().classes("items-start gap-2"):
+                ui.icon("info", size="sm").style(f"color: {DBT_TEAL};")
+                with ui.column().classes("gap-1"):
+                    ui.label("How Matching Works").classes("font-semibold text-sm")
+                    ui.label(
+                        "Resources are auto-matched by exact name. Edit Action to change behavior: "
+                        "Match = import existing, Create New = create fresh, Skip = exclude from migration."
+                    ).classes("text-xs text-slate-500")
+            
+            # Reset All Mappings button
+            ui.button(
+                "Reset All Mappings",
+                icon="refresh",
+                on_click=reset_all_mappings,
+            ).props("outline color=negative size=sm").tooltip(
+                "Clear all mappings and regenerate suggestions"
+            )
+    
+    # Grid toolbar
+    create_grid_toolbar(
+        grid_row_data,
+        on_accept_all=accept_all_pending,
+        on_reject_all=reject_all_pending,
+        on_reset_all=reset_all_mappings,
+        on_export_csv=export_csv,
+    )
+    
+    # Main grid in a card
+    with ui.card().classes("w-full p-4").style("height: 400px;"):
+        grid, _ = create_match_grid(
+            source_items,
+            target_items,
+            state.map.confirmed_mappings,
+            rejected_keys,
+            on_row_change=on_row_change,
+            on_accept=on_accept,
+            on_reject=on_reject,
+            on_view_details=on_view_details,
+        )
+    
+    # Save mapping file section (show if there are any confirmed or pending matches)
+    has_matches = any(r.get("action") == "match" and r.get("target_id") for r in grid_row_data)
+    confirmed_count = sum(1 for r in grid_row_data if r.get("status") == "confirmed")
+    pending_match_count = sum(1 for r in grid_row_data if r.get("status") == "pending" and r.get("action") == "match" and r.get("target_id"))
+    
+    if has_matches:
         with ui.card().classes("w-full p-4 mt-4").style(f"border: 2px solid {DBT_TEAL};"):
             with ui.row().classes("w-full items-center justify-between"):
                 with ui.column().classes("gap-1"):
                     ui.label("Save Mapping File").classes("font-semibold")
-                    ui.label(
-                        f"{len(state.map.confirmed_mappings)} confirmed mappings ready to save"
-                    ).classes("text-sm text-slate-500")
+                    if confirmed_count > 0:
+                        ui.label(
+                            f"{confirmed_count} confirmed mappings"
+                        ).classes("text-sm text-green-600")
+                    if pending_match_count > 0:
+                        ui.label(
+                            f"{pending_match_count} pending matches (accept to include)"
+                        ).classes("text-sm text-amber-600")
                     
                     if state.map.mapping_file_path:
                         ui.label(f"Last saved: {state.map.mapping_file_path}").classes("text-xs text-green-600 mt-1")
                 
                 def save_mappings():
                     try:
+                        # Build confirmed mappings from grid data
+                        mappings_to_save = []
+                        for row in grid_data_ref["data"]:
+                            if row.get("status") == "confirmed" and row.get("target_id"):
+                                mappings_to_save.append({
+                                    "resource_type": row.get("source_type"),
+                                    "source_name": row.get("source_name"),
+                                    "source_key": row.get("source_key"),
+                                    "target_id": row.get("target_id"),
+                                    "target_name": row.get("target_name"),
+                                    "match_type": "auto" if row.get("confidence") == "exact_match" else "manual",
+                                })
+                        
+                        if not mappings_to_save:
+                            ui.notify("No confirmed mappings to save. Accept pending matches first.", type="warning")
+                            return
+                        
                         mapping = create_mapping_from_confirmations(
-                            state.map.confirmed_mappings,
+                            mappings_to_save,
                             state.source_account.account_id or "unknown",
                             state.target_account.account_id or "unknown",
                         )
@@ -397,6 +436,7 @@ def _create_matching_content(
                         else:
                             state.map.mapping_file_path = str(output_path)
                             state.map.mapping_file_valid = True
+                            state.map.confirmed_mappings = mappings_to_save
                             save_state()
                             ui.notify(f"Mapping saved to {output_path}", type="positive")
                             # Reload to update navigation button state
@@ -416,11 +456,15 @@ def _create_matching_content(
                         ui.notify("Mapping file not found. Save the mapping first.", type="warning")
                 
                 with ui.row().classes("gap-2"):
-                    ui.button(
+                    save_btn = ui.button(
                         "Save Mapping File",
                         icon="save",
                         on_click=save_mappings,
                     ).style(f"background-color: {DBT_TEAL};")
+                    
+                    if confirmed_count == 0:
+                        save_btn.disable()
+                        save_btn.tooltip("Accept pending matches first")
                     
                     if state.map.mapping_file_path:
                         ui.button(

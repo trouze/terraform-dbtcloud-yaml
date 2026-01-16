@@ -47,6 +47,7 @@ def create_explore_target_page(
             report_tab = ui.tab("Report", icon="article")
             entities_tab = ui.tab("Entities", icon="table_chart")
             charts_tab = ui.tab("Charts", icon="bar_chart")
+            erd_tab = ui.tab("ERD", icon="account_tree")
         
         # Row 3: Tab panels (1fr - takes remaining space)
         with ui.tab_panels(tabs, value=summary_tab).classes("w-full").style(
@@ -63,6 +64,9 @@ def create_explore_target_page(
             
             with ui.tab_panel(charts_tab).style("width: 100%; height: 100%; overflow: auto;"):
                 _create_charts_tab(report_items, state)
+            
+            with ui.tab_panel(erd_tab).style("width: 100%; height: 100%; overflow: hidden;"):
+                _create_erd_tab(report_items, state)
         
         # Row 4: Navigation buttons (auto height)
         _create_navigation(state, on_step_change)
@@ -165,6 +169,10 @@ def _load_report_items(state: AppState) -> list:
 
 def _create_summary_tab(content: str, state: AppState) -> None:
     """Create the Summary tab content."""
+    from importer.web.utils.markdown_exporter import (
+        format_summary_as_markdown,
+        generate_download_filename,
+    )
     
     async def copy_markdown():
         if content:
@@ -177,6 +185,40 @@ def _create_summary_tab(content: str, state: AppState) -> None:
         else:
             ui.notify("No content to copy", type="warning")
     
+    async def download_markdown():
+        if not content:
+            ui.notify("No content to download", type="warning")
+            return
+        
+        # Format with header
+        formatted = format_summary_as_markdown(
+            content,
+            state.target_fetch.account_name or "Unknown",
+            state.target_account.account_id,
+            state.target_account.host_url,
+        )
+        
+        # Generate filename
+        filename = generate_download_filename(
+            "summary_target",
+            state.target_fetch.account_name or "account",
+        )
+        
+        # Trigger download
+        escaped = formatted.replace('`', '\\`').replace('\\', '\\\\')
+        await ui.run_javascript(f'''
+            const blob = new Blob([`{escaped}`], {{type: 'text/markdown'}});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = '{filename}';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        ''')
+        ui.notify(f"Downloaded {filename}", type="positive")
+    
     with ui.element("div").style(
         "display: grid; "
         "grid-template-rows: auto 1fr; "
@@ -185,7 +227,7 @@ def _create_summary_tab(content: str, state: AppState) -> None:
         "gap: 8px; "
         "overflow: hidden;"
     ):
-        # Header with icon, copy button, and refresh button (auto height)
+        # Header with icon, copy button, download button, and refresh button (auto height)
         with ui.row().classes("w-full items-center justify-between"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("summarize", size="sm").style(f"color: {DBT_TEAL};")
@@ -195,6 +237,11 @@ def _create_summary_tab(content: str, state: AppState) -> None:
                     "Copy Markdown",
                     icon="content_copy",
                     on_click=copy_markdown,
+                ).props("flat dense")
+                ui.button(
+                    "Download",
+                    icon="download",
+                    on_click=download_markdown,
                 ).props("flat dense")
                 ui.button(
                     "Refresh",
@@ -217,6 +264,10 @@ def _create_summary_tab(content: str, state: AppState) -> None:
 
 def _create_report_tab(content: str, state: AppState) -> None:
     """Create the Report tab content."""
+    from importer.web.utils.markdown_exporter import (
+        format_report_as_markdown,
+        generate_download_filename,
+    )
     
     async def copy_markdown():
         if content:
@@ -229,6 +280,40 @@ def _create_report_tab(content: str, state: AppState) -> None:
         else:
             ui.notify("No content to copy", type="warning")
     
+    async def download_markdown():
+        if not content:
+            ui.notify("No content to download", type="warning")
+            return
+        
+        # Format with header
+        formatted = format_report_as_markdown(
+            content,
+            state.target_fetch.account_name or "Unknown",
+            state.target_account.account_id,
+            state.target_account.host_url,
+        )
+        
+        # Generate filename
+        filename = generate_download_filename(
+            "report_target",
+            state.target_fetch.account_name or "account",
+        )
+        
+        # Trigger download
+        escaped = formatted.replace('`', '\\`').replace('\\', '\\\\')
+        await ui.run_javascript(f'''
+            const blob = new Blob([`{escaped}`], {{type: 'text/markdown'}});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = '{filename}';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        ''')
+        ui.notify(f"Downloaded {filename}", type="positive")
+    
     with ui.element("div").style(
         "display: grid; "
         "grid-template-rows: auto 1fr; "
@@ -237,7 +322,7 @@ def _create_report_tab(content: str, state: AppState) -> None:
         "gap: 8px; "
         "overflow: hidden;"
     ):
-        # Header with icon, search box, copy button, and refresh button (auto height)
+        # Header with icon, search box, copy button, download button, and refresh button (auto height)
         with ui.row().classes("w-full items-center gap-4"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("article", size="sm").style(f"color: {DBT_TEAL};")
@@ -252,6 +337,11 @@ def _create_report_tab(content: str, state: AppState) -> None:
                     "Copy Markdown",
                     icon="content_copy",
                     on_click=copy_markdown,
+                ).props("flat dense")
+                ui.button(
+                    "Download",
+                    icon="download",
+                    on_click=download_markdown,
                 ).props("flat dense")
                 ui.button("Refresh", icon="refresh").props("flat dense")
         
@@ -304,6 +394,77 @@ def _create_charts_tab(report_items: list, state: AppState) -> None:
             
             # Pass is_target=True to use teal color palette
             create_charts(report_items, state, is_target=True)
+
+
+def _create_erd_tab(report_items: list, state: AppState) -> None:
+    """Create the ERD tab with interactive graph visualization."""
+    from importer.web.components.erd_viewer import create_erd_viewer
+    from importer.web.components.entity_table import show_entity_detail_dialog
+
+    # #region agent log
+    import json as _json
+    import time as _time
+
+    def _log_debug(message: str, data: dict) -> None:
+        with open(
+            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log",
+            "a",
+            encoding="utf-8",
+        ) as _f:
+            _f.write(
+                _json.dumps(
+                    {
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "H7",
+                        "location": "explore_target.py:_create_erd_tab",
+                        "message": message,
+                        "data": data,
+                        "timestamp": int(_time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+
+    _log_debug(
+        "ERD tab render",
+        {"report_items_count": len(report_items), "has_items": bool(report_items)},
+    )
+    # #endregion
+    
+    def on_node_click(node_data: dict):
+        """Handle node click to show entity details."""
+        # Find the corresponding report item
+        node_key = node_data.get("id")
+        for item in report_items:
+            if item.get("key") == node_key:
+                show_entity_detail_dialog(item, state)
+                break
+    
+    with ui.element("div").style(
+        "display: grid; "
+        "grid-template-rows: 1fr; "
+        "width: 100%; "
+        "height: 100%; "
+        "overflow: hidden;"
+    ):
+        if not report_items:
+            # #region agent log
+            _log_debug("ERD tab empty state", {})
+            # #endregion
+            with ui.card().classes("w-full p-6 text-center"):
+                ui.icon("account_tree", size="2rem").classes("text-slate-400")
+                ui.label("No entity data available for ERD").classes("text-slate-500 mt-2")
+                ui.label("Run the Fetch Target step to load account entities.").classes("text-sm text-slate-400")
+            return
+        
+        # #region agent log
+        _log_debug("ERD viewer create start", {})
+        # #endregion
+        create_erd_viewer(report_items, on_node_click=on_node_click, is_target=True)
+        # #region agent log
+        _log_debug("ERD viewer create end", {})
+        # #endregion
 
 
 def _create_navigation(state: AppState, on_step_change: Callable[[WorkflowStep], None]) -> None:
