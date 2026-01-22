@@ -1174,6 +1174,11 @@ def _save_all_configs(
         # Always include credential_type - required by Terraform
         if config.credential_type:
             values_to_save["credential_type"] = config.credential_type
+        
+        # Ensure required fields are present for Snowflake credentials
+        # The Terraform provider requires 'schema' when semantic_layer_credential is false
+        if config.credential_type == "snowflake" and not values_to_save.get("schema"):
+            values_to_save["schema"] = "dummy_schema"
 
         if values_to_save or config.use_dummy_credentials:
             try:

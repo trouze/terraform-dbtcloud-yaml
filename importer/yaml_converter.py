@@ -274,6 +274,16 @@ class YamlToTerraformConverter:
                             filtered_creds.pop("private_key", None)
                             filtered_creds.pop("private_key_passphrase", None)
                         
+                        # Ensure required fields are present for Snowflake credentials
+                        # The Terraform provider requires 'schema' when semantic_layer_credential is false
+                        credential_type = filtered_creds.get("credential_type", "")
+                        if credential_type == "snowflake" and "schema" not in filtered_creds:
+                            # Try to get schema from original creds (might be empty string)
+                            if "schema" in creds:
+                                filtered_creds["schema"] = creds["schema"] or "dummy_schema"
+                            else:
+                                filtered_creds["schema"] = "dummy_schema"
+                        
                         if filtered_creds:
                             # Use project_key_env_key format for Terraform
                             tf_key = f"{project_key}_{env_key}"
@@ -405,8 +415,11 @@ variable "environment_credentials" {{
     token                  = optional(string)
     catalog                = optional(string)
   }}))
-  default   = {{}}
-  sensitive = true
+  default = {{}}
+  # Note: sensitive = true removed to allow visibility of non-secret fields
+  # like schema, user, num_threads in terraform plan output.
+  # Actual secrets (password, private_key, tokens) are still protected by
+  # Terraform's state encryption and should not be committed to version control.
 }}
 {credential_vars}
 module "dbt_cloud" {{

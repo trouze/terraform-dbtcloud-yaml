@@ -1,7 +1,6 @@
 """Interactive ERD viewer component using Cytoscape.js."""
 
 from typing import Callable, Optional
-import inspect
 import json
 import uuid
 
@@ -167,10 +166,8 @@ def create_erd_viewer(
                     f'<div id="{container_id}" style="width: 100%; height: 400px; '
                     'background: #1e293b; border-radius: 8px;"></div>'
                 )
-                if "sanitize" in inspect.signature(ui.html).parameters:
-                    ui.html(html_content, sanitize=False)
-                else:
-                    ui.html(html_content)
+                # sanitize=False required for raw HTML content
+                ui.html(html_content, sanitize=False)
             
             # Load Cytoscape and initialize graph
             # Use base64 encoding to safely transmit JSON data

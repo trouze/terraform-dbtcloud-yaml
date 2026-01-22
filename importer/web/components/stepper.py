@@ -15,6 +15,7 @@ from importer.web.state import (
     WorkflowType,
 )
 from importer.web.components.account_selector import create_account_cards
+from importer.web.licensing import LicenseTier, TIER_DISPLAY_NAMES
 
 
 # dbt brand colors
@@ -58,6 +59,23 @@ def create_nav_drawer(
                 with ui.row().classes("w-full justify-end"):
                     ui.label(f"v{__version__}").classes("text-xs text-slate-500")
 
+        # License tier indicator
+        try:
+            tier = LicenseTier(state.license_tier)
+        except ValueError:
+            tier = LicenseTier.EXPLORER
+
+        tier_name = TIER_DISPLAY_NAMES.get(tier, "Explorer")
+        tier_color = (
+            "green" if tier in (LicenseTier.RESIDENT_ARCHITECT, LicenseTier.ENGINEERING)
+            else "yellow" if tier == LicenseTier.SOLUTIONS_ARCHITECT
+            else "slate"
+        )
+
+        with ui.row().classes("w-full px-4 pt-3 pb-1 items-center justify-center gap-2"):
+            ui.icon("verified_user", size="xs").classes(f"text-{tier_color}-400")
+            ui.label(tier_name).classes(f"text-xs text-{tier_color}-400 font-medium")
+
         # Workflow selector
         workflow_options = {
             WorkflowType.MIGRATION: WORKFLOW_LABELS[WorkflowType.MIGRATION],
@@ -78,7 +96,7 @@ def create_nav_drawer(
             options=workflow_options,
             value=state.workflow,
             on_change=handle_workflow_change,
-        ).props("dense outlined").classes("w-full px-4 pt-4 pb-3")
+        ).props("dense outlined").classes("w-full px-4 pt-1 pb-3")
 
         with ui.row().classes("px-4 pb-2 items-center gap-2 text-xs text-slate-500"):
             ui.icon("hourglass_empty", size="xs").classes("text-slate-500")

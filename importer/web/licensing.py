@@ -305,9 +305,9 @@ class LicenseManager:
 
         if self._is_bypass_enabled():
             self._cached_status = LicenseStatus.valid(
-                "license-bypass", tier=LicenseTier.ENGINEERING
+                "license-bypass", tier=LicenseTier.RESIDENT_ARCHITECT
             )
-            self._cached_status.message = "License bypass enabled via MAGELLAN_LICENSE_BYPASS"
+            self._cached_status.message = "License bypass enabled (Resident Architect access)"
             return self._cached_status
         
         # Get credentials from environment

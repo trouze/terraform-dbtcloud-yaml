@@ -6,12 +6,17 @@ from typing import Callable, Optional
 
 from nicegui import ui
 
+import os
+
+from dotenv import set_key
+
 from importer.web.env_manager import (
     find_env_file,
     load_license_credentials,
     save_license_credentials,
 )
 from importer.web.licensing import (
+    ENV_LICENSE_BYPASS,
     LicenseTier,
     TIER_FEATURES,
     TIER_DISPLAY_NAMES,
@@ -233,8 +238,11 @@ def _create_license_panel(
                     on_change=lambda e: key_value.update({"value": e.value}),
                 ).props("dense outlined").classes("flex-grow")
 
+            # Check current bypass status
+            bypass_enabled = os.getenv(ENV_LICENSE_BYPASS, "").lower() in {"1", "true", "yes", "on"}
+
             # Action buttons
-            with ui.row().classes("w-full gap-2 mt-2"):
+            with ui.row().classes("w-full gap-2 mt-2 items-center"):
 
                 def do_load_env():
                     """Load credentials from .env file."""
@@ -285,6 +293,33 @@ def _create_license_panel(
                     # Reload page to reflect changes
                     ui.navigate.reload()
 
+                def do_toggle_bypass(enabled: bool):
+                    """Toggle license bypass and refresh state."""
+                    env_path = find_env_file()
+                    set_key(str(env_path), ENV_LICENSE_BYPASS, "true" if enabled else "false")
+                    os.environ[ENV_LICENSE_BYPASS] = "true" if enabled else "false"
+
+                    # Clear cache and refresh
+                    manager = get_license_manager()
+                    manager.clear_cache()
+                    status = manager.verify(force_refresh=True)
+
+                    # Update state
+                    state.is_migration_licensed = status.is_valid
+                    state.license_tier = status.tier.value
+                    state.license_email = status.email or ""
+                    state.license_message = status.message
+
+                    if save_state:
+                        save_state()
+
+                    tier_name = "Resident Architect" if enabled else "Explorer"
+                    ui.notify(
+                        f"Bypass {'enabled' if enabled else 'disabled'} ({tier_name} access)",
+                        type="positive" if enabled else "info",
+                    )
+                    ui.navigate.reload()
+
                 ui.button("Load from .env", icon="upload_file", on_click=do_load_env).props(
                     "flat dense"
                 )
@@ -294,6 +329,19 @@ def _create_license_panel(
                 ui.button("Verify License", icon="verified", on_click=do_verify).props(
                     "dense"
                 ).style("background-color: #FF694A;")
+
+                # Spacer
+                ui.element("div").classes("flex-grow")
+
+                # Bypass toggle
+                with ui.row().classes("items-center gap-2"):
+                    ui.switch(
+                        "Bypass (Resident Architect)",
+                        value=bypass_enabled,
+                        on_change=lambda e: do_toggle_bypass(bool(e.value)),
+                    ).props("dense").tooltip(
+                        "Temporarily grant Resident Architect access without license verification"
+                    )
 
             # Feature access table
             ui.separator().classes("mt-2")
