@@ -23,7 +23,7 @@
   - Failures create rework, delays, and risk exposure
   - Inconsistent migrations slow adoption and expansion
 - **Value Driver Mapping:** Improve Data Quality & Trust
-- **Talk Track:** "Today, dbt account migration is a high-risk, expert-only motion. You're stitching together manual scripts, native DB migrations, and Terraform importers that often sit **outside the dbt platform logic**, which **reduces manual rework** only when everything lines up perfectly."
+- **Talk Track:** "Today, dbt cloud to cloud account migration is a high-risk, expert-only motion. You're stitching together manual scripts, native DB migrations, and Terraform importers that often sit **outside the dbt platform logic**.  This means that every dependency needs to be handled correctly to avoid manual rework and troubleshooting"
 
 **Slide 2 — "Complexity you can't ignore"**
 - **Key Message:** dbt Platform's object model is deeply interconnected.
@@ -32,7 +32,7 @@
   - Projects → Environments → Jobs → Connections dependencies
   - One change often ripples across multiple objects
 - **Value Driver Mapping:** Improve Data Quality & Trust
-- **Talk Track:** "This ERD makes the risk real. A single project liniks to environments that link to jobs, connections, repos, tokens—miss one, and the deploy breaks. That's why you need platform-aware logic to **mitigate risk**."
+- **Talk Track:** "This ERD makes the risk real: A single project links to environments that link to jobs, connections, repos, tokens—miss one, and CLI migration workflow can break. That's why you need platform-aware logic wrapped in an opinionated workflow to **mitigate the risk**."
 
 **Slide 3 — "Introducing dbt Magellan"**
 - **Key Message:** A migration-ready tooling experience plus adoption into infrastructure as code.
@@ -43,7 +43,7 @@
   - **Adopt existing infrastructure into Terraform**
 
 - **Value Driver Mapping:** Improve Data Quality & Trust; Drive Efficiency & Reduce Cost
-- **Talk Track:** "dbt Magellan is a clean migration unlock and an adoption path into infrastructure as code. It lets Professional Services scale migrations by reducing the need for deep CLI/Terraform expertise, shifting the work to project management and external dependencies while standardizing migration scope and reducing drift risk."
+- **Talk Track:** "That's why we are introducing dbt Magellan. dbt Magellan is a self-contained, strongly opinionated, web based system, that puts a powerful but defined workflow on top of terraform and our administrative APIs. It also unlocks an adoption path into managing our infrastructure as code. With it, dbt's Professional Services team can scale the number and the speed of our migration engagements by reducing the need for deep CLI/Terraform expertise.
 
 **Slide 4 — "The real magic: guided expert workflow"**
 - **Key Message:** Guided steps cover edge cases while keeping sensible defaults.
@@ -53,7 +53,7 @@
   - Sensible defaults + assumptions to get to done
   - Full account or subset moves with dependencies intact
 - **Value Driver Mapping:** Improve Data Quality & Trust; Drive Efficiency & Reduce Cost
-- **Talk Track:** "The real magic is the guided workflow: it covers many edge cases and nuances common to complex customers, but still **accelerates time to value** with sensible defaults and advanced logic. That's how we **help reduce time to activation** without needing a migration expert on every engagement."
+- **Talk Track:** "The real magic to make this happen is the guided workflow: it covers many of the edge cases and nuances common to complex customers, but it still **accelerates time to value** with sensible defaults and advanced logic. That's how we **help reduce time to activation** without needing a platform and terraform expert on every engagement."
 
 **Slide 5 — "Licensing model & PS alignment"**
 - **Key Message:** We can run anywhere, but advanced migration is licensed to protect expertise and value.
@@ -63,7 +63,7 @@
   - Migration/normalize/deploy gated by license key
   - Supports PS-led engagements; flexibility later
 - **Value Driver Mapping:** Drive Efficiency & Reduce Cost
-- **Talk Track:** "We can ship the Docker image to run anywhere we want it to, but migration actions are **license-gated**. That protects the expert workflow as a paid PS engagement, while still allowing GTM employees to use exploratory features to scope the migration in advance."
+- **Talk Track:** "While we can ship the Docker image to run the system anywhere we need it to (including a customer laptop) migration actions are **license-gated**. That means that we protect the expert workflow so that it can only be run as part of an authorized Professional Services engagement. But, it will still allowing GTM and PS resources to use the exploratory features to scope the migration in advance of contracting paid services."
 
 **Slide 6 — "Quick UI tour (what it looks like)"**
 - **Key Message:** The UI makes complex migrations feel simple and safe.
@@ -73,7 +73,7 @@
   - Map step: select scope + handle dependencies
   - Deploy: plan/apply with real-time logs
 - **Value Driver Mapping:** Drive Efficiency & Reduce Cost
-- **Talk Track:** "This is the 'cool factor' slide: clear steps, filtering, charts, and a path from selection to deployment. The workflow **eliminates manual rework**."
+- **Talk Track:** "This is the 'cool factor' slide: clear steps, filtering, charts, and a path from selection to deployment. The workflow **reduces manual rework**."
 
 **Slide 7 — "Objection handling"**
 - **Key Message:** Handle common objections with platform-aware differentiation.
@@ -82,16 +82,16 @@
   - "We already have migration scripts."
   - "Why is it licensed?"
 - **Value Driver Mapping:** Improve Data Quality & Trust; Drive Efficiency & Reduce Cost
-- **Talk Track:** "We handle the three predictable objections head-on: platform-aware dependency logic, reduction in expert-only risk, and licensed access to protect the expert workflow for PS-led engagements."
+- **Talk Track:** "Now you might hear three questions when selling this. First: ‘Isn't this just a Terraform wrapper?’ No—this is additional platform‑aware logic built into an opinionated workflow using Terraform and our administrative APIs. Second: ‘We already have migration scripts or we'll just have ChatGPT write them up.’ Those scripts still require expert judgment on dependencies and understanding of our platform that is non-trival to acquire; Magellan reduces that expert‑only risk. Third: ‘Why is it licensed?’ This workflow and tooling represent hard‑won, expensive expertise that only dbt’s Professional Services team and a handful of others have, so the license gate protects our option on pricing the value delivered while still allowing exploration."
 
 **Slide 8 — "Seller takeaway"**
 - **Key Message:** A concrete migration story that closes risk objections.
 - **Content Bullets:**
-  - **Mitigate risk exposure** with controlled dependency handling
+  - **Reduce risk exposure** with controlled dependency handling
   - **Reduce time to activation** for account moves
   - Scales PS migrations by reducing expert-only bottlenecks
   - Shortens Onboard → Activation, sets up faster Adoption
-  - Adoption path into Terraform with an optional jobs-as-code path
+  - Supports adoption into Terraform with an optional jobs-as-code path
 - **Value Driver Mapping:** Improve Data Quality & Trust; Drive Efficiency & Reduce Cost
 - **Talk Track:** "For Sellers, this is both a migration wedge and a governance wedge. It **supports compliance readiness** while creating a more repeatable path to scale."
 

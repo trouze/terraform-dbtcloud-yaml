@@ -25,6 +25,11 @@ from importer.web.env_manager import (
     get_env_file_path,
 )
 from importer.web.components.connection_config import create_connection_config_section
+from importer.web.components.pem_validator import (
+    is_private_key_field,
+    normalize_private_key,
+    get_validation_status,
+)
 
 
 # dbt brand colors
@@ -926,6 +931,81 @@ def _create_credential_form_fields(
                     )
 
 
+def _create_private_key_field(
+    field: str,
+    label_text: str,
+    description: str,
+    current_value: Any,
+    form_data: Dict[str, Any],
+    on_change: Callable,
+) -> None:
+    """Create a private key field with textarea, auto-normalization, and validation badge.
+    
+    This field uses a textarea for multi-line input, normalizes the key on blur,
+    and shows a validation badge indicating the PEM format status.
+    """
+    # Container for validation badge reference
+    validation_badge_container = {"element": None}
+    
+    def update_validation_badge(key_value: str):
+        """Update the validation badge based on key validation."""
+        if validation_badge_container["element"]:
+            validation_badge_container["element"].clear()
+            status, message, color = get_validation_status(key_value)
+            with validation_badge_container["element"]:
+                if status == "valid":
+                    ui.badge("Valid", color="green").props("dense").classes("text-xs").tooltip(message)
+                elif status == "warning":
+                    ui.badge("Valid", color="yellow").props("dense").classes("text-xs").tooltip(message)
+                elif status == "invalid":
+                    ui.badge("Invalid", color="red").props("dense").classes("text-xs").tooltip(message)
+                # If empty, show nothing
+    
+    def on_blur(e):
+        """Normalize the key on blur and update validation."""
+        current_val = e.sender.value if hasattr(e, 'sender') and e.sender else ""
+        if current_val:
+            normalized = normalize_private_key(current_val)
+            if normalized != current_val:
+                e.sender.value = normalized
+                form_data[field] = normalized
+            update_validation_badge(normalized)
+        else:
+            update_validation_badge("")
+    
+    def on_input_change(e):
+        """Handle input changes."""
+        form_data[field] = e.value
+        on_change(e)
+        update_validation_badge(e.value)
+    
+    # Use a vertical layout for private key fields (more space needed)
+    with ui.column().classes("w-full gap-1"):
+        # Header row with label and validation badge
+        with ui.row().classes("w-full items-center justify-between"):
+            ui.label(label_text).classes("text-sm font-medium").tooltip(description)
+            # Validation badge container
+            validation_badge_container["element"] = ui.element("div").classes("flex items-center")
+        
+        # Textarea for private key input
+        textarea = ui.textarea(
+            value=str(current_value) if current_value else "",
+            placeholder="Paste your private key here (PEM format)...\n-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----",
+            on_change=on_input_change,
+        ).props("dense outlined rows=6").classes("w-full font-mono text-xs")
+        
+        # Bind blur event for auto-normalization
+        textarea.on("blur", on_blur)
+        
+        # Help text
+        ui.label(
+            "Key will be auto-formatted on blur. Supports PKCS#8 (preferred) and PKCS#1 formats."
+        ).classes("text-xs text-slate-500")
+        
+        # Initialize validation badge
+        update_validation_badge(str(current_value) if current_value else "")
+
+
 def _create_single_field(
     field: str,
     description: str,
@@ -973,6 +1053,19 @@ def _create_single_field(
     # Determine field type
     is_number = field in ["num_threads", "threads", "port"]
     is_boolean = field in ["use_latest_adapter"]
+    is_private_key = is_private_key_field(field)
+
+    # For private key fields, use a different layout with validation
+    if is_private_key:
+        _create_private_key_field(
+            field=field,
+            label_text=label_text,
+            description=description,
+            current_value=current_value,
+            form_data=form_data,
+            on_change=on_change,
+        )
+        return
 
     # Use CSS grid for precise column alignment
     # Grid: [Label 140px] [Input flex] [Indicator 100px] [Reset 40px]

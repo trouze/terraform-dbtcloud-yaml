@@ -6,6 +6,7 @@ from typing import Optional, Tuple
 from dotenv import dotenv_values, set_key
 
 from importer.web.state import AccountInfo
+from importer.web.components.pem_validator import is_private_key_field, normalize_private_key
 
 
 def detect_token_type(api_token: str) -> str:
@@ -670,6 +671,10 @@ def save_env_credential_config(
         # Convert booleans to string
         if isinstance(value, bool):
             value = "true" if value else "false"
+        
+        # Normalize private key fields to ensure proper PEM format
+        if is_private_key_field(field_name) and value:
+            value = normalize_private_key(str(value))
         
         set_key(str(path), env_key, str(value) if value is not None else "")
     

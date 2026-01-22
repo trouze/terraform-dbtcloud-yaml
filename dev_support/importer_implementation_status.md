@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2026-01-22  
-**Current Importer Version:** 0.12.3  
+**Current Importer Version:** 0.12.4  
 **Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -666,6 +666,14 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2026-01-22 (v0.12.4)
+- **Version:** Incremented to 0.12.4 (patch release - Private Key Validation & Normalization)
+- **PEM Validator Module**: New `pem_validator.py` with validation and normalization functions
+- **Auto-Normalization**: Private keys auto-reformatted on blur (fixes single-line pasted keys)
+- **Validation Badges**: Real-time UI feedback showing Valid/Invalid status with tooltips
+- **Enhanced Input**: Multi-line textarea for private key entry with monospace font
+- **Server-Side Normalization**: Keys normalized before saving to `.env` file
 
 ### 2026-01-22 (v0.12.3)
 - **Version:** Incremented to 0.12.3 (patch release - Private Key Escaping Fix)

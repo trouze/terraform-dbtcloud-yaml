@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.4] - 2026-01-22
+
+### Added
+- **Private Key Validation & Normalization**: Robust client-side and server-side handling for PEM private keys
+  - New `pem_validator.py` module with `normalize_private_key()`, `validate_private_key()`, and `get_validation_status()` functions
+  - Auto-reformats malformed keys on blur (fixes single-line pasted keys, normalizes whitespace, ensures 64-char line wrapping)
+  - Real-time validation badges: green "Valid", yellow "Valid" (with warning for PKCS#1), red "Invalid" with error tooltip
+  - Server-side normalization in `env_manager.py` before saving to `.env` file
+  - Support for PKCS#8 (preferred) and PKCS#1 PEM formats with appropriate warnings
+- **Enhanced Private Key Input**: Replaced single-line input with multi-line textarea
+  - 6-row monospace textarea with placeholder showing expected PEM format
+  - Help text explaining auto-formatting behavior
+
 ## [0.12.3] - 2026-01-22
 
 ### Fixed
