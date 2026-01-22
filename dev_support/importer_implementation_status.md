@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2026-01-22  
-**Current Importer Version:** 0.12.2  
+**Current Importer Version:** 0.12.3  
 **Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -666,6 +666,12 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2026-01-22 (v0.12.3)
+- **Version:** Incremented to 0.12.3 (patch release - Private Key Escaping Fix)
+- **Private Key HCL Escaping**: Fixed multi-line PEM keys causing Terraform parse errors in `secrets.auto.tfvars`
+- **Valid Dummy Private Key**: Replaced invalid placeholder with syntactically valid 2048-bit RSA key (PKCS#8)
+- **Dummy Credential Indicator**: Changed to environment name suffix `[DUMMY CREDENTIALS]` for better UI visibility
 
 ### 2026-01-16 (v0.11.1)
 - **Version:** Incremented to 0.11.1 (patch release - Native Integration Detection)

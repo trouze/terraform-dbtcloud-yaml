@@ -16,6 +16,39 @@ Schema structure:
 from typing import Any, Dict, List, Optional
 
 
+# A valid RSA 2048-bit private key in PKCS#8 PEM format for use as dummy credential.
+# This is a randomly generated key with no actual use - purely for Terraform validation.
+# Generated once and stored here to ensure consistent dummy credentials across runs.
+DUMMY_PRIVATE_KEY_PEM = """-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQDxqaA1avXCIpS5
+IyAY/LafgEQEhV+Jnc5j05rZDP+BG3ZIwdAlUSLogDKMOwjAGYSI3IMG/FvYIixe
+kLiz3ZbDF/RdwkEH6DM8Ysysa75pRkGOyBXhDZFHghVc/FlBAob2iCkNOjKy8Eik
++AUfUozgT4fDGbrMSKwTZnFKqmViC1ZrXeXzZx5y40sbybHj4jLjkmGD9BMRnOAi
+GamhP4Sdkrgj92S6ffpQJy2VY3wEJ3CcH+mAarlb/XzFZAQW1mteCtlHHbpxWIuN
+/wDrpa71T/fb/1CSKQ+AOY+83ZTwQhHmQXt1wUMdupBdXZpu12wl4WcxMmrWUBf2
+Q7mJ/tQTAgMBAAECggEBAJ9QqVqt8eiTLaLD4lQ2vhp2z+B/INWzoC21gb8Xz5WI
+yjj69MK1M6M9aJWEEae66uHjJcpEMjRRixiopeuF6O8i6qmo94BD9wsXQ0FkInp6
+o5uCktH0RNN0karkfd7a0KjUaOPcezH2MJ35GD9nB5KVO7ZGTxx/yFldztBfd0jj
+Un30WA5ic1rJ3RU+TlVlXUgTWlYJai0aPiRVT6ucE6FLKN8A8H2DK09xt5EQsI9j
+HoLSqX22UL2jA+VJhCABaFlGR9veALP16iaXn6+YudoEi98jBJTMwQSdStjEanKP
+gi6OzGriaihHOEKnFBP2CaF1sZfqfSZl+5hLIWRbvqECgYEA/yXsfp2ilEx8ghtf
+NmDs7UBEOEw0krOolIFwHnfrdL+bIg8oxXqmQCNbLLrhzJbv5T/OTn7xFI8s5SzV
+u8n0YIaun3U+ZYrUyBERNa0tkf9F23BT+Jh3nGFOxltyhdexjOIgZPaH0rXX0XAl
+KZ5dtYIFjpX1oLU0JOSCrAN/SBECgYEA8ngtBTh4aGR6nJ1xwVefZ8VG4eMtty8s
+CeO6NhZZ8Drhz12TfDj9PC1S9mQPPEx7Xwc/w0J2370bwzW25D5ecM+C8k6lnEm3
+o3D5HAcGNyuBqk1l3a93N664izZqzAc+zNp1B+kxPoXlE8DNiH3LQMo/GXjpfHlL
+MohwNG14HeMCgYBB/lYgHbeqceoWYOwMjZ9aci/y+8rxUuS8nIoaZ1wQU2rVsWQT
+R/juR/bSJ/g1Saj8+7bp2K2Uar/q+uDBdKfvu4Y5GkMsUm9c3AU+g+9wfr1b177w
+Ysc1PHn6ljaV5cc3sFk+pAFXf881jbMfA6YrR1kWmzTv/05gaHZf9XubcQKBgQCH
++uG0tdDBKuiggKPVPGDHf5mbAR8YRro56Z76yloyIbOV6fLWjddnMjv+tmrc9D+U
+MaqOxO2J2LKDLdKd+mRYe+gCIB08oxL79FWgZEgWFK4pZjKkuszvS2tvl1sZhU6w
+8CsF/r+BQvIPu+cIjxO4CDSPAoJfLl7/vgi/Pk1I5QKBgAOS78ZwisHI99n+/r95
+Etq02/kN6LbHbwYC6m1sMMPFqPflqUQle5TDjKMwPmLsqGwoT4dQwleb7PJ2Kcro
+qoe2dXUBlFwdh2JfhrIWS+kaWbJap1PS3jb1NBb/wdpXyCAGql+Q8J/ywhnzAe/c
+SD6TfLyibA7EwovT9hwyr9Ql
+-----END PRIVATE KEY-----""".strip()
+
+
 # Credential type schemas - aligned with Terraform provider *_credential resources
 # Each schema defines the fields needed for environment credentials
 CREDENTIAL_SCHEMAS: Dict[str, Dict[str, Any]] = {
@@ -68,6 +101,15 @@ CREDENTIAL_SCHEMAS: Dict[str, Dict[str, Any]] = {
             "user": "dummy_user",
             "password": "dummy_password",
             "num_threads": 1,
+        },
+        # Dummy values for sensitive fields by auth_type
+        "dummy_sensitive": {
+            "password": {
+                "password": "dummy_password_placeholder",
+            },
+            "keypair": {
+                "private_key": DUMMY_PRIVATE_KEY_PEM,
+            },
         },
     },
     "databricks": {
@@ -432,6 +474,87 @@ def get_dummy_credentials(credential_type: str) -> Dict[str, Any]:
     if not schema:
         return {}
     return dict(schema.get("dummy_values", {}))
+
+
+def build_dummy_credentials_from_source(
+    credential_type: str,
+    source_values: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Build dummy credentials by preserving source non-sensitive values and adding dummy secrets.
+
+    This creates a complete credential set that:
+    1. Preserves all non-sensitive source values (database, warehouse, role, etc.)
+    2. Replaces sensitive fields with syntactically valid placeholders
+    3. Ensures required fields are present
+
+    Args:
+        credential_type: Credential type key (e.g., 'snowflake')
+        source_values: Source values from the original account
+
+    Returns:
+        Dictionary with complete credentials suitable for Terraform
+    """
+    schema = CREDENTIAL_SCHEMAS.get(credential_type)
+    if not schema:
+        return dict(source_values)
+
+    # Start with all source values
+    result = dict(source_values)
+
+    # Always include credential_type
+    result["credential_type"] = credential_type
+
+    # Get sensitive fields list
+    sensitive_fields = set(schema.get("sensitive", []))
+
+    # Get auth mode info if present
+    auth_modes = schema.get("auth_modes", {})
+    auth_field = auth_modes.get("field", "auth_type")
+    current_auth = result.get(auth_field, auth_modes.get("default", ""))
+
+    # Get dummy values for sensitive fields based on auth type
+    dummy_sensitive = schema.get("dummy_sensitive", {})
+
+    # Replace sensitive fields with dummy values
+    if current_auth and current_auth in dummy_sensitive:
+        # Use auth-specific dummy values
+        for field, dummy_value in dummy_sensitive[current_auth].items():
+            result[field] = dummy_value
+        # Clear other auth mode's sensitive fields
+        for auth_mode, auth_fields in dummy_sensitive.items():
+            if auth_mode != current_auth:
+                for field in auth_fields:
+                    if field in result:
+                        del result[field]
+    else:
+        # Fall back to generic dummy values for all sensitive fields
+        base_dummy = schema.get("dummy_values", {})
+        for field in sensitive_fields:
+            if field in base_dummy:
+                result[field] = base_dummy[field]
+            elif field == "password":
+                result[field] = "dummy_password_placeholder"
+            elif field == "private_key":
+                result[field] = DUMMY_PRIVATE_KEY_PEM
+            elif field == "token":
+                result[field] = "dummy_token_placeholder"
+            elif "secret" in field.lower():
+                result[field] = "dummy_secret_placeholder"
+            elif "key" in field.lower():
+                result[field] = "dummy_key_placeholder"
+            else:
+                result[field] = f"dummy_{field}_placeholder"
+
+    # Ensure required fields are present (with defaults if needed)
+    defaults = schema.get("defaults", {})
+    for field in schema.get("required", []):
+        if field not in result or not result[field]:
+            if field in defaults:
+                result[field] = defaults[field]
+            elif field in schema.get("dummy_values", {}):
+                result[field] = schema["dummy_values"][field]
+
+    return result
 
 
 def get_required_fields(credential_type: str) -> List[str]:

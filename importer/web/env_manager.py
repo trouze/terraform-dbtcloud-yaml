@@ -610,6 +610,26 @@ def load_env_credential_config(
     return all_configs.get(normalized_id, {})
 
 
+def get_dummy_credential_env_ids(env_path: Optional[str] = None) -> set:
+    """Get set of environment IDs that use dummy credentials.
+    
+    Args:
+        env_path: Path to .env file
+        
+    Returns:
+        Set of environment IDs (normalized, lowercase) with use_dummy=true
+    """
+    all_configs = load_env_credential_configs(env_path)
+    dummy_envs = set()
+    
+    for env_id, config in all_configs.items():
+        use_dummy = config.get("use_dummy", "false")
+        if str(use_dummy).lower() == "true":
+            dummy_envs.add(env_id)
+    
+    return dummy_envs
+
+
 def save_env_credential_config(
     env_id: str,
     config: dict,
