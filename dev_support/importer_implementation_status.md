@@ -1,8 +1,8 @@
 # Importer Implementation Status & Tracking
 
-**Last Updated:** 2026-01-16  
-**Current Importer Version:** 0.11.1  
-**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection
+**Last Updated:** 2026-01-22  
+**Current Importer Version:** 0.12.1  
+**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
 > 
@@ -1066,6 +1066,26 @@ The following items require API endpoint research before implementation can begi
   - Injects provider_config into YAML before prompting user, reducing manual configuration
   - Checks both project root `.env` and test-specific `.env` files
   - Skips interactive prompts if configs are already available
+
+### 2026-01-21 (v0.12.0)
+- **Version:** Incremented to 0.12.0 (minor release - significant new features)
+- **Target Credentials Page Redesign**: Complete overhaul of environment credentials editing
+  - Edit dialog with CSS Grid columnar layout for consistent field alignment
+  - "From source" (green) and "Override" (yellow) indicators for field values
+  - Per-field reset buttons to restore individual fields to source values
+  - "Use Dummy Credentials" toggle with source vs dummy comparison table
+  - Authentication type selector with source/override indicators and reset
+  - "Reset to Dummy Credentials" button in environment actions
+- **Credential Metadata Extraction**: Enhanced source value extraction from YAML
+  - Extracts auth_type, authentication, auth_method fields
+  - Automatic auth_type inference for Snowflake from private_key/password presence
+- **Progress Visibility**: Renamed "Credentials" to "Credential Metadata (No Secret Values)"
+  - Renamed "Env Variables" to "Env Variables (No Secret Values)"
+- **Workflow Changes**: "Fetch Target" now accessible at any time
+  - "Match Existing" requires both source and target fetch completion
+- **Layout Stability**: Eliminated fetch page layout shift issues
+  - Redesigned to vertical stack layout
+  - Compact credential input forms
 
 ### 2026-01-16 (v0.10.1)
 - **Version:** Incremented to 0.10.1 (patch release - feature enhancement)

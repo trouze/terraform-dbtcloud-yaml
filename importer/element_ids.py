@@ -124,6 +124,45 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
                     "connection_key": env.get("connection_key"),  # For hierarchy linking
                 },
             )
+            
+            # Credential as child of environment (if present)
+            credential = env.get("credential")
+            if credential and isinstance(credential, dict):
+                cred_type = credential.get("credential_type") or "unknown"
+                cred_id = credential.get("id")
+                cred_schema = credential.get("schema") or credential.get("schema_name", "")
+                cred_user = credential.get("user") or credential.get("username", "")
+                
+                # Build credential display name
+                cred_name_parts = [cred_type]
+                if cred_schema:
+                    cred_name_parts.append(f"schema:{cred_schema}")
+                if cred_user:
+                    cred_name_parts.append(f"user:{cred_user}")
+                cred_display_name = f"Credential ({', '.join(cred_name_parts)})"
+                
+                # Use a stable identifier based on environment
+                cred_identifier = f"{env.get('key')}:credential:{cred_id or cred_type}"
+                
+                _register(
+                    records,
+                    credential,
+                    "CRD",
+                    name=cred_display_name,
+                    identifier=cred_identifier,
+                    extra={
+                        "project_key": project.get("key"),
+                        "project_name": project_name,
+                        "environment_key": env.get("key"),
+                        "environment_name": env.get("name"),
+                        "parent_environment_id": env_mapping_id,
+                        "parent_project_id": project_mapping_id,
+                        "credential_type": cred_type,
+                        "credential_schema": cred_schema,
+                        "credential_user": cred_user,
+                        "credential_id": cred_id,
+                    },
+                )
 
             # Jobs per environment
             env_key = env.get("key")

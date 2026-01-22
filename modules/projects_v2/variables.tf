@@ -94,3 +94,61 @@ variable "dbt_host_url" {
   default     = null
 }
 
+variable "environment_credentials" {
+  description = "Map of environment keys to credential values. Keys are 'project_key_env_key' (e.g., 'my_project_prod')"
+  type = map(object({
+    # Credential type (required to route to correct resource)
+    credential_type = string # snowflake, databricks, bigquery, postgres, redshift, athena, fabric, synapse, starburst, spark, teradata
+
+    # Common fields
+    schema      = optional(string)
+    num_threads = optional(number)
+
+    # Snowflake
+    auth_type              = optional(string) # "password" or "keypair"
+    user                   = optional(string)
+    password               = optional(string)
+    private_key            = optional(string)
+    private_key_passphrase = optional(string)
+    warehouse              = optional(string)
+    role                   = optional(string)
+    database               = optional(string)
+
+    # BigQuery
+    dataset = optional(string)
+
+    # Postgres/Redshift
+    default_schema = optional(string)
+    username       = optional(string)
+    target_name    = optional(string) # "postgres" or "redshift"
+
+    # Athena
+    aws_access_key_id     = optional(string)
+    aws_secret_access_key = optional(string)
+
+    # Fabric/Synapse
+    tenant_id            = optional(string)
+    client_id            = optional(string)
+    client_secret        = optional(string)
+    schema_authorization = optional(string)
+    authentication       = optional(string) # SQL, ActiveDirectoryPassword, ServicePrincipal
+
+    # Databricks
+    token   = optional(string)
+    catalog = optional(string)
+
+    # Starburst/Trino
+    # Uses catalog + schema (already defined above)
+
+    # Spark
+    # Uses schema (already defined above)
+
+    # Teradata
+    # Uses schema (already defined above)
+  }))
+  default = {}
+  # Note: Not marking as sensitive because credential_type needs to be used
+  # in for_each conditions. The actual sensitive values (passwords, keys)
+  # should be stored in gitignored .tfvars files.
+}
+

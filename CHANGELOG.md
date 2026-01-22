@@ -9,6 +9,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-01-22
+
+### Changed
+- **Workflow Card Layout**: Improved workflow tile consistency on home page
+  - Updated Jobs as Code Generator description for two-line wrapping
+  - All workflow cards now have naturally matching heights
+  - Fixed description text: "Generate jobs-as-code YAML outputs from selected jobs and environments."
+
+## [0.12.0] - 2026-01-21
+
+### Added
+- **Target Credentials Page Redesign**: Complete overhaul of the environment credentials editing experience
+  - Edit dialog with columnar CSS Grid layout for consistent field alignment
+  - "From source" (green) and "Override" (yellow) indicators showing which values match source account
+  - Per-field reset buttons to restore individual fields to source values
+  - "Use Dummy Credentials" toggle with visual comparison table (source vs dummy values)
+  - "Overrides Source" indicator when dummy credentials override real source values
+  - Authentication type selector with source/override indicators and reset functionality
+  - "Reset to Dummy Credentials" button in environment actions
+- **Credential Metadata Extraction**: Enhanced source value extraction from YAML
+  - Extracts `auth_type`, `authentication`, and `auth_method` fields
+  - Automatic `auth_type` inference for Snowflake (from `private_key`/`password` presence)
+  - Comprehensive field extraction including `user`, `schema`, `database`, `warehouse`, `role`, `num_threads`
+- **Progress Visibility Improvements**: Credential and environment variable counters in fetch progress
+  - Renamed "Credentials" to "Credential Metadata (No Secret Values)" for clarity
+  - Renamed "Env Variables" to "Env Variables (No Secret Values)" for clarity
+  - Added credential count tiles on fetch complete pages
+
+### Changed
+- **Workflow Lockout Logic**: Adjusted step accessibility for better flexibility
+  - "Fetch Target" step now accessible at any time (no longer requires source selection)
+  - "Match Existing" step requires both source and target fetch completion
+- **Fetch Page Layout**: Redesigned to vertical stack layout
+  - Eliminated two-column structure that caused layout shift issues
+  - Compact credential input forms with inline fields
+  - Fixed scrollbar issues in progress sections
+- **Credential Form Compaction**: Source/target credential forms now more compact
+  - Single-row layout for Host URL, Account ID, and API Token
+  - Dense styling with narrower Account ID field
+  - Inline token type indicator chip
+- **Edit Dialog Improvements**: Wider dialog (max-w-6xl) with better field organization
+  - CSS Grid layout ensuring consistent column alignment
+  - 140px label column, flexible input column, 100px indicator column, 40px reset column
+
+### Fixed
+- **Layout Stability**: Eliminated layout shift between "ready to fetch" and "fetch complete" states
+- **State Preservation**: Fetch complete no longer clears logs and progress information
+- **Authentication Indicator**: Fixed authentication type selector not showing source/override badges
+
 ## [0.11.1] - 2026-01-16
 
 ### Added

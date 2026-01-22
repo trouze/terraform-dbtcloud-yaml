@@ -9,9 +9,6 @@ from importer.web.utils.yaml_viewer import (
     create_migration_summary_card,
     create_yaml_viewer_dialog,
 )
-from importer.web.components.connection_config import (
-    create_connection_config_section,
-)
 
 
 # dbt brand colors
@@ -65,9 +62,6 @@ def create_configure_page(
             # Right column: Provider Configuration
             with ui.column().classes("flex-1 min-w-[400px] gap-4"):
                 _create_provider_config_section(state, save_state)
-
-        # Connection provider configuration section (full width)
-        _create_connection_provider_section(state)
 
         # Navigation buttons
         _create_navigation_section(state, on_step_change, save_state)
@@ -272,16 +266,6 @@ def _update_token_type(state: AppState, value: str, save_state: Callable[[], Non
     save_state()
 
 
-def _create_connection_provider_section(state: AppState) -> None:
-    """Create the connection provider configuration section."""
-    yaml_path = state.map.last_yaml_file
-    
-    with ui.column().classes("w-full"):
-        create_connection_config_section(
-            yaml_path=yaml_path,
-        )
-
-
 def _create_navigation_section(
     state: AppState,
     on_step_change: Callable[[WorkflowStep], None],
@@ -296,15 +280,15 @@ def _create_navigation_section(
             on_click=lambda: on_step_change(WorkflowStep.MATCH),
         ).props("outline")
 
-        # Continue button
+        # Continue button - goes to Target Credentials
         def on_continue():
             # Mark configure step as complete
             state.deploy.configure_complete = True
             save_state()
-            on_step_change(WorkflowStep.DEPLOY)
+            on_step_change(WorkflowStep.TARGET_CREDENTIALS)
         
         ui.button(
-            "Continue to Deploy",
+            f"Continue to {state.get_step_label(WorkflowStep.TARGET_CREDENTIALS)}",
             icon="arrow_forward",
             on_click=on_continue,
         ).style(f"background-color: {DBT_ORANGE};")

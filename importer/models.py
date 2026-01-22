@@ -86,9 +86,54 @@ class PrivateLinkEndpoint(ImporterBaseModel):
 
 
 class Credential(ImporterBaseModel):
-    token_name: str
-    schema_name: str = Field(alias="schema", serialization_alias="schema")
+    """Credential configuration for an environment.
+    
+    Supports all dbt Cloud credential types: Snowflake, Databricks, BigQuery,
+    Postgres, Redshift, Athena, Fabric, Synapse, Starburst, Spark, Teradata.
+    """
+    # Credential ID and type
+    id: Optional[int] = None
+    credential_type: Optional[str] = None  # snowflake, databricks, bigquery, postgres, etc.
+    
+    # Common fields
+    schema_name: str = Field(alias="schema", serialization_alias="schema", default="")
+    num_threads: Optional[int] = None
+    is_active: Optional[bool] = True
+    
+    # Snowflake-specific
+    auth_type: Optional[str] = None  # "password" or "keypair"
+    user: Optional[str] = None
+    warehouse: Optional[str] = None
+    role: Optional[str] = None
+    database: Optional[str] = None
+    
+    # Databricks-specific
+    token_name: Optional[str] = None
     catalog: Optional[str] = None
+    adapter_type: Optional[str] = None
+    
+    # BigQuery-specific
+    dataset: Optional[str] = None
+    
+    # Postgres/Redshift-specific
+    default_schema: Optional[str] = None
+    username: Optional[str] = None
+    target_name: Optional[str] = None  # "postgres" or "redshift"
+    
+    # Athena-specific (sensitive fields not fetched from API)
+    # aws_access_key_id and aws_secret_access_key are sensitive - not stored here
+    
+    # Fabric/Synapse-specific
+    tenant_id: Optional[str] = None
+    client_id: Optional[str] = None
+    schema_authorization: Optional[str] = None
+    authentication: Optional[str] = None  # SQL, ActiveDirectoryPassword, ServicePrincipal
+    
+    # Starburst/Trino-specific
+    # Uses catalog + schema (already defined)
+    
+    # Metadata from API
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
     @property
     def schema(self) -> str:
@@ -101,7 +146,7 @@ class Environment(ImporterBaseModel):
     name: str
     type: str
     connection_key: str
-    credential: Credential
+    credential: Optional[Credential] = None  # Optional - development envs may not have credentials
     dbt_version: Optional[str] = None
     custom_branch: Optional[str] = None
     enable_model_query_history: Optional[bool] = None

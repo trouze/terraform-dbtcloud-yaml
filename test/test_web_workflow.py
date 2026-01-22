@@ -33,7 +33,7 @@ class TestWorkflowSteps:
     """Test WorkflowStep enum and configuration."""
     
     def test_workflow_step_enum_values(self):
-        """Verify all 9 workflow steps exist with correct order."""
+        """Verify all 10 workflow steps exist with correct order."""
         expected_steps = [
             ("HOME", 0),
             ("FETCH_SOURCE", 1),
@@ -43,8 +43,9 @@ class TestWorkflowSteps:
             ("EXPLORE_TARGET", 5),
             ("MATCH", 6),
             ("CONFIGURE", 7),
-            ("DEPLOY", 8),
-            ("DESTROY", 9),
+            ("TARGET_CREDENTIALS", 8),
+            ("DEPLOY", 9),
+            ("DESTROY", 10),
         ]
         
         for name, expected_value in expected_steps:
@@ -53,7 +54,7 @@ class TestWorkflowSteps:
                 f"WorkflowStep.{name} should have value {expected_value}"
     
     def test_migration_workflow_has_all_steps(self):
-        """Verify WORKFLOW_STEPS[MIGRATION] contains 9 steps in order."""
+        """Verify WORKFLOW_STEPS[MIGRATION] contains 9 steps in order (DESTROY is utility)."""
         migration_steps = WORKFLOW_STEPS[WorkflowType.MIGRATION]
         
         expected = [
@@ -64,8 +65,8 @@ class TestWorkflowSteps:
             WorkflowStep.EXPLORE_TARGET,
             WorkflowStep.MATCH,
             WorkflowStep.CONFIGURE,
+            WorkflowStep.TARGET_CREDENTIALS,
             WorkflowStep.DEPLOY,
-            WorkflowStep.DESTROY,
         ]
         
         assert len(migration_steps) == 9, "Migration workflow should have 9 steps"
@@ -170,13 +171,19 @@ class TestStepAccessibility:
         
         assert state.step_is_accessible(WorkflowStep.CONFIGURE) is True
     
-    def test_deploy_requires_files_generated(self):
-        """Deploy locked until files generated."""
+    def test_deploy_requires_target_credentials_complete(self):
+        """Deploy locked until target_credentials complete (or no environments)."""
         state = AppState()
+        # When there are no selected environments, Deploy is accessible
+        state.env_credentials.selected_env_ids = set()
+        assert state.step_is_accessible(WorkflowStep.DEPLOY) is True
         
+        # When there are selected environments, env_credentials must be complete
+        state.env_credentials.selected_env_ids = {"123"}
+        state.env_credentials.step_complete = False
         assert state.step_is_accessible(WorkflowStep.DEPLOY) is False
         
-        state.deploy.files_generated = True
+        state.env_credentials.step_complete = True
         assert state.step_is_accessible(WorkflowStep.DEPLOY) is True
     
     def test_destroy_method_exists(self):
@@ -523,22 +530,24 @@ class TestWorkflowTypes:
         assert len(steps) == 2
     
     def test_jobs_as_code_workflow(self):
-        """Jobs as Code workflow has correct steps."""
+        """Jobs as Code workflow has correct JAC-specific steps."""
         steps = WORKFLOW_STEPS[WorkflowType.JOBS_AS_CODE]
         
-        assert WorkflowStep.FETCH_SOURCE in steps
-        assert WorkflowStep.EXPLORE_SOURCE in steps
-        assert WorkflowStep.SCOPE in steps
-        assert WorkflowStep.DEPLOY in steps
-        assert len(steps) == 4
+        assert WorkflowStep.JAC_SELECT in steps
+        assert WorkflowStep.JAC_FETCH in steps
+        assert WorkflowStep.JAC_JOBS in steps
+        assert WorkflowStep.JAC_CONFIG in steps
+        assert WorkflowStep.JAC_GENERATE in steps
+        assert len(steps) == 5
     
     def test_import_adopt_workflow(self):
-        """Import & Adopt workflow has all 9 steps."""
+        """Import & Adopt workflow has all 9 steps including TARGET_CREDENTIALS."""
         steps = WORKFLOW_STEPS[WorkflowType.IMPORT_ADOPT]
         
         assert len(steps) == 9
         assert WorkflowStep.MATCH in steps
         assert WorkflowStep.CONFIGURE in steps
+        assert WorkflowStep.TARGET_CREDENTIALS in steps
 
 
 class TestStepCompletion:
@@ -581,12 +590,12 @@ class TestStepCompletion:
         assert state.step_is_complete(WorkflowStep.MATCH) is True
     
     def test_configure_complete(self):
-        """CONFIGURE complete when files_generated is True."""
+        """CONFIGURE complete when configure_complete is True."""
         state = AppState()
         
         assert state.step_is_complete(WorkflowStep.CONFIGURE) is False
         
-        state.deploy.files_generated = True
+        state.deploy.configure_complete = True
         assert state.step_is_complete(WorkflowStep.CONFIGURE) is True
     
     def test_deploy_complete(self):

@@ -1,6 +1,13 @@
 # Dockerfile for dbt Magellan Web UI
 # Build: docker build -t dbt-magellan -f importer/web/Dockerfile .
-# Run:   docker run -p 8080:8080 -v $(pwd)/.env:/app/.env -v $(pwd)/output:/app/output dbt-magellan
+# Run:   docker run -p 8080:8080 \
+#          -v $(pwd)/.env:/app/.env \
+#          -v $(pwd)/output:/app/output \
+#          dbt-magellan
+#
+# License (Migration Workflow):
+#   Add MAGELLAN_LICENSE_EMAIL and MAGELLAN_LICENSE_KEY to .env
+#   Temporary bypass: MAGELLAN_LICENSE_BYPASS=true
 
 FROM python:3.11-slim
 

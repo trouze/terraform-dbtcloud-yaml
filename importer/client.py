@@ -76,6 +76,10 @@ class DbtCloudClient:
             if resp.status_code < 400:
                 return resp.json()
 
+            # Don't retry on 404 - resource doesn't exist
+            if resp.status_code == 404:
+                raise ApiError(resp)
+
             attempt += 1
             retry_after = resp.headers.get("Retry-After")
 

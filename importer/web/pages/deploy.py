@@ -1033,11 +1033,11 @@ def _create_navigation_section(
 ) -> None:
     """Create the navigation buttons section."""
     with ui.row().classes("w-full justify-between mt-6"):
-        # Back button
+        # Back button - goes to Target Credentials
         ui.button(
-            f"Back to {state.get_step_label(WorkflowStep.CONFIGURE)}",
+            f"Back to {state.get_step_label(WorkflowStep.TARGET_CREDENTIALS)}",
             icon="arrow_back",
-            on_click=lambda: on_step_change(WorkflowStep.CONFIGURE),
+            on_click=lambda: on_step_change(WorkflowStep.TARGET_CREDENTIALS),
         ).props("outline")
 
         # Status
@@ -1215,7 +1215,7 @@ async def _run_generate(
                 terminal.info("  Job triggers disabled in YAML")
             except Exception as e:
                 terminal.warning(f"  Failed to disable job triggers: {e}")
-        
+
         terminal.info("")
 
         # Generate the Terraform files using the converter

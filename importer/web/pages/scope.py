@@ -25,6 +25,7 @@ RESOURCE_TYPES = {
     "PLE": {"name": "PrivateLink", "code": "PRVLNK", "icon": "lock", "color": "#14B8A6"},
     "PRJ": {"name": "Project", "code": "PRJCT", "icon": "folder", "color": "#F59E0B"},
     "ENV": {"name": "Environment", "code": "ENV", "icon": "layers", "color": "#06B6D4"},
+    "CRD": {"name": "Credential", "code": "CRED", "icon": "vpn_key", "color": "#78716C"},
     "VAR": {"name": "Env Variable", "code": "ENVVAR", "icon": "code", "color": "#A855F7"},
     "JOB": {"name": "Job", "code": "JOB", "icon": "schedule", "color": "#EF4444"},
 }
@@ -491,7 +492,7 @@ def _get_filtered_items(report_items: list, type_filter: str) -> list:
 TYPE_CODE_MAP = {
     "ACC": "ACCNT", "CON": "CONN", "REP": "REPO", "TOK": "SRVTKN",
     "GRP": "GRP", "NOT": "NOTIFY", "WEB": "WBHK", "PLE": "PRVLNK",
-    "PRJ": "PRJCT", "ENV": "ENV", "VAR": "ENVVAR", "JOB": "JOB",
+    "PRJ": "PRJCT", "ENV": "ENV", "CRD": "CRED", "VAR": "ENVVAR", "JOB": "JOB",
 }
 
 

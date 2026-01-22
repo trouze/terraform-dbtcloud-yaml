@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from ..models import (
     AccountSnapshot,
     Connection,
+    Credential,
     Group,
     Notification,
     PrivateLinkEndpoint,
@@ -187,6 +188,85 @@ def _map_connection_details_to_terraform(
             if isinstance(value, str) and not value.strip():
                 continue
             result[tf_field] = value
+    
+    return result
+
+
+def _build_credential_dict(credential: Credential) -> Dict[str, Any]:
+    """Build credential dict with fields appropriate for the credential type.
+    
+    Different credential types have different fields:
+    - databricks: token_name, schema, catalog
+    - snowflake: schema, user, auth_type, warehouse, role, database
+    - bigquery: schema, dataset
+    - postgres/redshift: schema, username, target_name
+    - athena: schema
+    - fabric/synapse: schema, tenant_id, client_id, authentication
+    - starburst: schema, catalog
+    - spark: schema
+    - teradata: schema
+    """
+    cred_type = credential.credential_type or ""
+    cred_type_lower = cred_type.lower()
+    
+    # Common field - schema is used by all types
+    result: Dict[str, Any] = {
+        "schema": credential.schema or "",
+    }
+    
+    # Add credential_type if known
+    if cred_type:
+        result["credential_type"] = cred_type
+    
+    # Add type-specific fields
+    if cred_type_lower == "databricks":
+        result["token_name"] = credential.token_name or ""
+        result["catalog"] = credential.catalog
+    elif cred_type_lower == "snowflake":
+        if credential.user:
+            result["user"] = credential.user
+        if credential.auth_type:
+            result["auth_type"] = credential.auth_type
+        if credential.warehouse:
+            result["warehouse"] = credential.warehouse
+        if credential.role:
+            result["role"] = credential.role
+        if credential.database:
+            result["database"] = credential.database
+        if credential.num_threads:
+            result["num_threads"] = credential.num_threads
+    elif cred_type_lower == "bigquery":
+        if credential.dataset:
+            result["dataset"] = credential.dataset
+        if credential.num_threads:
+            result["num_threads"] = credential.num_threads
+    elif cred_type_lower in ("postgres", "redshift"):
+        if credential.username:
+            result["username"] = credential.username
+        if credential.default_schema:
+            result["default_schema"] = credential.default_schema
+        if credential.target_name:
+            result["target_name"] = credential.target_name
+        if credential.num_threads:
+            result["num_threads"] = credential.num_threads
+    elif cred_type_lower == "athena":
+        if credential.num_threads:
+            result["num_threads"] = credential.num_threads
+    elif cred_type_lower in ("fabric", "synapse"):
+        if credential.tenant_id:
+            result["tenant_id"] = credential.tenant_id
+        if credential.client_id:
+            result["client_id"] = credential.client_id
+        if credential.authentication:
+            result["authentication"] = credential.authentication
+        if credential.schema_authorization:
+            result["schema_authorization"] = credential.schema_authorization
+    elif cred_type_lower in ("starburst", "trino"):
+        result["catalog"] = credential.catalog
+    else:
+        # Unknown type - include common fields for backwards compatibility
+        result["token_name"] = credential.token_name or ""
+        result["catalog"] = credential.catalog
     
     return result
 
@@ -849,12 +929,8 @@ def _normalize_environments(
         else:
             env_data["connection"] = None
         
-        # Credential - ALWAYS include all fields for Terraform type consistency
-        env_data["credential"] = {
-            "token_name": env.credential.token_name or "",
-            "schema": env.credential.schema or "",
-            "catalog": env.credential.catalog or None,
-        }
+        # Credential - output fields based on credential type
+        env_data["credential"] = _build_credential_dict(env.credential)
         
         # Optional fields - ALWAYS include to ensure Terraform type consistency
         env_data["dbt_version"] = env.dbt_version or None
