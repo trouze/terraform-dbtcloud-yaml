@@ -18,7 +18,13 @@ from importer.web.pages.match import create_match_page
 from importer.web.pages.configure import create_configure_page
 from importer.web.pages.deploy import create_deploy_page
 from importer.web.pages.destroy import create_destroy_page
+from importer.web.pages.target_credentials import create_target_credentials_page
 from importer.web.env_manager import load_account_info_from_env
+from importer.web.licensing import (
+    LicenseTier,
+    check_migration_license,
+    has_feature_access,
+)
 
 # Jobs as Code Generator workflow pages
 from importer.web.workflows.jobs_as_code.pages.select import create_jac_select_page
@@ -50,6 +56,7 @@ def get_state() -> AppState:
         
         # Always refresh account info from .env on startup
         _refresh_account_info(_app_state)
+        _refresh_license_status(_app_state)
     return _app_state
 
 
@@ -61,6 +68,21 @@ def _refresh_account_info(state: AppState) -> None:
     except Exception:
         # If loading fails, keep defaults
         pass
+
+
+def _refresh_license_status(state: AppState) -> None:
+    """Refresh migration workflow license status and tier."""
+    try:
+        status = check_migration_license()
+        state.is_migration_licensed = status.is_valid
+        state.license_tier = status.tier.value
+        state.license_email = status.email or ""
+        state.license_message = status.message
+    except Exception as exc:
+        state.is_migration_licensed = False
+        state.license_tier = LicenseTier.EXPLORER.value
+        state.license_email = ""
+        state.license_message = f"License verification failed: {exc}"
 
 
 def save_state() -> None:
@@ -81,6 +103,37 @@ def navigate_to_step(step: WorkflowStep) -> None:
 def set_workflow(workflow: WorkflowType) -> None:
     """Set the active workflow and navigate to a valid step."""
     state = get_state()
+
+    # Get current tier for access checks
+    try:
+        tier = LicenseTier(state.license_tier)
+    except ValueError:
+        tier = LicenseTier.EXPLORER
+
+    # Map workflow types to feature keys
+    workflow_features = {
+        WorkflowType.MIGRATION: "migration",
+        WorkflowType.ACCOUNT_EXPLORER: "account_explorer",
+        WorkflowType.JOBS_AS_CODE: "jobs_as_code",
+        WorkflowType.IMPORT_ADOPT: "import_adopt",
+    }
+
+    feature_key = workflow_features.get(workflow)
+    if feature_key and not has_feature_access(tier, feature_key):
+        tier_name = {
+            LicenseTier.EXPLORER: "Explorer",
+            LicenseTier.SOLUTIONS_ARCHITECT: "Solutions Architect",
+            LicenseTier.RESIDENT_ARCHITECT: "Resident Architect",
+            LicenseTier.ENGINEERING: "Engineering",
+        }.get(tier, "Explorer")
+        ui.notify(
+            f"Your license tier ({tier_name}) does not include access to this workflow. "
+            "Upgrade your license or contact Professional Services at info@getdbt.com.",
+            type="warning",
+        )
+        ui.navigate.to("/")
+        return
+
     state.workflow = workflow
     steps = state.workflow_steps()
     next_step = state.current_step if state.current_step in steps else steps[0]
@@ -111,6 +164,40 @@ def navigate_to_requirements() -> None:
     ui.navigate.to("/requirements")
 
 
+def _require_workflow_access(state: AppState) -> bool:
+    """Ensure the current workflow is accessible with the current license tier."""
+    # Get current tier
+    try:
+        tier = LicenseTier(state.license_tier)
+    except ValueError:
+        tier = LicenseTier.EXPLORER
+
+    # Map workflow types to feature keys
+    workflow_features = {
+        WorkflowType.MIGRATION: "migration",
+        WorkflowType.ACCOUNT_EXPLORER: "account_explorer",
+        WorkflowType.JOBS_AS_CODE: "jobs_as_code",
+        WorkflowType.IMPORT_ADOPT: "import_adopt",
+    }
+
+    feature_key = workflow_features.get(state.workflow)
+    if feature_key and has_feature_access(tier, feature_key):
+        return True
+
+    ui.notify(
+        "Your license tier does not include access to this workflow. "
+        "Upgrade your license or contact Professional Services at info@getdbt.com.",
+        type="warning",
+    )
+    ui.navigate.to("/")
+    return False
+
+
+def _require_migration_license(state: AppState) -> bool:
+    """Ensure migration workflow access is licensed (legacy compatibility)."""
+    return _require_workflow_access(state)
+
+
 def setup_page(state: AppState) -> None:
     """Common page setup - theme and navigation."""
     # Apply theme
@@ -135,7 +222,7 @@ def create_page_content(state: AppState) -> None:
     step = state.current_step
 
     if step == WorkflowStep.HOME:
-        create_home_page(state, navigate_to_step, set_workflow)
+        create_home_page(state, navigate_to_step, set_workflow, save_state)
     elif step == WorkflowStep.FETCH_SOURCE:
         create_fetch_source_page(state, navigate_to_step, save_state)
     elif step == WorkflowStep.EXPLORE_SOURCE:
@@ -150,6 +237,8 @@ def create_page_content(state: AppState) -> None:
         create_match_page(state, navigate_to_step, save_state)
     elif step == WorkflowStep.CONFIGURE:
         create_configure_page(state, navigate_to_step, save_state)
+    elif step == WorkflowStep.TARGET_CREDENTIALS:
+        create_target_credentials_page(state, navigate_to_step, save_state)
     elif step == WorkflowStep.DEPLOY:
         create_deploy_page(state, navigate_to_step, save_state)
     elif step == WorkflowStep.DESTROY:
@@ -253,6 +342,8 @@ def explore_source_page() -> None:
 def scope_page() -> None:
     """Scope step page route."""
     state = get_state()
+    if not _require_migration_license(state):
+        return
     state.current_step = WorkflowStep.SCOPE
     save_state()
     setup_page(state)
@@ -266,6 +357,8 @@ def scope_page() -> None:
 def fetch_target_page() -> None:
     """Fetch Target step page route."""
     state = get_state()
+    if not _require_migration_license(state):
+        return
     state.current_step = WorkflowStep.FETCH_TARGET
     save_state()
     setup_page(state)
@@ -279,6 +372,8 @@ def fetch_target_page() -> None:
 def explore_target_page() -> None:
     """Explore Target step page route."""
     state = get_state()
+    if not _require_migration_license(state):
+        return
     state.current_step = WorkflowStep.EXPLORE_TARGET
     save_state()
     setup_page(state)
@@ -292,6 +387,8 @@ def explore_target_page() -> None:
 def match_page() -> None:
     """Match step page route."""
     state = get_state()
+    if not _require_migration_license(state):
+        return
     state.current_step = WorkflowStep.MATCH
     save_state()
     setup_page(state)
@@ -305,7 +402,24 @@ def match_page() -> None:
 def configure_page() -> None:
     """Configure Migration step page route."""
     state = get_state()
+    if not _require_migration_license(state):
+        return
     state.current_step = WorkflowStep.CONFIGURE
+    save_state()
+    setup_page(state)
+
+    with ui.column().classes("w-full"):
+        create_progress_header(state)
+        create_page_content(state)
+
+
+@ui.page("/target_credentials")
+def target_credentials_page() -> None:
+    """Target Credentials step page route."""
+    state = get_state()
+    if not _require_migration_license(state):
+        return
+    state.current_step = WorkflowStep.TARGET_CREDENTIALS
     save_state()
     setup_page(state)
 
@@ -318,6 +432,8 @@ def configure_page() -> None:
 def deploy_page() -> None:
     """Deploy step page route."""
     state = get_state()
+    if not _require_migration_license(state):
+        return
     state.current_step = WorkflowStep.DEPLOY
     save_state()
     setup_page(state)
@@ -331,6 +447,8 @@ def deploy_page() -> None:
 def destroy_page() -> None:
     """Destroy step page route."""
     state = get_state()
+    if not _require_migration_license(state):
+        return
     state.current_step = WorkflowStep.DESTROY
     save_state()
     setup_page(state)

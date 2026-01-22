@@ -143,12 +143,13 @@ module "projects_v2" {
   count  = local.schema_version == 2 ? 1 : 0
   source = "./modules/projects_v2"
 
-  account                = local.account_config_v2
-  globals                = local.globals_v2
-  projects               = local.projects_v2
-  token_map              = var.token_map
-  connection_credentials = var.connection_credentials
-  dbt_account_id         = var.dbt_account_id
-  dbt_pat                = var.dbt_pat != "" ? var.dbt_pat : null
-  dbt_host_url           = var.dbt_host_url
+  account                 = local.account_config_v2
+  globals                 = local.globals_v2
+  projects                = local.projects_v2
+  token_map               = var.token_map
+  connection_credentials  = var.connection_credentials
+  environment_credentials = var.environment_credentials
+  dbt_account_id          = var.dbt_account_id
+  dbt_pat                 = var.dbt_pat != "" ? var.dbt_pat : null
+  dbt_host_url            = var.dbt_host_url
 }

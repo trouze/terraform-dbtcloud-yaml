@@ -16,16 +16,17 @@ class WorkflowStep(IntEnum):
     EXPLORE_TARGET = 5
     MATCH = 6
     CONFIGURE = 7
-    DEPLOY = 8
-    DESTROY = 9
+    TARGET_CREDENTIALS = 8  # Target credentials (connections + environment credentials)
+    DEPLOY = 9
+    DESTROY = 10
     # Jobs as Code Generator steps
-    JAC_SELECT = 10  # Select sub-workflow: Adopt vs Clone
-    JAC_FETCH = 11   # Fetch jobs from source
-    JAC_JOBS = 12    # Select jobs
-    JAC_TARGET = 13  # Configure target (Clone only)
-    JAC_MAPPING = 14 # Map environments/projects (Clone only)
-    JAC_CONFIG = 15  # Configure jobs (rename, triggers)
-    JAC_GENERATE = 16  # Preview and export
+    JAC_SELECT = 11  # Select sub-workflow: Adopt vs Clone
+    JAC_FETCH = 12   # Fetch jobs from source
+    JAC_JOBS = 13    # Select jobs
+    JAC_TARGET = 14  # Configure target (Clone only)
+    JAC_MAPPING = 15 # Map environments/projects (Clone only)
+    JAC_CONFIG = 16  # Configure jobs (rename, triggers)
+    JAC_GENERATE = 17  # Preview and export
 
 
 class WorkflowType(str, Enum):
@@ -46,6 +47,7 @@ STEP_NAMES = {
     WorkflowStep.EXPLORE_TARGET: "Explore Target",
     WorkflowStep.MATCH: "Match Existing",
     WorkflowStep.CONFIGURE: "Configure Migration",
+    WorkflowStep.TARGET_CREDENTIALS: "Target Credentials",
     WorkflowStep.DEPLOY: "Deploy",
     WorkflowStep.DESTROY: "Destroy Target Resources",
     # Jobs as Code Generator steps
@@ -67,6 +69,7 @@ STEP_ICONS = {
     WorkflowStep.EXPLORE_TARGET: "manage_search",
     WorkflowStep.MATCH: "link",
     WorkflowStep.CONFIGURE: "settings",
+    WorkflowStep.TARGET_CREDENTIALS: "key",
     WorkflowStep.DEPLOY: "rocket_launch",
     WorkflowStep.DESTROY: "delete_forever",
     # Jobs as Code Generator steps
@@ -96,6 +99,7 @@ WORKFLOW_STEPS = {
         WorkflowStep.EXPLORE_TARGET,
         WorkflowStep.MATCH,
         WorkflowStep.CONFIGURE,
+        WorkflowStep.TARGET_CREDENTIALS,
         WorkflowStep.DEPLOY,
     ],
     WorkflowType.ACCOUNT_EXPLORER: [
@@ -117,6 +121,7 @@ WORKFLOW_STEPS = {
         WorkflowStep.EXPLORE_TARGET,
         WorkflowStep.MATCH,
         WorkflowStep.CONFIGURE,
+        WorkflowStep.TARGET_CREDENTIALS,
         WorkflowStep.DEPLOY,
     ],
 }
@@ -236,6 +241,165 @@ class CloneConfig:
     include_env_values: bool = True  # Whether to copy environment variable values
     include_triggers: bool = False  # Whether to copy job triggers/schedules
     include_credentials: bool = False  # Whether to copy connection credentials
+
+
+@dataclass
+class EnvironmentCredentialConfig:
+    """Configuration for credentials of a single environment.
+    
+    Stores the credential configuration for a target environment that will be
+    migrated. Each environment has its own credential type (based on its connection
+    type) and can either use real credentials or dummy placeholder values.
+    """
+    
+    env_id: str = ""  # Environment ID (from source or target)
+    env_name: str = ""  # Environment name for display
+    project_id: str = ""  # Project ID this environment belongs to
+    project_name: str = ""  # Project name for display
+    connection_type: str = ""  # Connection/adapter type (e.g., 'snowflake', 'databricks')
+    credential_type: str = ""  # Credential schema type key
+    
+    # Environment metadata
+    env_type: str = ""  # 'development' or 'deployment'
+    deployment_type: str = ""  # 'production', 'staging', or empty
+    dbt_version: str = ""  # dbt version for the environment
+    custom_branch: str = ""  # Custom branch if set
+    
+    # Credential values (field_name -> value)
+    credential_values: dict = field(default_factory=dict)
+    
+    # Source values from YAML (for pre-fill, e.g., schema, database from connection/credential)
+    source_values: dict = field(default_factory=dict)
+    
+    # Dummy credentials toggle
+    use_dummy_credentials: bool = False
+    
+    # Real values backup (preserved when toggling to dummy, restored when toggling back)
+    _real_values_backup: dict = field(default_factory=dict)
+    
+    # Saved state
+    is_saved: bool = False  # True if saved to .env
+    
+    def set_use_dummy(self, use_dummy: bool) -> None:
+        """Toggle between dummy and real credentials.
+        
+        When switching to dummy: backs up current values
+        When switching to real: restores backed up values
+        """
+        if use_dummy and not self.use_dummy_credentials:
+            # Switching to dummy - back up current values
+            self._real_values_backup = dict(self.credential_values)
+            self.credential_values = {}
+        elif not use_dummy and self.use_dummy_credentials:
+            # Switching back to real - restore backup
+            if self._real_values_backup:
+                self.credential_values = dict(self._real_values_backup)
+        self.use_dummy_credentials = use_dummy
+    
+    def to_dict(self) -> dict:
+        """Convert to dictionary for serialization."""
+        return {
+            "env_id": self.env_id,
+            "env_name": self.env_name,
+            "project_id": self.project_id,
+            "project_name": self.project_name,
+            "connection_type": self.connection_type,
+            "credential_type": self.credential_type,
+            "env_type": self.env_type,
+            "deployment_type": self.deployment_type,
+            "dbt_version": self.dbt_version,
+            "custom_branch": self.custom_branch,
+            "credential_values": self.credential_values,
+            "source_values": self.source_values,
+            "use_dummy_credentials": self.use_dummy_credentials,
+            "_real_values_backup": self._real_values_backup,
+            "is_saved": self.is_saved,
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> "EnvironmentCredentialConfig":
+        """Create from dictionary."""
+        config = cls(
+            env_id=data.get("env_id", ""),
+            env_name=data.get("env_name", ""),
+            project_id=data.get("project_id", ""),
+            project_name=data.get("project_name", ""),
+            connection_type=data.get("connection_type", ""),
+            credential_type=data.get("credential_type", ""),
+            env_type=data.get("env_type", ""),
+            deployment_type=data.get("deployment_type", ""),
+            dbt_version=data.get("dbt_version", ""),
+            custom_branch=data.get("custom_branch", ""),
+            credential_values=data.get("credential_values", {}),
+            source_values=data.get("source_values", {}),
+            use_dummy_credentials=data.get("use_dummy_credentials", False),
+            is_saved=data.get("is_saved", False),
+        )
+        config._real_values_backup = data.get("_real_values_backup", {})
+        return config
+
+
+@dataclass
+class EnvironmentCredentialsState:
+    """State for the environment credentials configuration step.
+    
+    Tracks credential configurations for all selected target environments.
+    """
+    
+    # Per-environment credential configurations, keyed by env_id
+    env_configs: dict = field(default_factory=dict)  # env_id -> EnvironmentCredentialConfig
+    
+    # Step completion tracking
+    step_complete: bool = False
+    
+    # Selected environments (populated from scope/match steps)
+    selected_env_ids: set = field(default_factory=set)
+    
+    def get_config(self, env_id: str) -> Optional["EnvironmentCredentialConfig"]:
+        """Get credential config for an environment."""
+        return self.env_configs.get(env_id)
+    
+    def set_config(self, config: "EnvironmentCredentialConfig") -> None:
+        """Set credential config for an environment."""
+        self.env_configs[config.env_id] = config
+    
+    def has_selected_environments(self) -> bool:
+        """Check if there are any selected environments."""
+        return len(self.selected_env_ids) > 0
+    
+    def all_saved(self) -> bool:
+        """Check if all selected environments have been saved."""
+        if not self.selected_env_ids:
+            return True  # No environments = nothing to save = complete
+        for env_id in self.selected_env_ids:
+            config = self.env_configs.get(env_id)
+            if config and not config.is_saved:
+                return False
+        return True
+    
+    def to_dict(self) -> dict:
+        """Convert to dictionary for serialization."""
+        return {
+            "env_configs": {
+                env_id: config.to_dict()
+                for env_id, config in self.env_configs.items()
+            },
+            "step_complete": self.step_complete,
+            "selected_env_ids": list(self.selected_env_ids),
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> "EnvironmentCredentialsState":
+        """Create from dictionary."""
+        state = cls()
+        state.step_complete = data.get("step_complete", False)
+        state.selected_env_ids = set(data.get("selected_env_ids", []))
+        
+        env_configs_data = data.get("env_configs", {})
+        for env_id, config_data in env_configs_data.items():
+            state.env_configs[env_id] = EnvironmentCredentialConfig.from_dict(config_data)
+        
+        return state
 
 
 @dataclass
@@ -489,6 +653,10 @@ class AppState:
     current_step: WorkflowStep = WorkflowStep.HOME
     theme: str = "dark"  # "dark" or "light"
     workflow: WorkflowType = WorkflowType.MIGRATION
+    is_migration_licensed: bool = False
+    license_tier: str = "explorer"  # LicenseTier value: explorer, solutions_architect, resident_architect, engineering
+    license_email: str = ""
+    license_message: str = ""
 
     source_credentials: SourceCredentials = field(default_factory=SourceCredentials)
     target_credentials: TargetCredentials = field(default_factory=TargetCredentials)
@@ -507,6 +675,9 @@ class AppState:
     explore: ExploreState = field(default_factory=ExploreState)
     map: MapState = field(default_factory=MapState)
     deploy: DeployState = field(default_factory=DeployState)
+    
+    # Environment credentials state
+    env_credentials: EnvironmentCredentialsState = field(default_factory=EnvironmentCredentialsState)
     
     # Jobs as Code Generator state
     jobs_as_code: JobsAsCodeState = field(default_factory=JobsAsCodeState)
@@ -537,6 +708,8 @@ class AppState:
             return self.map.mapping_file_valid
         elif step == WorkflowStep.CONFIGURE:
             return self.deploy.configure_complete
+        elif step == WorkflowStep.TARGET_CREDENTIALS:
+            return self.env_credentials.step_complete
         elif step == WorkflowStep.DEPLOY:
             return self.deploy.apply_complete
         elif step == WorkflowStep.DESTROY:
@@ -573,7 +746,7 @@ class AppState:
         elif step == WorkflowStep.SCOPE:
             return self.fetch.fetch_complete
         elif step == WorkflowStep.FETCH_TARGET:
-            return self.map.normalize_complete
+            return True  # Always accessible - can fetch target anytime
         elif step == WorkflowStep.EXPLORE_TARGET:
             return self.target_fetch.fetch_complete
         elif step == WorkflowStep.MATCH:
@@ -585,8 +758,12 @@ class AppState:
             if has_match:
                 return self.map.mapping_file_valid or len(self.map.confirmed_mappings) == 0
             return self.map.normalize_complete
+        elif step == WorkflowStep.TARGET_CREDENTIALS:
+            # Target credentials accessible after configure is complete
+            return self.deploy.configure_complete
         elif step == WorkflowStep.DEPLOY:
-            return self.deploy.files_generated
+            # Deploy requires env credentials step complete (or no environments selected)
+            return self.env_credentials.step_complete or not self.env_credentials.has_selected_environments()
         elif step == WorkflowStep.DESTROY:
             return self.deploy.has_state_file()
         # Jobs as Code Generator steps
@@ -632,6 +809,10 @@ class AppState:
             "current_step": self.current_step.value,
             "theme": self.theme,
             "workflow": self.workflow.value,
+            "is_migration_licensed": self.is_migration_licensed,
+            "license_tier": self.license_tier,
+            "license_email": self.license_email,
+            "license_message": self.license_message,
             "active_fetch_mode": self.active_fetch_mode.value,
             "source_credentials": {
                 "host_url": self.source_credentials.host_url,
@@ -704,6 +885,7 @@ class AppState:
                 "import_mode": self.deploy.import_mode,
                 "terraform_version": self.deploy.terraform_version,
             },
+            "env_credentials": self.env_credentials.to_dict(),
             "jobs_as_code": {
                 "sub_workflow": self.jobs_as_code.sub_workflow.value,
                 "fetch_complete": self.jobs_as_code.fetch_complete,
@@ -750,6 +932,14 @@ class AppState:
                 state.workflow = WorkflowType(data["workflow"])
             except Exception:
                 state.workflow = WorkflowType.MIGRATION
+        if "is_migration_licensed" in data:
+            state.is_migration_licensed = bool(data["is_migration_licensed"])
+        if "license_tier" in data:
+            state.license_tier = data["license_tier"] or "explorer"
+        if "license_email" in data:
+            state.license_email = data["license_email"] or ""
+        if "license_message" in data:
+            state.license_message = data["license_message"] or ""
         if "active_fetch_mode" in data:
             try:
                 state.active_fetch_mode = FetchMode(data["active_fetch_mode"])
@@ -847,6 +1037,9 @@ class AppState:
             state.deploy.import_completed = d.get("import_completed", False)
             state.deploy.import_mode = d.get("import_mode", "modern")
             state.deploy.terraform_version = d.get("terraform_version")
+
+        if "env_credentials" in data:
+            state.env_credentials = EnvironmentCredentialsState.from_dict(data["env_credentials"])
 
         if "jobs_as_code" in data:
             jac = data["jobs_as_code"]

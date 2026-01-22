@@ -502,6 +502,219 @@ def fetch_account_name(
         return False, str(e)
 
 
+# =============================================================================
+# Environment Credentials Management
+# =============================================================================
+# These functions handle per-environment credential configurations stored in .env
+# Format: DBT_ENV_CRED_{ENV_ID}_{FIELD_NAME}=value
+# Example: DBT_ENV_CRED_12345_SCHEMA=my_schema
+#          DBT_ENV_CRED_12345_USER=my_user
+#          DBT_ENV_CRED_12345_USE_DUMMY=true
+
+
+def _normalize_env_id(env_id: str) -> str:
+    """Normalize environment ID for use in env var names.
+    
+    Replaces dashes with underscores and converts to uppercase.
+    """
+    return str(env_id).upper().replace("-", "_")
+
+
+def _get_env_cred_prefix(env_id: str) -> str:
+    """Get the env var prefix for an environment's credentials."""
+    return f"DBT_ENV_CRED_{_normalize_env_id(env_id)}_"
+
+
+# Known field names for environment credentials (for parsing)
+ENV_CRED_KNOWN_FIELDS = {
+    # Credential type (required for Terraform routing)
+    "CREDENTIAL_TYPE",
+    # Common fields
+    "SCHEMA", "USER", "PASSWORD", "NUM_THREADS", "DATABASE",
+    # Snowflake
+    "AUTH_TYPE", "PRIVATE_KEY", "PRIVATE_KEY_PASSPHRASE", "WAREHOUSE", "ROLE",
+    # Databricks
+    "TOKEN", "CATALOG", "ADAPTER_TYPE", "TARGET_NAME",
+    # BigQuery
+    "DATASET",
+    # Redshift
+    "DEFAULT_SCHEMA", "USERNAME",
+    # Athena
+    "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY",
+    # Fabric/Synapse
+    "TENANT_ID", "CLIENT_ID", "CLIENT_SECRET", "SCHEMA_AUTHORIZATION", "AUTHENTICATION",
+    # Starburst
+    # (uses common fields)
+    # Teradata
+    "THREADS",
+    # Meta field
+    "USE_DUMMY",
+}
+
+
+def load_env_credential_configs(env_path: Optional[str] = None) -> dict:
+    """Load all environment credential configurations from .env file.
+    
+    Looks for variables matching pattern: DBT_ENV_CRED_{ENV_ID}_{FIELD}
+    
+    Returns:
+        Nested dictionary: {env_id: {field: value, ...}}
+    """
+    values = load_env_values(env_path)
+    configs = {}
+    
+    prefix = "DBT_ENV_CRED_"
+    
+    for key, value in values.items():
+        if not key.startswith(prefix):
+            continue
+        
+        # Remove prefix
+        remainder = key[len(prefix):]
+        
+        # Try to find a known field name from the end
+        field_name = None
+        env_id = None
+        
+        for known_field in sorted(ENV_CRED_KNOWN_FIELDS, key=len, reverse=True):
+            # Check if the remainder ends with _FIELD_NAME
+            suffix = f"_{known_field}"
+            if remainder.endswith(suffix):
+                env_id = remainder[:-len(suffix)].lower()
+                field_name = known_field.lower()
+                break
+        
+        if env_id and field_name:
+            if env_id not in configs:
+                configs[env_id] = {}
+            configs[env_id][field_name] = value
+    
+    return configs
+
+
+def load_env_credential_config(
+    env_id: str,
+    env_path: Optional[str] = None,
+) -> dict:
+    """Load a specific environment's credential configuration from .env file.
+    
+    Args:
+        env_id: Environment ID
+        env_path: Path to .env file
+        
+    Returns:
+        Dictionary of field names to values for this environment
+    """
+    all_configs = load_env_credential_configs(env_path)
+    normalized_id = _normalize_env_id(env_id).lower()
+    return all_configs.get(normalized_id, {})
+
+
+def save_env_credential_config(
+    env_id: str,
+    config: dict,
+    use_dummy: bool = False,
+    env_path: Optional[str] = None,
+) -> Path:
+    """Save an environment's credential configuration to .env file.
+    
+    Args:
+        env_id: Environment ID
+        config: Dictionary of field names to values
+        use_dummy: Whether dummy credentials are being used (stored as meta field)
+        env_path: Path to .env file
+        
+    Returns:
+        Path to the saved .env file
+    """
+    if env_path:
+        path = Path(env_path)
+    else:
+        path = find_env_file()
+    
+    # Create file if it doesn't exist
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    
+    prefix = _get_env_cred_prefix(env_id)
+    
+    # Save USE_DUMMY meta field
+    set_key(str(path), f"{prefix}USE_DUMMY", "true" if use_dummy else "false")
+    
+    # Save all config fields
+    for field_name, value in config.items():
+        field_upper = field_name.upper().replace("-", "_")
+        env_key = f"{prefix}{field_upper}"
+        
+        # Convert booleans to string
+        if isinstance(value, bool):
+            value = "true" if value else "false"
+        
+        set_key(str(path), env_key, str(value) if value is not None else "")
+    
+    return path
+
+
+def save_all_env_credential_configs(
+    configs: dict,
+    env_path: Optional[str] = None,
+) -> Path:
+    """Save multiple environment credential configurations to .env file.
+    
+    Args:
+        configs: Dictionary of env_id -> {field: value, use_dummy: bool}
+        env_path: Path to .env file
+        
+    Returns:
+        Path to the saved .env file
+    """
+    if env_path:
+        path = Path(env_path)
+    else:
+        path = find_env_file()
+    
+    # Create file if it doesn't exist
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    
+    for env_id, env_config in configs.items():
+        use_dummy = env_config.pop("use_dummy", False) if "use_dummy" in env_config else False
+        save_env_credential_config(env_id, env_config, use_dummy, str(path))
+    
+    return path
+
+
+def clear_env_credential_config(
+    env_id: str,
+    env_path: Optional[str] = None,
+) -> None:
+    """Clear an environment's credential configuration from .env file.
+    
+    Note: This sets values to empty strings rather than removing the keys,
+    as python-dotenv's set_key doesn't have a clean removal mechanism.
+    
+    Args:
+        env_id: Environment ID
+        env_path: Path to .env file
+    """
+    if env_path:
+        path = Path(env_path)
+    else:
+        path = find_env_file()
+    
+    if not path.exists():
+        return
+    
+    prefix = _get_env_cred_prefix(env_id)
+    values = load_env_values(str(path))
+    
+    for key in values.keys():
+        if key.startswith(prefix):
+            set_key(str(path), key, "")
+
+
 def load_account_info_from_env(
     account_type: str = "source",
     env_path: Optional[str] = None,
@@ -542,3 +755,99 @@ def load_account_info_from_env(
             info.is_verified = True
 
     return info
+
+
+# =============================================================================
+# License Credentials Management
+# =============================================================================
+# These functions handle Magellan license credentials stored in .env
+# Format: MAGELLAN_LICENSE_EMAIL and MAGELLAN_LICENSE_KEY
+
+
+def load_license_credentials(env_path: Optional[str] = None) -> dict:
+    """Load Magellan license credentials from .env file.
+
+    Args:
+        env_path: Path to .env file. If None, searches for one.
+
+    Returns:
+        Dictionary with keys: email, key
+        Both values will be empty strings if not found.
+    """
+    values = load_env_values(env_path)
+
+    return {
+        "email": values.get("MAGELLAN_LICENSE_EMAIL", ""),
+        "key": values.get("MAGELLAN_LICENSE_KEY", ""),
+    }
+
+
+def load_license_credentials_from_content(content: str) -> dict:
+    """Load Magellan license credentials from .env content string.
+
+    Args:
+        content: String content of a .env file
+
+    Returns:
+        Dictionary with keys: email, key
+    """
+    values = parse_env_content(content)
+
+    return {
+        "email": values.get("MAGELLAN_LICENSE_EMAIL", ""),
+        "key": values.get("MAGELLAN_LICENSE_KEY", ""),
+    }
+
+
+def save_license_credentials(
+    email: str,
+    key: str,
+    env_path: Optional[str] = None,
+) -> Path:
+    """Save Magellan license credentials to .env file.
+
+    Creates the file if it doesn't exist. Preserves existing values.
+
+    Args:
+        email: License email address (MAGELLAN_LICENSE_EMAIL)
+        key: License key (MAGELLAN_LICENSE_KEY) - base64-encoded Ed25519 private key
+        env_path: Path to .env file. If None, uses default location.
+
+    Returns:
+        Path to the saved .env file.
+    """
+    if env_path:
+        path = Path(env_path)
+    else:
+        path = find_env_file()
+
+    # Create file if it doesn't exist
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+
+    # Save credentials using python-dotenv's set_key
+    set_key(str(path), "MAGELLAN_LICENSE_EMAIL", email)
+    set_key(str(path), "MAGELLAN_LICENSE_KEY", key)
+
+    return path
+
+
+def clear_license_credentials(env_path: Optional[str] = None) -> None:
+    """Clear Magellan license credentials from .env file.
+
+    Sets the values to empty strings rather than removing the keys.
+
+    Args:
+        env_path: Path to .env file. If None, uses default location.
+    """
+    if env_path:
+        path = Path(env_path)
+    else:
+        path = find_env_file()
+
+    if not path.exists():
+        return
+
+    set_key(str(path), "MAGELLAN_LICENSE_EMAIL", "")
+    set_key(str(path), "MAGELLAN_LICENSE_KEY", "")

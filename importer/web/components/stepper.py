@@ -49,7 +49,14 @@ def create_nav_drawer(
         # Logo/title area
         with ui.column().classes("w-full items-center py-2 border-b border-slate-700"):
             ui.image("/static/vertical_logo.png").classes("max-w-[200px] h-auto object-contain")
-            ui.label(f"v{__version__}").classes("text-xs text-slate-500 mt-1")
+            with ui.column().classes("w-full items-center px-3 pt-1 pb-2 gap-0.5"):
+                ui.label(
+                    "Delivered Exclusively by dbt Labs Professional Services"
+                ).classes(
+                    "text-[11px] font-semibold text-slate-400 text-center leading-tight max-w-[200px] mx-auto"
+                )
+                with ui.row().classes("w-full justify-end"):
+                    ui.label(f"v{__version__}").classes("text-xs text-slate-500")
 
         # Workflow selector
         workflow_options = {

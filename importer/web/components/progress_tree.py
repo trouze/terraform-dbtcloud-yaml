@@ -18,8 +18,9 @@ GLOBAL_RESOURCES = [
 
 PROJECT_RESOURCES = [
     ("environments", "Environments"),
+    ("credentials", "Credential Metadata (No Secret Values)"),
     ("jobs", "Jobs"),
-    ("environment_variables", "Env Variables"),
+    ("environment_variables", "Env Variables (No Secret Values)"),
     ("job_env_var_overrides", "Job Overrides"),
 ]
 

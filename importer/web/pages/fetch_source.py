@@ -65,59 +65,48 @@ def create_fetch_source_page(
             "Configure your source dbt Platform account credentials and fetch the account data."
         ).classes("text-slate-600 dark:text-slate-400")
 
-        # Two-column layout: Left credentials/options, Right actions/progress
-        with ui.row().classes("w-full gap-6"):
-            # Left column: Credentials and Options (1/3 width)
-            with ui.column().classes("w-1/3 min-w-[300px] gap-4"):
-                # Source credential form
-                create_source_credential_form(
-                    state=state,
-                    on_credentials_change=lambda creds: _on_credentials_change(state, save_state),
-                    on_load_env=lambda: _load_env_credentials(state, terminal, save_state),
-                    on_load_env_content=lambda content, filename: _load_env_from_upload(
-                        content, filename, state, terminal, save_state
-                    ),
-                    on_save_env=lambda: _save_env_credentials(state, terminal),
-                )
+        # Vertical layout: Credentials, Options, Actions, then Logs
+        
+        # 1. Source credential form (full width card)
+        create_source_credential_form(
+            state=state,
+            on_credentials_change=lambda creds: _on_credentials_change(state, save_state),
+            on_load_env=lambda: _load_env_credentials(state, terminal, save_state),
+            on_load_env_content=lambda content, filename: _load_env_from_upload(
+                content, filename, state, terminal, save_state
+            ),
+            on_save_env=lambda: _save_env_credentials(state, terminal),
+        )
 
-                # Fetch Options
-                _create_fetch_options(state, save_state)
+        # 2. Fetch Options (compact card)
+        _create_fetch_options(state, save_state)
 
-            # Right column: Actions/Progress combined, and Fetch Complete (2/3 width)
-            with ui.column().classes("flex-grow gap-4"):
-                # Combined Actions + Progress card
-                with ui.card().classes("w-full p-4"):
-                    # Actions row at top
-                    with ui.row().classes("w-full items-center justify-between mb-3"):
-                        ui.label("Actions").classes("font-semibold")
-                        
-                        # Test connection button
-                        ui.button(
-                            "Test Connection",
-                            icon="network_check",
-                            on_click=lambda: _test_connection(state, terminal),
-                        ).props("outline size=sm")
-
-                    # Fetch button row
-                    fetch_btn_container = ui.row().classes("w-full mb-4")
-                    
-                    # Progress section (compact two-column layout)
-                    ui.separator().classes("my-2")
-                    ui.label("Progress").classes("font-semibold mb-2")
-                    progress_tree.create(compact=True)
-
-                # Results section (Fetch Complete - shown after fetch completes)
-                results_container = ui.column().classes("w-full gap-4")
+        # 3. Actions + Progress card
+        with ui.card().classes("w-full p-4"):
+            # Actions row at top
+            with ui.row().classes("w-full items-center justify-between mb-3"):
+                ui.label("Actions").classes("font-semibold")
                 
-                if state.fetch.fetch_complete:
-                    with results_container:
-                        _create_results_section(state, on_step_change)
+                # Test connection button
+                ui.button(
+                    "Test Connection",
+                    icon="network_check",
+                    on_click=lambda: _test_connection(state, terminal),
+                ).props("outline size=sm")
 
-        # Terminal output (full width below the two columns)
-        with ui.column().classes("w-full"):
-            terminal.create(height="600px")
+            # Fetch button row - create container first, add button after results_container exists
+            fetch_btn_container = ui.row().classes("w-full mb-4")
+            
+            # Progress section (compact two-column layout)
+            ui.separator().classes("my-2")
+            ui.label("Progress").classes("font-semibold mb-2")
+            progress_tree.create(compact=True)
 
-        # Now add the fetch button with access to results_container
+            # Results section (file paths + continue button)
+            results_container = ui.column().classes("w-full")
+            _create_results_section(state, on_step_change, results_container)
+
+        # Add the fetch button now that results_container exists
         with fetch_btn_container:
             with ui.row().classes("w-full gap-2"):
                 fetch_btn = ui.button(
@@ -144,62 +133,66 @@ def create_fetch_source_page(
                     on_click=lambda: _cancel_fetch(cancel_event, terminal),
                 ).props("outline color=negative").classes("hidden")
 
+        # 4. Terminal output (full width)
+        terminal.create(height="500px")
+
 
 def _create_fetch_options(
     state: AppState,
     save_state: Callable[[], None],
 ) -> None:
-    """Create fetch options card."""
-    with ui.card().classes("w-full"):
-        ui.label("Fetch Options").classes("font-semibold mb-4")
-
-        # Output directory
-        ui.input(
-            label="Output Directory",
-            value=state.fetch.output_dir,
-            placeholder="dev_support/samples",
-        ).classes("w-full").props('outlined').on(
-            'update:model-value',
-            lambda e: _update_output_dir(state, e.args, save_state)
-        )
-
-        # Auto-timestamp toggle
-        ui.switch(
-            "Auto-timestamp filenames",
-            value=state.fetch.auto_timestamp,
-            on_change=lambda e: _update_auto_timestamp(state, e.value, save_state),
-        ).classes("mt-4")
-
-        # Advanced options (collapsed by default)
-        with ui.expansion("Advanced Options", icon="settings", value=False).classes("w-full mt-4"):
-            def _update_threads(e):
-                # For on("update:model-value"), value is in e.args
-                val = e.args if e.args is not None else 15
-                state.fetch.threads = int(val) if val else 15
-                save_state()
+    """Create compact fetch options card."""
+    with ui.card().classes("w-full p-4"):
+        with ui.row().classes("w-full items-center gap-4"):
+            ui.label("Fetch Options").classes("font-semibold")
             
-            ui.number(
-                label="Threads",
-                value=getattr(state.fetch, 'threads', 15) or 15,
-                min=1,
-                max=20,
-            ).classes("w-full").props('outlined').tooltip(
-                "Number of parallel threads for fetching data (1-20)"
-            ).on("update:model-value", _update_threads)
-            
-            ui.number(
-                label="API Timeout (seconds)",
-                value=90,
-                min=10,
-                max=300,
-            ).classes("w-full mt-2").props('outlined')
+            # Output directory (inline)
+            ui.input(
+                label="Output Directory",
+                value=state.fetch.output_dir,
+                placeholder="dev_support/samples",
+            ).classes("flex-grow").props('outlined dense').on(
+                'update:model-value',
+                lambda e: _update_output_dir(state, e.args, save_state)
+            )
 
-            ui.number(
-                label="Max Retries",
-                value=5,
-                min=1,
-                max=10,
-            ).classes("w-full mt-2").props('outlined')
+            # Auto-timestamp toggle (inline)
+            ui.switch(
+                "Auto-timestamp",
+                value=state.fetch.auto_timestamp,
+                on_change=lambda e: _update_auto_timestamp(state, e.value, save_state),
+            )
+
+            # Advanced options button
+            with ui.expansion("Advanced", icon="settings", value=False).classes("w-auto"):
+                with ui.column().classes("gap-2 p-2"):
+                    def _update_threads(e):
+                        val = e.args if e.args is not None else 15
+                        state.fetch.threads = int(val) if val else 15
+                        save_state()
+                    
+                    ui.number(
+                        label="Threads",
+                        value=getattr(state.fetch, 'threads', 15) or 15,
+                        min=1,
+                        max=20,
+                    ).props('outlined dense').tooltip(
+                        "Number of parallel threads for fetching data (1-20)"
+                    ).on("update:model-value", _update_threads)
+                    
+                    ui.number(
+                        label="API Timeout (seconds)",
+                        value=90,
+                        min=10,
+                        max=300,
+                    ).props('outlined dense')
+
+                    ui.number(
+                        label="Max Retries",
+                        value=5,
+                        min=1,
+                        max=10,
+                    ).props('outlined dense')
 
             ui.switch(
                 "Verify SSL",
@@ -210,39 +203,26 @@ def _create_fetch_options(
 def _create_results_section(
     state: AppState,
     on_step_change: Callable[[WorkflowStep], None],
+    container: ui.column,
 ) -> None:
-    """Create the results section shown after successful fetch."""
-    with ui.card().classes("w-full p-6 border-l-4 border-green-500"):
-        with ui.row().classes("w-full items-center gap-3"):
-            ui.icon("check_circle", size="lg").classes("text-green-500")
-            ui.label("Fetch Complete").classes("text-xl font-semibold")
-
-        # Stats grid
-        counts = state.fetch.resource_counts
-        if counts:
-            with ui.row().classes("w-full mt-4 gap-4 flex-wrap"):
-                for resource, count in counts.items():
-                    with ui.card().classes("p-3 min-w-[100px]"):
-                        ui.label(str(count)).classes("text-2xl font-bold")
-                        ui.label(resource.replace("_", " ").title()).classes("text-sm text-slate-500")
-
-        # Account info
-        if state.fetch.account_name:
-            ui.label(f"Account: {state.fetch.account_name}").classes("mt-4 text-slate-600 dark:text-slate-400")
-
-        # File paths
-        with ui.column().classes("mt-4 gap-1"):
-            if state.fetch.last_fetch_file:
-                ui.label(f"Data: {state.fetch.last_fetch_file}").classes("text-xs text-slate-500 font-mono")
-            if state.fetch.last_summary_file:
-                ui.label(f"Summary: {state.fetch.last_summary_file}").classes("text-xs text-slate-500 font-mono")
-
-        # Continue button
-        ui.button(
-            "Continue to Explore Source",
-            icon="arrow_forward",
-            on_click=lambda: on_step_change(WorkflowStep.EXPLORE_SOURCE),
-        ).classes("mt-6").style(f"background-color: {DBT_ORANGE};")
+    """Create the results section showing file paths and continue button when fetch is complete."""
+    with container:
+        if state.fetch.fetch_complete:
+            ui.separator().classes("my-3")
+            with ui.row().classes("w-full items-center justify-between"):
+                # File paths on the left
+                with ui.column().classes("gap-0 text-xs text-slate-500 font-mono"):
+                    if state.fetch.last_fetch_file:
+                        ui.label(f"Data: {state.fetch.last_fetch_file}")
+                    if state.fetch.last_summary_file:
+                        ui.label(f"Summary: {state.fetch.last_summary_file}")
+                
+                # Continue button (full width, same style as fetch button)
+                ui.button(
+                    "Explore Source",
+                    icon="arrow_forward",
+                    on_click=lambda: on_step_change(WorkflowStep.EXPLORE_SOURCE),
+                ).classes("w-full").style(f"background-color: {DBT_ORANGE};")
 
 
 def _on_credentials_change(state: AppState, save_state: Callable[[], None]) -> None:
@@ -474,9 +454,14 @@ async def _run_fetch(
     cancel_event["event"] = threading.Event()
     cancel_btn.classes(remove="hidden")
     
-    # Clear previous results panel if it exists
+    # Reset fetch_complete state before starting new fetch
+    state.fetch.fetch_complete = False
+    
+    # Reset the results panel to placeholder state (preserves layout)
     if results_container is not None:
         results_container.clear()
+        # Recreate the placeholder to maintain consistent height
+        _create_results_section(state, on_step_change, results_container)
     
     # Start progress tracking
     terminal.clear()
@@ -589,10 +574,15 @@ async def _run_fetch(
         fetch_state.last_report_items_file = str(report_items_path)
         fetch_state.account_name = snapshot.account_name
         
-        # Calculate resource counts
+        # Calculate resource counts (including credentials)
         fetch_state.resource_counts = {
             "projects": len(snapshot.projects),
             "environments": sum(len(p.environments) for p in snapshot.projects),
+            "credentials": sum(
+                1 for p in snapshot.projects 
+                for e in p.environments 
+                if e.credential is not None
+            ),
             "jobs": sum(len(p.jobs) for p in snapshot.projects),
             "connections": len(snapshot.globals.connections),
             "repositories": len(snapshot.globals.repositories),
@@ -626,6 +616,7 @@ async def _run_fetch(
         terminal.success("━━━ FETCH COMPLETE ━━━")
         terminal.info(f"  Projects: {fetch_state.resource_counts.get('projects', 0)}")
         terminal.info(f"  Environments: {fetch_state.resource_counts.get('environments', 0)}")
+        terminal.info(f"  Credentials: {fetch_state.resource_counts.get('credentials', 0)}")
         terminal.info(f"  Jobs: {fetch_state.resource_counts.get('jobs', 0)}")
         terminal.info(f"  Connections: {fetch_state.resource_counts.get('connections', 0)}")
         terminal.info(f"  Repositories: {fetch_state.resource_counts.get('repositories', 0)}")
@@ -636,8 +627,11 @@ async def _run_fetch(
         
         ui.notify("Fetch completed successfully!", type="positive")
 
-        # Reload to refresh sidebar with updated step completion status
-        ui.navigate.reload()
+        # Dynamically show the results section instead of reloading
+        # This preserves the terminal logs and progress tree state
+        if results_container is not None:
+            results_container.clear()
+            _create_results_section(state, on_step_change, results_container)
 
     except FetchCancelledException:
         terminal.warning("")

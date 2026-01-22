@@ -242,6 +242,7 @@ def fetch_account_snapshot(
         for item in project_items:
             progress.on_resource_item("projects", slug(item.get("name", "project")))
         progress.on_resource_start("environments")
+        progress.on_resource_start("credentials")
         progress.on_resource_start("jobs")
         progress.on_resource_start("environment_variables")
         progress.on_resource_start("job_env_var_overrides")
@@ -264,6 +265,7 @@ def fetch_account_snapshot(
 
         completed_projects = 0
         env_total = 0
+        creds_total = 0
         jobs_total = 0
         envvars_total = 0
         overrides_total = 0
@@ -353,12 +355,24 @@ def fetch_account_snapshot(
                         env_key = slug(env_item["name"])
                         connection_id = env_item.get("connection_id")
                         connection_key = _find_connection_key(globals_model.connections, connection_id)
-                        credential_data = env_item.get("credentials") or env_item.get("credential") or {}
-                        credential = Credential(
-                            token_name=credential_data.get("token_name", ""),
-                            schema=credential_data.get("schema", ""),
-                            catalog=credential_data.get("catalog"),
+                        connection_type = _get_connection_type(globals_model.connections, connection_id)
+                        
+                        # Fetch detailed credential information if credentials_id is present
+                        credentials_id = env_item.get("credentials_id")
+                        credential_details: dict[str, Any] = {}
+                        if credentials_id:
+                            credential_details = _fetch_credential_details(
+                                settings, project_id, credentials_id, connection_type
+                            )
+                            creds_total += 1
+                            if progress:
+                                progress.on_resource_item("credentials", f"{credentials_id}")
+                        
+                        # Build credential with all available details
+                        credential = _build_credential_from_api_data(
+                            env_item, credential_details, connection_type
                         )
+                        
                         environments.append(
                             Environment(
                                 key=env_key,
@@ -463,6 +477,7 @@ def fetch_account_snapshot(
         # Mark these resources done after all projects completed
         if progress:
             progress.on_resource_done("environments", env_total)
+            progress.on_resource_done("credentials", creds_total)
             progress.on_resource_done("jobs", jobs_total)
             progress.on_resource_done("environment_variables", envvars_total)
             progress.on_resource_done("job_env_var_overrides", overrides_done)
@@ -977,12 +992,21 @@ def _fetch_environments(
 
         connection_id = item.get("connection_id")
         connection_key = _find_connection_key(connections, connection_id)
-        credential_data = item.get("credentials") or item.get("credential") or {}
-        credential = Credential(
-            token_name=credential_data.get("token_name", ""),
-            schema=credential_data.get("schema", ""),
-            catalog=credential_data.get("catalog"),
+        connection_type = _get_connection_type(connections, connection_id)
+        
+        # Fetch detailed credential information if credentials_id is present
+        credentials_id = item.get("credentials_id")
+        credential_details: dict[str, Any] = {}
+        if credentials_id:
+            credential_details = _fetch_credential_details(
+                client.settings, project_id, credentials_id, connection_type
+            )
+        
+        # Build credential with all available details
+        credential = _build_credential_from_api_data(
+            item, credential_details, connection_type
         )
+        
         count += 1
         yield Environment(
             key=env_key,
@@ -1154,5 +1178,148 @@ def _find_connection_key(connections: Dict[str, Connection], connection_id: int 
         if connection.id == connection_id:
             return connection.key
     return f"connection_{connection_id}"
+
+
+def _get_connection_type(connections: Dict[str, Connection], connection_id: int | None) -> Optional[str]:
+    """Get the connection type (adapter) for a given connection ID."""
+    if connection_id is None:
+        return None
+    for connection in connections.values():
+        if connection.id == connection_id:
+            return connection.type
+    return None
+
+
+def _fetch_credential_details(
+    settings: Settings,
+    project_id: int,
+    credential_id: int,
+    connection_type: Optional[str],
+) -> dict[str, Any]:
+    """Fetch credential details from dbt Cloud API.
+    
+    Uses the v3 credentials API endpoint:
+    GET /api/v3/accounts/{account_id}/projects/{project_id}/credentials/{credential_id}/
+    
+    Args:
+        settings: API settings for creating client
+        project_id: The project ID
+        credential_id: The credential ID to fetch
+        connection_type: The connection type (snowflake, databricks, etc.) - used as fallback
+    
+    Returns:
+        Dict with credential details including 'credential_type', or empty dict on failure
+    """
+    if not credential_id or credential_id == 0:
+        return {}
+    
+    log.info(f"Fetching credential {credential_id} for project {project_id}...")
+    
+    c = DbtCloudClient.from_settings(settings)
+    try:
+        # Use the standard credentials endpoint (no type in path)
+        path = f"/projects/{project_id}/credentials/{credential_id}/"
+        log.debug(f"Fetching credential details: {path}")
+        
+        response = c.get(path, version="v3")
+        data = response.get("data", {})
+        
+        if data:
+            # The API returns 'type' field with values like 'postgres', 'snowflake', 'bigquery', 'adapter'
+            # Map to our credential_type field
+            api_type = data.get("type")
+            # For 'adapter' type, try to determine from adapter_version or fall back to connection_type
+            if api_type == "adapter":
+                adapter_version = data.get("adapter_version", "")
+                # adapter_version looks like 'databricks_v0', 'athena_v0', etc.
+                if adapter_version:
+                    cred_type = adapter_version.rsplit("_v", 1)[0]  # 'databricks_v0' -> 'databricks'
+                else:
+                    cred_type = connection_type
+            else:
+                cred_type = api_type
+            
+            data["credential_type"] = cred_type
+            log.info(f"Fetched credential {credential_id}: type={cred_type}, schema={data.get('default_schema')}, user={data.get('username')}")
+            return data
+        
+        return {"credential_type": connection_type}
+    except Exception as e:
+        # Credential endpoint might not exist or require different permissions
+        log.warning(f"Failed to fetch credential {credential_id}: {e}")
+        return {"credential_type": connection_type}
+    finally:
+        c.close()
+
+
+def _build_credential_from_api_data(
+    env_item: dict[str, Any],
+    credential_details: dict[str, Any],
+    connection_type: Optional[str],
+) -> Credential:
+    """Build a Credential object from environment item and fetched credential details.
+    
+    Combines data from the environment API response with detailed credential data.
+    
+    API returns fields like:
+    - type: 'postgres', 'redshift', 'snowflake', 'bigquery', 'adapter'
+    - threads: int
+    - username: str (for postgres/redshift)
+    - default_schema: str
+    - target_name: str
+    - adapter_version: str (for adapter type, e.g. 'databricks_v0')
+    """
+    # Start with basic credential data from environment
+    basic_cred = env_item.get("credentials") or env_item.get("credential") or {}
+    credentials_id = env_item.get("credentials_id")
+    
+    # Determine credential type
+    cred_type = credential_details.get("credential_type") or connection_type
+    
+    # API uses 'threads' not 'num_threads', and 'default_schema' for schema
+    schema = (
+        credential_details.get("default_schema") or 
+        credential_details.get("schema") or 
+        basic_cred.get("schema", "")
+    )
+    
+    # Build the credential with all available fields
+    return Credential(
+        # Core fields
+        id=credentials_id,
+        credential_type=cred_type,
+        schema_name=schema,
+        num_threads=credential_details.get("threads") or credential_details.get("num_threads"),
+        is_active=credential_details.get("state", 1) == 1,  # state=1 means active
+        
+        # Snowflake-specific (user for snowflake, username for postgres/redshift)
+        auth_type=credential_details.get("auth_type"),
+        user=credential_details.get("user") or credential_details.get("username"),
+        warehouse=credential_details.get("warehouse"),
+        role=credential_details.get("role"),
+        database=credential_details.get("database"),
+        
+        # Databricks-specific
+        token_name=basic_cred.get("token_name") or credential_details.get("token_name", ""),
+        catalog=basic_cred.get("catalog") or credential_details.get("catalog"),
+        adapter_type=credential_details.get("adapter_version"),  # API uses adapter_version
+        
+        # BigQuery-specific
+        dataset=credential_details.get("dataset"),
+        
+        # Postgres/Redshift-specific
+        default_schema=credential_details.get("default_schema"),
+        username=credential_details.get("username"),
+        target_name=credential_details.get("target_name"),
+        
+        # Fabric/Synapse-specific
+        tenant_id=credential_details.get("tenant_id"),
+        client_id=credential_details.get("client_id"),
+        schema_authorization=credential_details.get("schema_authorization"),
+        authentication=credential_details.get("authentication"),
+        
+        # Store full API response for reference
+        metadata=credential_details if credential_details else basic_cred,
+    )
 
 

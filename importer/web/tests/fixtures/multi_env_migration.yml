@@ -1,0 +1,75 @@
+# Test fixture: Multi-environment migration YAML
+# Contains environments of different warehouse types for testing credential configuration
+#
+# Warehouse types included:
+# - Snowflake (with OAuth conditional fields)
+# - Databricks  
+# - BigQuery
+# - Postgres (with SSH tunnel conditionals)
+
+version: 2
+
+globals:
+  connections:
+    - key: snowflake_prod_conn
+      name: Snowflake Production
+      type: snowflake
+      provider_config:
+        account: my_account.us-east-1
+        database: PROD_DB
+        warehouse: COMPUTE_WH
+        role: TRANSFORMER
+        allow_sso: true
+
+    - key: databricks_dev_conn
+      name: Databricks Development
+      type: databricks
+      provider_config:
+        host: workspace.cloud.databricks.com
+        http_path: /sql/1.0/warehouses/abc123
+
+    - key: bigquery_analytics_conn
+      name: BigQuery Analytics
+      type: bigquery
+      provider_config:
+        gcp_project_id: my-gcp-project
+        location: US
+
+    - key: postgres_staging_conn
+      name: Postgres Staging
+      type: postgres
+      provider_config:
+        hostname: staging-db.example.com
+        port: 5432
+        dbname: staging
+
+projects:
+  - key: analytics_project
+    name: Analytics Project
+    environments:
+      - key: env_snowflake_prod
+        name: Production
+        type: deployment
+        connection: snowflake_prod_conn
+        connection_type: snowflake
+
+      - key: env_databricks_dev
+        name: Development
+        type: development
+        connection: databricks_dev_conn
+        connection_type: databricks
+
+  - key: data_platform_project
+    name: Data Platform Project
+    environments:
+      - key: env_bigquery_analytics
+        name: Analytics
+        type: deployment
+        connection: bigquery_analytics_conn
+        connection_type: bigquery
+
+      - key: env_postgres_staging
+        name: Staging
+        type: staging
+        connection: postgres_staging_conn
+        connection_type: postgres

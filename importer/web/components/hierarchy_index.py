@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Set, Tuple
 # Format: child_type -> parent_type(s)
 ENTITY_PARENT_TYPES = {
     "JOB": ["ENV", "PRJ"],  # Job belongs to Environment and Project
+    "CRD": ["ENV"],         # Credential belongs to Environment
     "ENV": ["PRJ"],         # Environment belongs to Project
     "VAR": ["PRJ"],         # Environment Variable belongs to Project
     "PRJ": ["ACC"],         # Project belongs to Account
@@ -23,7 +24,7 @@ ENTITY_PARENT_TYPES = {
 }
 
 # Entity types that can have children
-PARENT_TYPES = {"ACC", "PRJ", "ENV"}
+PARENT_TYPES = {"ACC", "PRJ", "ENV"}  # ENV can have credentials and jobs as children
 
 # Depth levels for each type (used for indentation)
 TYPE_DEPTH = {
@@ -38,6 +39,7 @@ TYPE_DEPTH = {
     "PRJ": 1,  # Projects at depth 1
     "ENV": 2,  # Environments at depth 2
     "VAR": 2,  # Env Variables at depth 2
+    "CRD": 3,  # Credentials at depth 3 (under environments)
     "JOB": 3,  # Jobs at depth 3
 }
 
@@ -54,6 +56,7 @@ TYPE_SORT_ORDER = {
     "PRJ": 20,
     "ENV": 30,
     "VAR": 31,
+    "CRD": 35,  # Credentials sort after environments but before jobs
     "JOB": 40,
 }
 
@@ -165,6 +168,11 @@ class HierarchyIndex:
             env_mapping_id = entity.get("environment_mapping_id")
             if env_mapping_id:
                 self._link_parent_child(env_mapping_id, mapping_id)
+            
+            # Check for parent_environment_id (CRD has this)
+            parent_env_id = entity.get("parent_environment_id")
+            if parent_env_id:
+                self._link_parent_child(parent_env_id, mapping_id)
             
             # Note: We intentionally do NOT link connections as children of environments.
             # Environments REFERENCE connections, but connections aren't CONTAINED by environments.

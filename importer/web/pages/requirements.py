@@ -1,9 +1,14 @@
 """Requirements page for checking and installing dependencies."""
 
 
-from nicegui import ui
+import os
+
+from dotenv import set_key
+from nicegui import app, ui
 
 from importer.web.state import AppState
+from importer.web.env_manager import find_env_file, load_env_values
+from importer.web.licensing import check_migration_license, get_license_manager
 from importer.web.utils.dependency_checker import (
     DependencyCategory,
     DependencyResult,
@@ -17,6 +22,7 @@ from importer.web.utils.dependency_checker import (
 
 # dbt brand colors
 DBT_ORANGE = "#FF694A"
+LICENSE_BYPASS_ENV = "MAGELLAN_LICENSE_BYPASS"
 
 
 def create_requirements_page(state: AppState) -> None:
@@ -35,6 +41,19 @@ def create_requirements_page(state: AppState) -> None:
             ui.label(
                 "Verify that all required dependencies are installed and properly configured."
             ).classes("text-slate-600 dark:text-slate-400 mt-2")
+
+        # Licensing bypass
+        with ui.card().classes("w-full p-6"):
+            ui.label("Licensing").classes("text-lg font-semibold mb-2")
+            ui.label(
+                "Temporarily bypass Migration Workflow licensing checks."
+            ).classes("text-slate-600 dark:text-slate-400 text-sm")
+            bypass_enabled = _is_bypass_enabled()
+            ui.switch(
+                "Bypass migration licensing",
+                value=bypass_enabled,
+                on_change=lambda e: _toggle_license_bypass(state, bool(e.value)),
+            ).classes("mt-2")
         
         # Status cards container
         status_container = ui.column().classes("w-full gap-4")
@@ -159,6 +178,35 @@ def _create_python_packages_detail() -> None:
                 with ui.row().classes(f"items-center gap-2 p-2 rounded {bg_class}"):
                     ui.icon(icon_name, size="xs").classes(icon_class)
                     ui.label(pip_name).classes("text-sm")
+
+
+def _is_bypass_enabled() -> bool:
+    """Check if licensing bypass is enabled in .env or process env."""
+    env_values = load_env_values()
+    raw = env_values.get(LICENSE_BYPASS_ENV) or os.getenv(LICENSE_BYPASS_ENV, "")
+    return str(raw).lower() in {"1", "true", "yes", "on"}
+
+
+def _toggle_license_bypass(state: AppState, enabled: bool) -> None:
+    """Enable or disable license bypass in .env and refresh state."""
+    env_path = find_env_file()
+    if not env_path.exists():
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        env_path.touch()
+
+    set_key(str(env_path), LICENSE_BYPASS_ENV, "true" if enabled else "false")
+    os.environ[LICENSE_BYPASS_ENV] = "true" if enabled else "false"
+
+    get_license_manager().clear_cache()
+    status = check_migration_license()
+    state.is_migration_licensed = status.is_valid
+    state.license_message = status.message
+    app.storage.user["app_state"] = state.to_dict()
+
+    if enabled:
+        ui.notify("Migration licensing bypass enabled", type="warning")
+    else:
+        ui.notify("Migration licensing bypass disabled", type="positive")
 
 
 async def _refresh_checks(container: ui.column, state: AppState) -> None:

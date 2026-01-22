@@ -462,10 +462,8 @@ def create_plan_viewer_dialog(
 
             with ui.scroll_area().classes("w-full").style("flex: 1; min-height: 0;"):
                 # Use html element with pre/code for monospace display
-                # sanitize=False because we already escape content in colorize_plan_line()
                 ui.html(
                     f'<pre class="plan-viewer-code text-sm font-mono whitespace-pre-wrap p-4 bg-slate-50 dark:bg-slate-900 rounded overflow-x-auto"><code>{colorized_content}</code></pre>',
-                    sanitize=False,
                 ).classes("w-full")
 
             # JavaScript for search highlighting

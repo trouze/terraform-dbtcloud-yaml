@@ -63,31 +63,25 @@ def create_source_credential_form(
             if upload_ref["upload"]:
                 upload_ref["upload"].reset()
 
-    with ui.card().classes("w-full"):
-        with ui.row().classes("w-full items-center justify-between mb-4"):
-            ui.label("Source Account Credentials").classes("text-lg font-semibold")
+    with ui.card().classes("w-full p-4"):
+        # Header row with title and .env buttons
+        with ui.row().classes("w-full items-center justify-between mb-3"):
+            ui.label("Source Account Credentials").classes("font-semibold")
             
-            # .env buttons with dropdown menu for load options
+            # .env buttons
             with ui.row().classes("gap-2"):
                 with ui.button_group().props("outline"):
                     ui.button(
                         "Load .env",
                         icon="upload_file",
                         on_click=on_load_env,
-                    ).props("size=sm").tooltip("Load from default .env location")
+                    ).props("size=sm dense").tooltip("Load from default .env location")
                     
-                    with ui.button(icon="arrow_drop_down").props("size=sm dropdown-icon=none"):
+                    with ui.button(icon="arrow_drop_down").props("size=sm dense dropdown-icon=none"):
                         with ui.menu().classes("min-w-[200px]"):
-                            ui.menu_item(
-                                "Load default .env",
-                                on_click=on_load_env,
-                            )
+                            ui.menu_item("Load default .env", on_click=on_load_env)
                             ui.separator()
-                            # Tip for hidden files
-                            ui.label("Tip: Press ⌘+Shift+. to show hidden files").classes(
-                                "text-xs text-slate-500 px-4 py-1"
-                            )
-                            # Upload component for browsing files
+                            ui.label("Tip: Press ⌘+Shift+. to show hidden files").classes("text-xs text-slate-500 px-4 py-1")
                             upload = ui.upload(
                                 label="Browse for .env file...",
                                 on_upload=handle_upload,
@@ -96,49 +90,44 @@ def create_source_credential_form(
                             ).props("accept=* flat").classes("w-full")
                             upload_ref["upload"] = upload
                 
-                ui.button(
-                    "Save to .env",
-                    icon="save",
-                    on_click=on_save_env,
-                ).props("outline size=sm")
+                ui.button("Save to .env", icon="save", on_click=on_save_env).props("outline size=sm dense")
 
-        # Host URL field
-        host_input = ui.input(
-            label="Host URL",
-            value=creds.host_url,
-            placeholder="https://cloud.getdbt.com",
-        ).classes("w-full").props('outlined')
-        host_input.on('update:model-value', lambda e: _update_host(creds, e.args, on_credentials_change))
+        # Inline fields: Host URL (wide), Account ID (narrow), API Token (wide)
+        with ui.row().classes("w-full items-end gap-3"):
+            # Host URL
+            host_input = ui.input(
+                label="Host URL",
+                value=creds.host_url,
+                placeholder="https://cloud.getdbt.com",
+            ).classes("flex-grow").props('outlined dense')
+            host_input.on('update:model-value', lambda e: _update_host(creds, e.args, on_credentials_change))
 
-        # Account ID field
-        account_input = ui.input(
-            label="Account ID",
-            value=creds.account_id,
-            placeholder="12345",
-        ).classes("w-full mt-4").props('outlined type=number')
-        account_input.on('update:model-value', lambda e: _update_account_id(creds, e.args, on_credentials_change))
+            # Account ID (narrower)
+            account_input = ui.input(
+                label="Account ID",
+                value=creds.account_id,
+                placeholder="12345",
+            ).style("width: 120px;").props('outlined dense type=number')
+            account_input.on('update:model-value', lambda e: _update_account_id(creds, e.args, on_credentials_change))
 
-        # Track token type indicator reference for updates
-        token_type_indicator = {"container": None}
-        
-        def update_token_type_display():
-            """Update the token type indicator based on current token."""
-            detected = detect_token_type(creds.api_token)
-            creds.token_type = detected
-            if token_type_indicator["container"]:
-                token_type_indicator["container"].clear()
-                with token_type_indicator["container"]:
-                    _render_token_type_indicator(detected)
-        
-        # API Token field with show/hide toggle
-        with ui.row().classes("w-full items-end gap-2 mt-4"):
+            # API Token
+            token_type_indicator = {"container": None}
+            
+            def update_token_type_display():
+                detected = detect_token_type(creds.api_token)
+                creds.token_type = detected
+                if token_type_indicator["container"]:
+                    token_type_indicator["container"].clear()
+                    with token_type_indicator["container"]:
+                        _render_token_type_indicator(detected)
+            
             token_input = ui.input(
                 label="API Token",
                 value=creds.api_token,
                 placeholder="dbtc_••••••••••••••••",
                 password=True,
                 password_toggle_button=True,
-            ).classes("flex-grow").props('outlined')
+            ).classes("flex-grow").props('outlined dense')
             
             def on_token_change(e):
                 _update_token(creds, e.args, on_credentials_change)
@@ -146,19 +135,10 @@ def create_source_credential_form(
             
             token_input.on('update:model-value', on_token_change)
 
-        # Token type indicator (read-only, auto-detected from prefix)
-        with ui.row().classes("w-full mt-4 items-center gap-2"):
-            ui.label("Token Type:").classes("text-sm text-slate-600")
-            token_type_indicator["container"] = ui.row().classes("items-center gap-1")
+            # Token type indicator (inline chip)
+            token_type_indicator["container"] = ui.row().classes("items-center")
             with token_type_indicator["container"]:
                 _render_token_type_indicator(creds.token_type)
-
-        # Help text
-        with ui.row().classes("w-full mt-4 items-center gap-2"):
-            ui.icon("info", size="xs").classes("text-slate-500")
-            ui.label(
-                "Token type auto-detected: dbtc_* = Service Token, dbtu_* = PAT"
-            ).classes("text-xs text-slate-500")
 
 
 def create_target_credential_form(
@@ -191,31 +171,25 @@ def create_target_credential_form(
             if upload_ref["upload"]:
                 upload_ref["upload"].reset()
 
-    with ui.card().classes("w-full"):
-        with ui.row().classes("w-full items-center justify-between mb-4"):
-            ui.label("Target Account Credentials").classes("text-lg font-semibold")
+    with ui.card().classes("w-full p-4"):
+        # Header row with title and .env buttons
+        with ui.row().classes("w-full items-center justify-between mb-3"):
+            ui.label("Target Account Credentials").classes("font-semibold")
             
-            # .env buttons with dropdown menu for load options
+            # .env buttons
             with ui.row().classes("gap-2"):
                 with ui.button_group().props("outline"):
                     ui.button(
                         "Load .env",
                         icon="upload_file",
                         on_click=on_load_env,
-                    ).props("size=sm").tooltip("Load from default .env location")
+                    ).props("size=sm dense").tooltip("Load from default .env location")
                     
-                    with ui.button(icon="arrow_drop_down").props("size=sm dropdown-icon=none"):
+                    with ui.button(icon="arrow_drop_down").props("size=sm dense dropdown-icon=none"):
                         with ui.menu().classes("min-w-[200px]"):
-                            ui.menu_item(
-                                "Load default .env",
-                                on_click=on_load_env,
-                            )
+                            ui.menu_item("Load default .env", on_click=on_load_env)
                             ui.separator()
-                            # Tip for hidden files
-                            ui.label("Tip: Press ⌘+Shift+. to show hidden files").classes(
-                                "text-xs text-slate-500 px-4 py-1"
-                            )
-                            # Upload component for browsing files
+                            ui.label("Tip: Press ⌘+Shift+. to show hidden files").classes("text-xs text-slate-500 px-4 py-1")
                             upload = ui.upload(
                                 label="Browse for .env file...",
                                 on_upload=handle_upload,
@@ -224,49 +198,44 @@ def create_target_credential_form(
                             ).props("accept=* flat").classes("w-full")
                             upload_ref["upload"] = upload
                 
-                ui.button(
-                    "Save to .env",
-                    icon="save",
-                    on_click=on_save_env,
-                ).props("outline size=sm")
+                ui.button("Save to .env", icon="save", on_click=on_save_env).props("outline size=sm dense")
 
-        # Host URL field
-        host_input = ui.input(
-            label="Host URL",
-            value=creds.host_url,
-            placeholder="https://cloud.getdbt.com",
-        ).classes("w-full").props('outlined')
-        host_input.on('update:model-value', lambda e: _update_target_host(creds, e.args, on_credentials_change))
+        # Inline fields: Host URL (wide), Account ID (narrow), API Token (wide)
+        with ui.row().classes("w-full items-end gap-3"):
+            # Host URL
+            host_input = ui.input(
+                label="Host URL",
+                value=creds.host_url,
+                placeholder="https://cloud.getdbt.com",
+            ).classes("flex-grow").props('outlined dense')
+            host_input.on('update:model-value', lambda e: _update_target_host(creds, e.args, on_credentials_change))
 
-        # Account ID field
-        account_input = ui.input(
-            label="Account ID",
-            value=creds.account_id,
-            placeholder="12345",
-        ).classes("w-full mt-4").props('outlined type=number')
-        account_input.on('update:model-value', lambda e: _update_target_account_id(creds, e.args, on_credentials_change))
+            # Account ID (narrower)
+            account_input = ui.input(
+                label="Account ID",
+                value=creds.account_id,
+                placeholder="12345",
+            ).style("width: 120px;").props('outlined dense type=number')
+            account_input.on('update:model-value', lambda e: _update_target_account_id(creds, e.args, on_credentials_change))
 
-        # Track token type indicator reference for updates
-        token_type_indicator = {"container": None}
-        
-        def update_token_type_display():
-            """Update the token type indicator based on current token."""
-            detected = detect_token_type(creds.api_token)
-            creds.token_type = detected
-            if token_type_indicator["container"]:
-                token_type_indicator["container"].clear()
-                with token_type_indicator["container"]:
-                    _render_token_type_indicator(detected)
-        
-        # API Token field with show/hide toggle
-        with ui.row().classes("w-full items-end gap-2 mt-4"):
+            # API Token
+            token_type_indicator = {"container": None}
+            
+            def update_token_type_display():
+                detected = detect_token_type(creds.api_token)
+                creds.token_type = detected
+                if token_type_indicator["container"]:
+                    token_type_indicator["container"].clear()
+                    with token_type_indicator["container"]:
+                        _render_token_type_indicator(detected)
+            
             token_input = ui.input(
                 label="API Token",
                 value=creds.api_token,
                 placeholder="dbtc_••••••••••••••••",
                 password=True,
                 password_toggle_button=True,
-            ).classes("flex-grow").props('outlined')
+            ).classes("flex-grow").props('outlined dense')
             
             def on_token_change(e):
                 _update_target_token(creds, e.args, on_credentials_change)
@@ -274,19 +243,10 @@ def create_target_credential_form(
             
             token_input.on('update:model-value', on_token_change)
 
-        # Token type indicator (read-only, auto-detected from prefix)
-        with ui.row().classes("w-full mt-4 items-center gap-2"):
-            ui.label("Token Type:").classes("text-sm text-slate-600")
-            token_type_indicator["container"] = ui.row().classes("items-center gap-1")
+            # Token type indicator (inline chip)
+            token_type_indicator["container"] = ui.row().classes("items-center")
             with token_type_indicator["container"]:
                 _render_token_type_indicator(creds.token_type)
-
-        # Help text
-        with ui.row().classes("w-full mt-4 items-center gap-2"):
-            ui.icon("info", size="xs").classes("text-slate-500")
-            ui.label(
-                "Token type auto-detected: dbtc_* = Service Token, dbtu_* = PAT"
-            ).classes("text-xs text-slate-500")
 
 
 def _update_host(creds: SourceCredentials, value: str, callback: Optional[Callable] = None) -> None:
