@@ -411,7 +411,9 @@ def _create_workflow_card(
             ui.icon(icon, size="md").classes("text-slate-400")
             ui.label(title).classes("text-lg font-semibold")
             if disabled and badge_text:
-                ui.badge(badge_text, color="warning").props("rounded dense")
+                badge = ui.badge(badge_text, color="warning").props("rounded dense")
+                if badge_text in {"Requires License", "Coming Soon"}:
+                    badge.style("color: #000;")
 
         # Description with fixed height to ensure all cards match
         # 48px fits 2 lines of text comfortably

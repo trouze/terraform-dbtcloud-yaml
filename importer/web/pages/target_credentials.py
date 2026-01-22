@@ -11,6 +11,7 @@ from importer.web.state import (
     EnvironmentCredentialConfig,
 )
 from importer.web.components.credential_schemas import (
+    build_dummy_credentials_from_source,
     get_credential_schema,
     get_credential_type_for_connection,
     get_dummy_credentials,
@@ -507,15 +508,23 @@ def _reset_to_dummy(
     state: AppState,
     save_state: Callable[[], None],
 ) -> None:
-    """Reset environment credentials to dummy values."""
+    """Reset environment credentials to dummy values.
+
+    This preserves non-sensitive source values (database, warehouse, role, etc.)
+    while replacing sensitive fields (password, private_key, tokens) with
+    syntactically valid placeholders.
+    """
     config = state.env_credentials.get_config(env_id)
     if not config:
         ui.notify(f"Configuration not found for {env_id}", type="negative")
         return
 
-    # Get dummy credentials for this credential type
-    dummy_values = get_dummy_credentials(config.credential_type)
-    
+    # Build dummy credentials preserving source non-sensitive values
+    dummy_values = build_dummy_credentials_from_source(
+        credential_type=config.credential_type,
+        source_values=config.source_values,
+    )
+
     # Update config
     config.use_dummy_credentials = True
     config.credential_values = dummy_values

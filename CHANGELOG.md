@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.3] - 2026-01-22
+
+### Fixed
+- **Private Key HCL Escaping**: Fixed multi-line private keys in `secrets.auto.tfvars` causing Terraform parse errors
+  - Newlines in PEM keys are now properly escaped as `\n` for HCL format
+  - Added `escape_hcl_string()` helper function for consistent string escaping
+
+### Changed
+- **Valid Dummy Private Key**: Replaced invalid placeholder with a syntactically valid 2048-bit RSA key (PKCS#8 PEM)
+  - Ensures Terraform validation passes even with dummy credentials
+  - Key stored as `DUMMY_PRIVATE_KEY_PEM` constant in `credential_schemas.py`
+- **Dummy Credential Indicator**: Changed from description prefix to name suffix
+  - Environment names now suffixed with `[DUMMY CREDENTIALS]` instead of description prefix
+  - More visible in dbt Cloud UI since environments don't prominently display descriptions
+
 ## [0.12.2] - 2026-01-22
 
 ### Fixed

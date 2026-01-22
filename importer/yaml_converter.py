@@ -116,10 +116,15 @@ class YamlToTerraformConverter:
         output_path = Path(output_dir).resolve()
         output_path.mkdir(parents=True, exist_ok=True)
 
-        # Copy YAML file to output directory (skip if already there)
+        # Copy YAML file to output directory and add [DUMMY CREDENTIALS] markers
+        # For environments using dummy credentials, we modify the description field
         yaml_dest = output_path / "dbt-cloud-config.yml"
-        if yaml_path != yaml_dest:
-            shutil.copy2(yaml_path, yaml_dest)
+        if yaml_path == yaml_dest:
+            # YAML is already in output dir - update in place with dummy markers
+            self._update_yaml_with_dummy_markers(yaml_path)
+        else:
+            # Copy to output dir and add markers
+            self._copy_yaml_with_dummy_markers(yaml_path, yaml_dest)
 
         # Load connection keys from YAML to determine which credentials are needed
         connection_keys = self._extract_connection_keys(yaml_path)
@@ -154,6 +159,116 @@ class YamlToTerraformConverter:
         # Generate secrets.auto.tfvars with credentials (auto-loaded by Terraform)
         if connection_credentials or environment_credentials:
             self._write_secrets_tfvars(output_path, connection_credentials, environment_credentials)
+
+    def _copy_yaml_with_dummy_markers(self, source_path: Path, dest_path: Path) -> None:
+        """Copy YAML file and add [DUMMY CREDENTIALS] suffix to environment names.
+
+        For environments that have dummy credentials configured (use_dummy=true in .env),
+        this modifies the name field to include a [DUMMY CREDENTIALS] suffix.
+        We use name instead of description because environments don't display descriptions.
+
+        Args:
+            source_path: Path to source YAML file.
+            dest_path: Path to destination YAML file.
+        """
+        try:
+            from importer.web.env_manager import get_dummy_credential_env_ids
+            
+            # Load dummy env IDs
+            dummy_env_ids = get_dummy_credential_env_ids()
+            
+            if not dummy_env_ids:
+                # No dummy credentials, just copy the file
+                shutil.copy2(source_path, dest_path)
+                return
+            
+            # Load and modify YAML
+            with open(source_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+            
+            # Process projects to find environments
+            projects = data.get("projects", [])
+            for project in projects:
+                project_key = project.get("key", "")
+                environments = project.get("environments", [])
+                
+                for env in environments:
+                    env_key = env.get("key", "")
+                    # The .env file uses just the env_key (e.g., "1_prod"), not project_key_env_key
+                    env_id = env_key.lower().replace("-", "_")
+                    
+                    if env_id in dummy_env_ids:
+                        # Add [DUMMY CREDENTIALS] suffix to name
+                        current_name = env.get("name", "")
+                        if current_name:
+                            if not current_name.endswith("[DUMMY CREDENTIALS]"):
+                                env["name"] = f"{current_name} [DUMMY CREDENTIALS]"
+                        else:
+                            env["name"] = "[DUMMY CREDENTIALS]"
+            
+            # Write modified YAML
+            with open(dest_path, "w", encoding="utf-8") as f:
+                yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+                
+        except Exception:
+            # On any error, fall back to simple copy
+            shutil.copy2(source_path, dest_path)
+
+    def _update_yaml_with_dummy_markers(self, yaml_path: Path) -> None:
+        """Update YAML file in place to add [DUMMY CREDENTIALS] suffix to environment names.
+
+        For environments that have dummy credentials configured (use_dummy=true in .env),
+        this modifies the name field to include a [DUMMY CREDENTIALS] suffix.
+        We use name instead of description because environments don't display descriptions.
+
+        Args:
+            yaml_path: Path to YAML file to update.
+        """
+        try:
+            from importer.web.env_manager import get_dummy_credential_env_ids
+
+            # Load dummy env IDs
+            dummy_env_ids = get_dummy_credential_env_ids()
+
+            if not dummy_env_ids:
+                # No dummy credentials, nothing to do
+                return
+
+            # Load and modify YAML
+            with open(yaml_path, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+
+            modified = False
+
+            # Process projects to find environments
+            projects = data.get("projects", [])
+            for project in projects:
+                environments = project.get("environments", [])
+
+                for env in environments:
+                    env_key = env.get("key", "")
+                    # The .env file uses just the env_key (e.g., "1_prod")
+                    env_id = env_key.lower().replace("-", "_")
+
+                    if env_id in dummy_env_ids:
+                        # Add [DUMMY CREDENTIALS] suffix to name
+                        current_name = env.get("name", "")
+                        if current_name:
+                            if not current_name.endswith("[DUMMY CREDENTIALS]"):
+                                env["name"] = f"{current_name} [DUMMY CREDENTIALS]"
+                                modified = True
+                        else:
+                            env["name"] = "[DUMMY CREDENTIALS]"
+                            modified = True
+
+            # Only write if we made changes
+            if modified:
+                with open(yaml_path, "w", encoding="utf-8") as f:
+                    yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+        except Exception:
+            # On any error, silently skip marker update
+            pass
 
     def _extract_connection_keys(self, yaml_path: Path) -> list:
         """Extract connection keys from the YAML file.
@@ -252,10 +367,9 @@ class YamlToTerraformConverter:
                     if normalized_key in env_creds:
                         creds = env_creds[normalized_key].copy()
                         
-                        # Skip dummy credentials
-                        use_dummy = creds.pop("use_dummy", "false")
-                        if use_dummy.lower() == "true":
-                            continue
+                        # Remove meta field (use_dummy) - it's not a credential field
+                        # Note: we now INCLUDE dummy credentials so Terraform still manages them
+                        creds.pop("use_dummy", None)
                         
                         # Filter to only include valid credential fields and non-empty values
                         filtered_creds = {
@@ -560,14 +674,26 @@ output "repository_ids" {{
             "",
         ]
 
+        def escape_hcl_string(value: str) -> str:
+            """Escape a string value for HCL format.
+            
+            HCL quoted strings cannot contain literal newlines - they must be escaped.
+            """
+            escaped = str(value)
+            escaped = escaped.replace('\\', '\\\\')  # Escape backslashes first
+            escaped = escaped.replace('"', '\\"')    # Escape quotes
+            escaped = escaped.replace('\n', '\\n')   # Escape newlines
+            escaped = escaped.replace('\r', '\\r')   # Escape carriage returns
+            escaped = escaped.replace('\t', '\\t')   # Escape tabs
+            return escaped
+
         # Build HCL map for connection_credentials
         if connection_credentials:
             lines.append("connection_credentials = {")
             for conn_key, creds in connection_credentials.items():
                 lines.append(f'  "{conn_key}" = {{')
                 for field, value in creds.items():
-                    # Escape quotes in values
-                    escaped_value = str(value).replace('\\', '\\\\').replace('"', '\\"')
+                    escaped_value = escape_hcl_string(value)
                     lines.append(f'    {field} = "{escaped_value}"')
                 lines.append("  }")
             lines.append("}")
@@ -585,8 +711,7 @@ output "repository_ids" {{
                     elif isinstance(value, (int, float)):
                         lines.append(f'    {field} = {value}')
                     else:
-                        # Escape quotes in string values
-                        escaped_value = str(value).replace('\\', '\\\\').replace('"', '\\"')
+                        escaped_value = escape_hcl_string(value)
                         lines.append(f'    {field} = "{escaped_value}"')
                 lines.append("  }")
             lines.append("}")
