@@ -166,8 +166,7 @@ def create_erd_viewer(
                     f'<div id="{container_id}" style="width: 100%; height: 400px; '
                     'background: #1e293b; border-radius: 8px;"></div>'
                 )
-                # sanitize=False required for raw HTML content
-                ui.html(html_content, sanitize=False)
+                ui.html(html_content)
             
             # Load Cytoscape and initialize graph
             # Use base64 encoding to safely transmit JSON data

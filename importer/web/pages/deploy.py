@@ -983,6 +983,42 @@ def _get_state_file_path(state: AppState, deploy_state: dict) -> Optional[str]:
     return None
 
 
+def _show_no_state_dialog(state: AppState, deploy_state: dict) -> None:
+    """Show a dialog indicating no state file exists yet."""
+    tf_dir = (
+        deploy_state.get("terraform_dir")
+        or state.deploy.terraform_dir
+        or "deployments/migration"
+    )
+    expected_path = Path(tf_dir) / "terraform.tfstate"
+    
+    with ui.dialog() as dialog:
+        with ui.card().classes("w-full max-w-md"):
+            with ui.row().classes("items-center gap-3 mb-4"):
+                ui.icon("info", size="lg").classes("text-blue-500")
+                ui.label("No Terraform State").classes("text-lg font-semibold")
+            
+            ui.label(
+                "No Terraform state file exists yet. The state file is created "
+                "after a successful 'terraform apply' operation."
+            ).classes("text-sm text-slate-600 dark:text-slate-400 mb-4")
+            
+            with ui.column().classes("gap-2 mb-4"):
+                ui.label("Expected location:").classes("text-xs text-slate-500 font-medium")
+                ui.label(str(expected_path)).classes(
+                    "text-xs text-slate-500 font-mono p-2 rounded bg-slate-100 dark:bg-slate-800"
+                )
+            
+            ui.label(
+                "Complete the Generate → Init → Plan → Apply workflow to create the state file."
+            ).classes("text-xs text-slate-500")
+            
+            with ui.row().classes("w-full justify-end mt-4"):
+                ui.button("Close", on_click=dialog.close).props("outline")
+    
+    dialog.open()
+
+
 def _create_state_inspection_section(
     state: AppState,
     deploy_state: dict,
@@ -993,14 +1029,15 @@ def _create_state_inspection_section(
     def open_state_viewer() -> None:
         # Re-check state path in case it was created after page load
         current_state_path = _get_state_file_path(state, deploy_state)
-        if not current_state_path:
-            ui.notify("No terraform state file found", type="warning")
-            return
-        dialog = create_state_viewer_dialog(
-            current_state_path,
-            title="Terraform State",
-        )
-        dialog.open()
+        if current_state_path:
+            dialog = create_state_viewer_dialog(
+                current_state_path,
+                title="Terraform State",
+            )
+            dialog.open()
+        else:
+            # Show dialog indicating no state file exists yet
+            _show_no_state_dialog(state, deploy_state)
 
     with ui.card().classes("w-full h-full").style("display: flex; flex-direction: column;"):
         with ui.row().classes("items-center gap-2 mb-2"):
@@ -1016,7 +1053,7 @@ def _create_state_inspection_section(
         else:
             ui.label("No state file available yet.").classes("text-xs text-slate-500 flex-grow")
 
-        # Button at bottom
+        # Button at bottom - always enabled
         with ui.column().classes("w-full gap-2 mt-auto"):
             view_btn = ui.button(
                 "View State",
@@ -1026,9 +1063,6 @@ def _create_state_inspection_section(
             
             if state_path:
                 view_btn.style("color: white; background-color: rgba(255,255,255,0.1);")
-            else:
-                view_btn.disable()
-                view_btn.tooltip("Generate, init, and apply to create state")
 
 
 def _create_navigation_section(

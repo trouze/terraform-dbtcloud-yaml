@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
-**Last Updated:** 2026-01-22  
-**Current Importer Version:** 0.12.5  
+**Last Updated:** 2026-01-27  
+**Current Importer Version:** 0.12.6  
 **Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -1146,6 +1146,13 @@ The following items require API endpoint research before implementation can begi
 - **UX Improvements**: 
   - File upload dialog for loading .env files with macOS hidden file tip
   - "Fetch Complete" panel clears on new fetch or .env load
+
+### 2026-01-27 (v0.12.6)
+- **Version:** Incremented to 0.12.6 (patch release)
+- **GitHub Installations API Error Handling**: Fixed Terraform plan failure when GitHub integration is disassociated
+  - API returns error string instead of expected array, which `jsondecode()` parses as a string
+  - Caused "Inconsistent conditional result types" error in `modules/projects_v2/data_sources.tf`
+  - Solution: Wrapped decode in `try(tolist(jsondecode(...)), [])` to ensure consistent list type
 
 ### 2025-12-19 (v0.4.2)
 - **Version:** Incremented to 0.4.2 (patch release)

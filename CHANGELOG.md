@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.6] - 2026-01-27
+
+### Fixed
+- **GitHub Installations API Error Handling**: Fixed Terraform plan failure when GitHub integration is disassociated
+  - API returns error string `"Github installations failed to load, account disassociated"` instead of expected array
+  - `jsondecode()` successfully parses this as a JSON string, causing type mismatch with empty list fallback
+  - Solution: Wrapped decode in `try(tolist(jsondecode(...)), [])` to ensure consistent list type
+  - Affected file: `modules/projects_v2/data_sources.tf`
+
 ## [0.12.5] - 2026-01-22
 
 ### Fixed

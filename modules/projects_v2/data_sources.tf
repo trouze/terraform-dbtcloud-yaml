@@ -51,9 +51,13 @@ locals {
 
   # Parse GitHub installations response
   # Response is an array of installation objects: [{"id": 267820, "access_tokens_url": "..."}, ...]
-  github_installations_raw = var.dbt_pat != null && length(data.http.github_installations) > 0 ? (
-    try(jsondecode(data.http.github_installations[0].response_body), [])
-  ) : []
+  # Note: API may return error string (e.g., "Github installations failed to load, account disassociated")
+  # which jsondecode parses as a string, not a list. We use try() to handle all error cases
+  # and ensure we always return a list type.
+  github_installations_raw = try(
+    tolist(jsondecode(data.http.github_installations[0].response_body)),
+    []
+  )
 
   # Get primary GitHub installation ID (first one, typically there's only one per account)
   # Filter to only GitHub installations (access_tokens_url contains "github")

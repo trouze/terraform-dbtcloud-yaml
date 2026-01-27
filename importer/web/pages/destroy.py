@@ -79,17 +79,20 @@ def _check_prerequisites(
     on_step_change: Callable[[WorkflowStep], None],
     destroy_state: dict,
 ) -> bool:
-    """Check if prerequisites are met for destroy - requires credentials and state file."""
+    """Check if prerequisites are met for destroy - requires credentials only.
+    
+    State file is not required to access the page - the user can view the page
+    and see that no state exists yet. Individual destroy operations will check
+    for state file existence when needed.
+    """
     errors = []
     
     # Check for target credentials
     if not state.target_credentials.is_complete():
         errors.append(("Target credentials not configured", WorkflowStep.FETCH_TARGET))
     
-    # Check if state file exists (allows destroy even if apply wasn't done in this session)
-    state_path = _get_state_file_path(state, destroy_state)
-    if not state_path:
-        errors.append(("No Terraform state file found", WorkflowStep.DEPLOY))
+    # Note: State file is NOT required to access this page - user can always view
+    # the destroy page and see status. Actions will check for state file when needed.
     
     if errors:
         with ui.card().classes("w-full p-6 border-l-4 border-yellow-500"):
@@ -111,15 +114,41 @@ def _check_prerequisites(
                             on_click=lambda s=step: on_step_change(s),
                         ).props("size=sm outline")
 
-            # Show state file path hint
-            tf_dir = state.deploy.terraform_dir or "deployments/migration"
-            with ui.row().classes("items-center gap-2 mt-4"):
-                ui.icon("info", size="sm").classes("text-slate-400")
-                ui.label(f"Expected state file: {tf_dir}/terraform.tfstate").classes("text-xs text-slate-500 font-mono")
-
         return False
 
     return True
+
+
+def _show_no_state_dialog(state: AppState, destroy_state: dict) -> None:
+    """Show a dialog indicating no state file exists yet."""
+    tf_dir = state.deploy.terraform_dir or "deployments/migration"
+    expected_path = Path(tf_dir) / "terraform.tfstate"
+    
+    with ui.dialog() as dialog:
+        with ui.card().classes("w-full max-w-md"):
+            with ui.row().classes("items-center gap-3 mb-4"):
+                ui.icon("info", size="lg").classes("text-blue-500")
+                ui.label("No Terraform State").classes("text-lg font-semibold")
+            
+            ui.label(
+                "No Terraform state file exists yet. The state file is created "
+                "after a successful 'terraform apply' operation."
+            ).classes("text-sm text-slate-600 dark:text-slate-400 mb-4")
+            
+            with ui.column().classes("gap-2 mb-4"):
+                ui.label("Expected location:").classes("text-xs text-slate-500 font-medium")
+                ui.label(str(expected_path)).classes(
+                    "text-xs text-slate-500 font-mono p-2 rounded bg-slate-100 dark:bg-slate-800"
+                )
+            
+            ui.label(
+                "Complete the Deploy workflow (Generate → Init → Plan → Apply) to create the state file."
+            ).classes("text-xs text-slate-500")
+            
+            with ui.row().classes("w-full justify-end mt-4"):
+                ui.button("Close", on_click=dialog.close).props("outline")
+    
+    dialog.open()
 
 
 def _create_state_inspection_panel(state: AppState, destroy_state: dict) -> None:
@@ -127,11 +156,14 @@ def _create_state_inspection_panel(state: AppState, destroy_state: dict) -> None
     state_path = _get_state_file_path(state, destroy_state)
 
     def open_state_viewer() -> None:
-        if not state_path:
-            ui.notify("No terraform state file found", type="warning")
-            return
-        dialog = create_state_viewer_dialog(state_path)
-        dialog.open()
+        # Re-check state path in case it was created after page load
+        current_state_path = _get_state_file_path(state, destroy_state)
+        if current_state_path:
+            dialog = create_state_viewer_dialog(current_state_path)
+            dialog.open()
+        else:
+            # Show dialog indicating no state file exists yet
+            _show_no_state_dialog(state, destroy_state)
 
     with ui.card().classes("w-full"):
         with ui.row().classes("items-center gap-2 mb-3"):
@@ -143,15 +175,15 @@ def _create_state_inspection_panel(state: AppState, destroy_state: dict) -> None
         else:
             ui.label("No state file available yet.").classes("text-xs text-slate-500 mb-3")
 
+        # Always enable the View State button - it will show helpful info if no state exists
         view_btn = ui.button(
             "View State",
             icon="visibility",
             on_click=open_state_viewer,
         ).props("outline").classes("w-full")
-
-        if not state_path:
-            view_btn.disable()
-            view_btn.tooltip("Generate, init, and apply to create state")
+        
+        if state_path:
+            view_btn.style("color: white; background-color: rgba(255,255,255,0.1);")
 
 
 def _create_target_info_panel(
