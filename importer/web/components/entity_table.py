@@ -12,6 +12,19 @@ from nicegui import ui
 from importer.web.state import AppState
 
 
+# Sensitive field patterns for masking
+SENSITIVE_FIELD_PATTERNS = [
+    "password", "secret", "token", "key", "credential", "auth",
+    "private", "api_key", "apikey", "access_key", "accesskey",
+]
+
+
+def _is_sensitive_field(field_name: str) -> bool:
+    """Check if a field name appears to be sensitive and should be masked."""
+    field_lower = field_name.lower()
+    return any(pattern in field_lower for pattern in SENSITIVE_FIELD_PATTERNS)
+
+
 def _load_full_data_for_type(state: AppState, type_code: str, is_target: bool = False) -> List[Dict[str, Any]]:
     """Load full data from the JSON snapshot for a specific entity type.
     
@@ -1104,3 +1117,492 @@ def _info_chip(label: str, value: str, color: str) -> None:
     with ui.card().classes("p-2").style(f"border-left: 3px solid {color};"):
         ui.label(label).classes("text-xs text-slate-500")
         ui.label(value).classes("font-medium text-sm")
+
+
+def show_match_detail_dialog(
+    source_data: dict,
+    grid_row: dict,
+    target_data: Optional[dict] = None,
+    state_resource: Optional[dict] = None,
+    app_state: Optional["AppState"] = None,
+    available_targets: Optional[list] = None,
+    has_state_loaded: bool = False,
+    on_target_selected: Optional[callable] = None,
+    on_adopt: Optional[callable] = None,
+) -> None:
+    """Show an enhanced detail dialog for the Match context with drift comparison.
+    
+    Args:
+        source_data: Source resource data
+        grid_row: Row data from the match grid (has state_id, drift_status, target_id, etc.)
+        target_data: Target resource data (if matched)
+        state_resource: Terraform state resource data (if in state)
+        app_state: Application state for loading full data
+        available_targets: List of available target items to choose from (for manual matching)
+        has_state_loaded: Whether TF state has been loaded (affects messaging)
+        on_target_selected: Callback when user selects a target from dropdown
+        on_adopt: Callback when user clicks "Set to Adopt" button
+    """
+    type_code = source_data.get("element_type_code", "UNK")
+    type_info = RESOURCE_TYPES.get(type_code, {"name": type_code, "code": type_code, "icon": "info", "color": "#6B7280"})
+    
+    # Load full source data
+    full_source = _get_full_entity_data(app_state, source_data, is_target=False) if app_state else None
+    display_source = full_source if full_source else source_data
+    
+    # Load full target data
+    full_target = _get_full_entity_data(app_state, target_data, is_target=True) if app_state and target_data else target_data
+    
+    # Get drift info from grid row
+    drift_status = grid_row.get("drift_status", "no_state")
+    state_id = grid_row.get("state_id")
+    target_id = grid_row.get("target_id")
+    action = grid_row.get("action", "")
+    
+    # Wider dialog for comparison view
+    with ui.dialog() as dialog, ui.card().classes("w-full").style("max-width: 95vw; width: 1400px; height: 85vh;"):
+        # Header with drift status
+        with ui.row().classes("w-full items-center justify-between p-4 border-b"):
+            with ui.row().classes("items-center gap-2"):
+                ui.icon(type_info["icon"]).style(f"color: {type_info['color']};")
+                ui.label(source_data.get("name", "Unknown")).classes("text-xl font-bold")
+                ui.badge(f"{type_info['name']} ({type_info['code']})").style(f"background-color: {type_info['color']};")
+                
+                # Drift status badge
+                drift_colors = {
+                    "in_sync": ("#059669", "✓ In Sync"),
+                    "id_mismatch": ("#D97706", "⚠️ ID Mismatch"),
+                    "not_in_state": ("#F59E0B", "🚫 Not in TF State"),
+                    "state_only": ("#3B82F6", "📌 In State Only"),
+                    "no_state": ("#9CA3AF", "— No State Loaded"),
+                }
+                drift_color, drift_label = drift_colors.get(drift_status, ("#6B7280", drift_status))
+                ui.badge(drift_label).style(f"background-color: {drift_color};")
+                
+            ui.button(icon="close", on_click=dialog.close).props("flat round dense")
+        
+        # Filter available targets to same type
+        type_code = source_data.get("element_type_code", "UNK")
+        same_type_targets = []
+        if available_targets:
+            same_type_targets = [
+                t for t in available_targets 
+                if t.get("element_type_code") == type_code
+            ]
+        
+        # Tabs with Drift/Compare tab
+        with ui.tabs().classes("w-full") as tabs:
+            drift_tab = ui.tab("Drift / Compare", icon="compare_arrows")
+            summary_tab = ui.tab("Source Details", icon="summarize")
+            target_tab = ui.tab("Target Details", icon="cloud_download")
+            state_tab = ui.tab("TF State", icon="storage")
+            json_tab = ui.tab("JSON", icon="code")
+        
+        with ui.tab_panels(tabs, value=drift_tab).classes("w-full flex-1 overflow-auto"):
+            # Drift comparison tab
+            with ui.tab_panel(drift_tab):
+                with ui.scroll_area().style("height: 65vh;"):
+                    _render_drift_comparison(
+                        source_data=display_source,
+                        target_data=full_target,
+                        state_resource=state_resource,
+                        grid_row=grid_row,
+                        type_info=type_info,
+                        has_state_loaded=has_state_loaded,
+                        available_targets=same_type_targets,
+                        on_target_selected=on_target_selected,
+                        on_adopt=on_adopt,
+                    )
+            
+            # Source details tab
+            with ui.tab_panel(summary_tab):
+                with ui.scroll_area().style("height: 65vh;"):
+                    _render_summary_tab(source_data, display_source, type_code, type_info)
+            
+            # Target details tab
+            with ui.tab_panel(target_tab):
+                with ui.scroll_area().style("height: 65vh;"):
+                    if full_target:
+                        with ui.column().classes("w-full gap-4 p-4"):
+                            ui.label("Matched Target Resource").classes("font-bold text-lg text-green-600")
+                            
+                            # Basic info card
+                            with ui.card().classes("w-full p-4"):
+                                ui.label(full_target.get("name", "Unknown")).classes("text-xl font-semibold")
+                                ui.label(f"ID: {full_target.get('dbt_id', '—')}").classes("text-sm text-slate-500")
+                                if full_target.get("project_name"):
+                                    ui.label(f"Project: {full_target.get('project_name')}").classes("text-sm text-slate-500")
+                            
+                            # Target JSON
+                            ui.separator()
+                            ui.label("Full Target Data (JSON)").classes("font-semibold")
+                            target_json_str = json.dumps(full_target, indent=2, sort_keys=True)
+                            with ui.row().classes("w-full justify-end"):
+                                ui.button(
+                                    "Copy",
+                                    icon="content_copy",
+                                    on_click=lambda tj=target_json_str: (
+                                        ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(tj)})"),
+                                        ui.notify("Copied to clipboard", type="positive"),
+                                    ),
+                                ).props("flat dense")
+                            ui.code(target_json_str, language="json").classes("w-full text-xs")
+                    else:
+                        with ui.column().classes("w-full items-center justify-center p-8"):
+                            ui.icon("cloud_off", size="xl").classes("text-slate-300 mb-4")
+                            ui.label("No Target Matched").classes("text-lg text-slate-500")
+                            ui.label("This resource has no matched target from dbt Cloud").classes("text-sm text-slate-400")
+                            if same_type_targets:
+                                ui.label(f"{len(same_type_targets)} available {type_info.get('name', type_code)} resources in target").classes("text-sm text-slate-400 mt-2")
+            
+            # TF State tab - formatted view with show/hide sensitive
+            with ui.tab_panel(state_tab):
+                with ui.scroll_area().style("height: 65vh;"):
+                    if state_resource:
+                        with ui.column().classes("w-full gap-4 p-4"):
+                            # Header with address
+                            ui.label("Terraform State Resource").classes("font-bold text-lg text-purple-600")
+                            if state_resource.get("address"):
+                                ui.code(state_resource.get("address")).classes("text-sm font-mono")
+                            
+                            # Show/hide sensitive toggle
+                            show_sensitive = {"value": False}
+                            
+                            with ui.row().classes("items-center gap-2 mb-4"):
+                                ui.label("Show Sensitive Values:").classes("text-sm")
+                                sensitive_switch = ui.switch(value=False).props("dense")
+                            
+                            # State data container that updates based on toggle
+                            state_container = ui.column().classes("w-full gap-2")
+                            
+                            def render_state_content():
+                                state_container.clear()
+                                with state_container:
+                                    # Build display data
+                                    display_data = {}
+                                    for key, value in state_resource.items():
+                                        if key.startswith("_"):
+                                            continue
+                                        # Mask sensitive fields if not showing
+                                        if not sensitive_switch.value and _is_sensitive_field(key):
+                                            if isinstance(value, str) and value:
+                                                display_data[key] = "********"
+                                            else:
+                                                display_data[key] = value
+                                        else:
+                                            display_data[key] = value
+                                    
+                                    # Render as formatted table
+                                    important_fields = ["address", "dbt_id", "name", "project_id", "tf_name", "element_code"]
+                                    other_fields = sorted([k for k in display_data.keys() if k not in important_fields])
+                                    ordered_fields = [f for f in important_fields if f in display_data] + other_fields
+                                    
+                                    with ui.element("div").classes("w-full border rounded").style("max-height: 400px; overflow-y: auto;"):
+                                        for field in ordered_fields:
+                                            value = display_data.get(field)
+                                            if value is None:
+                                                continue
+                                            with ui.row().classes("w-full items-start border-b last:border-b-0 py-1 px-2 hover:bg-slate-50 dark:hover:bg-slate-800"):
+                                                ui.label(field).classes("text-sm font-medium w-1/3 text-slate-700 dark:text-slate-300 font-mono")
+                                                if isinstance(value, (dict, list)):
+                                                    ui.code(json.dumps(value, indent=2), language="json").classes("text-xs w-2/3")
+                                                elif value == "":
+                                                    ui.label("(empty)").classes("text-sm w-2/3 text-slate-400 dark:text-slate-500 italic")
+                                                else:
+                                                    ui.label(str(value)).classes("text-sm w-2/3 break-all text-slate-900 dark:text-slate-100")
+                            
+                            # Initial render
+                            render_state_content()
+                            
+                            # Update on toggle change
+                            sensitive_switch.on_value_change(lambda e: render_state_content())
+                            
+                            # Raw JSON section
+                            ui.separator()
+                            ui.label("Raw State JSON").classes("font-semibold mt-4")
+                            state_json_str = json.dumps(state_resource, indent=2, sort_keys=True)
+                            with ui.row().classes("w-full justify-end"):
+                                ui.button(
+                                    "Copy",
+                                    icon="content_copy",
+                                    on_click=lambda sj=state_json_str: (
+                                        ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(sj)})"),
+                                        ui.notify("Copied to clipboard", type="positive"),
+                                    ),
+                                ).props("flat dense")
+                            ui.code(state_json_str, language="json").classes("w-full text-xs")
+                    else:
+                        with ui.column().classes("w-full items-center justify-center p-8"):
+                            ui.icon("storage", size="xl").classes("text-slate-300 mb-4")
+                            if has_state_loaded:
+                                ui.label("No Matching State Resource").classes("text-lg text-slate-500")
+                                ui.label("This resource was not found in Terraform state").classes("text-sm text-slate-400")
+                            else:
+                                ui.label("Terraform State Not Loaded").classes("text-lg text-slate-500")
+                                ui.label("Load Terraform state to see state resource details").classes("text-sm text-slate-400")
+            
+            # JSON tab
+            with ui.tab_panel(json_tab):
+                with ui.scroll_area().style("height: 65vh;"):
+                    with ui.column().classes("w-full gap-4"):
+                        # Source JSON
+                        ui.label("Source Data").classes("font-semibold text-lg")
+                        source_json = json.dumps(display_source, indent=2, sort_keys=True)
+                        with ui.row().classes("w-full justify-end"):
+                            ui.button(
+                                "Copy",
+                                icon="content_copy",
+                                on_click=lambda sj=source_json: (
+                                    ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(sj)})"),
+                                    ui.notify("Copied to clipboard", type="positive"),
+                                ),
+                            ).props("flat dense")
+                        ui.code(source_json, language="json").classes("w-full text-xs")
+                        
+                        if full_target:
+                            ui.separator()
+                            ui.label("Target Data").classes("font-semibold text-lg")
+                            target_json = json.dumps(full_target, indent=2, sort_keys=True)
+                            with ui.row().classes("w-full justify-end"):
+                                ui.button(
+                                    "Copy",
+                                    icon="content_copy",
+                                    on_click=lambda tj=target_json: (
+                                        ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(tj)})"),
+                                        ui.notify("Copied to clipboard", type="positive"),
+                                    ),
+                                ).props("flat dense")
+                            ui.code(target_json, language="json").classes("w-full text-xs")
+                        
+                        if state_resource:
+                            ui.separator()
+                            ui.label("Terraform State Data").classes("font-semibold text-lg")
+                            state_json = json.dumps(state_resource, indent=2, sort_keys=True)
+                            with ui.row().classes("w-full justify-end"):
+                                ui.button(
+                                    "Copy",
+                                    icon="content_copy",
+                                    on_click=lambda stj=state_json: (
+                                        ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(stj)})"),
+                                        ui.notify("Copied to clipboard", type="positive"),
+                                    ),
+                                ).props("flat dense")
+                            ui.code(state_json, language="json").classes("w-full text-xs")
+    
+    dialog.open()
+
+
+def _render_drift_comparison(
+    source_data: dict,
+    target_data: Optional[dict],
+    state_resource: Optional[dict],
+    grid_row: dict,
+    type_info: dict,
+    has_state_loaded: bool = False,
+    available_targets: Optional[list] = None,
+    on_target_selected: Optional[callable] = None,
+    on_adopt: Optional[callable] = None,
+) -> None:
+    """Render the drift comparison view."""
+    drift_status = grid_row.get("drift_status", "no_state")
+    state_id = grid_row.get("state_id")
+    target_id = grid_row.get("target_id")
+    action = grid_row.get("action", "")
+    
+    with ui.column().classes("w-full gap-4 p-4"):
+        # Status summary cards
+        with ui.row().classes("w-full gap-4"):
+            # Source card
+            with ui.card().classes("flex-1 p-4").style("border: 2px solid #3B82F6;"):
+                ui.label("Source (YAML)").classes("font-bold text-blue-600")
+                ui.label(source_data.get("name", "Unknown")).classes("text-lg")
+                ui.label(f"ID: {source_data.get('dbt_id', '—')}").classes("text-sm text-slate-500")
+                if source_data.get("project_name"):
+                    ui.label(f"Project: {source_data.get('project_name')}").classes("text-sm text-slate-500")
+            
+            # Arrow
+            with ui.column().classes("justify-center"):
+                ui.icon("arrow_forward", size="lg").classes("text-slate-400")
+            
+            # Target card (matched)
+            with ui.card().classes("flex-1 p-4").style(f"border: 2px solid {'#10B981' if target_id else '#9CA3AF'};"):
+                ui.label("Target (dbt Cloud)").classes(f"font-bold {'text-green-600' if target_id else 'text-slate-400'}")
+                if target_data:
+                    ui.label(target_data.get("name", "Unknown")).classes("text-lg")
+                    ui.label(f"ID: {target_id or '—'}").classes("text-sm text-slate-500")
+                else:
+                    ui.label("No match" if not target_id else f"ID: {target_id}").classes("text-lg text-slate-400")
+            
+            # Arrow
+            with ui.column().classes("justify-center"):
+                ui.icon("sync_alt", size="lg").classes("text-slate-400")
+            
+            # State card
+            with ui.card().classes("flex-1 p-4").style(f"border: 2px solid {'#8B5CF6' if state_id else '#9CA3AF'};"):
+                ui.label("Terraform State").classes(f"font-bold {'text-purple-600' if state_id else 'text-slate-400'}")
+                if state_resource:
+                    ui.label(state_resource.get("name") or state_resource.get("tf_name", "Unknown")).classes("text-lg")
+                    ui.label(f"ID: {state_id or '—'}").classes("text-sm text-slate-500")
+                    if state_resource.get("address"):
+                        ui.label(f"Address: {state_resource.get('address')}").classes("text-xs text-slate-400 font-mono")
+                elif state_id:
+                    ui.label(f"ID: {state_id}").classes("text-lg")
+                else:
+                    ui.label("Not in state").classes("text-lg text-slate-400")
+        
+        ui.separator()
+        
+        # Drift explanation
+        with ui.card().classes("w-full p-4").style("border: 1px solid var(--q-primary);"):
+            ui.label("Drift Analysis").classes("font-bold text-lg mb-2")
+            
+            # Determine the right "no_state" message based on whether state is loaded
+            if has_state_loaded and drift_status == "no_state":
+                no_state_explanation = (
+                    "— No Matching Object in State",
+                    "Terraform state is loaded but no matching resource was found. "
+                    "This resource will be created as new by Terraform.",
+                    "text-slate-500"
+                )
+            else:
+                no_state_explanation = (
+                    "— Terraform State Not Loaded",
+                    "Load Terraform state to see drift analysis.",
+                    "text-slate-500"
+                )
+            
+            drift_explanations = {
+                "in_sync": (
+                    "✓ No drift detected",
+                    "The Terraform state ID matches the target resource ID. No action needed.",
+                    "text-green-600"
+                ),
+                "id_mismatch": (
+                    "⚠️ ID Mismatch Detected",
+                    f"The Terraform state tracks ID {state_id}, but the matched target has ID {target_id}. "
+                    "This means Terraform would try to update/replace this resource. "
+                    "To adopt the current target, set action to 'adopt' and generate import blocks.",
+                    "text-amber-600"
+                ),
+                "not_in_state": (
+                    "🚫 Resource Not in Terraform State",
+                    f"This resource matched target ID {target_id}, but it's not tracked in Terraform state. "
+                    "Terraform will try to create a new resource. "
+                    "To adopt the existing resource, set action to 'adopt' and generate import blocks.",
+                    "text-amber-600"
+                ),
+                "state_only": (
+                    "📌 Resource Only in State",
+                    f"This resource exists in Terraform state (ID {state_id}) but has no target match. "
+                    "If you proceed with 'create_new', Terraform may destroy the existing resource. "
+                    "Consider matching to an existing target or reviewing the state.",
+                    "text-blue-600"
+                ),
+                "no_state": no_state_explanation,
+            }
+            
+            title, explanation, color = drift_explanations.get(
+                drift_status, 
+                ("Unknown Status", f"Drift status: {drift_status}", "text-slate-500")
+            )
+            
+            ui.label(title).classes(f"font-semibold {color}")
+            ui.label(explanation).classes("text-sm mt-1")
+            
+            # Recommended action
+            if drift_status in ("id_mismatch", "not_in_state"):
+                with ui.row().classes("mt-3 items-center gap-4"):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.icon("lightbulb", color="amber")
+                        ui.label("Recommended: Set Action to 'adopt' and generate import blocks").classes("text-sm font-medium")
+                    if on_adopt and action != "adopt":
+                        ui.button(
+                            "Set to Adopt",
+                            icon="download",
+                            on_click=on_adopt,
+                        ).props("color=warning dense")
+        
+        # Target selector dropdown (for manual matching)
+        if available_targets and not target_id:
+            ui.separator()
+            with ui.card().classes("w-full p-4").style("border: 2px solid #3B82F6;"):
+                ui.label("Select a Target to Match").classes("font-bold text-lg mb-2")
+                ui.label(f"{len(available_targets)} available {type_info.get('name', 'resources')} in target account").classes("text-sm opacity-70 mb-3")
+                
+                # Build options for dropdown
+                target_options = {
+                    "": "— Select a target —",
+                }
+                for t in available_targets:
+                    t_id = t.get("dbt_id", "")
+                    t_name = t.get("name", "Unknown")
+                    t_project = t.get("project_name", "")
+                    label = f"{t_name} (ID: {t_id})"
+                    if t_project:
+                        label += f" [{t_project}]"
+                    target_options[str(t_id)] = label
+                
+                selected_target = ui.select(
+                    options=target_options,
+                    value="",
+                    label="Available Targets",
+                ).classes("w-full").props("outlined dark")
+                
+                def handle_target_selection():
+                    sel_id = selected_target.value
+                    if sel_id and on_target_selected:
+                        # Find the full target data
+                        for t in available_targets:
+                            if str(t.get("dbt_id")) == sel_id:
+                                on_target_selected(t)
+                                break
+                
+                ui.button("Match to Selected Target", icon="link", on_click=handle_target_selection).props("color=primary").classes("mt-2")
+        
+        # Detailed comparison table
+        if target_data or state_resource:
+            ui.separator()
+            ui.label("Detailed Comparison").classes("font-bold text-lg mb-2")
+            
+            # Build comparison data
+            all_keys = set()
+            if source_data:
+                all_keys.update(k for k in source_data.keys() if not k.startswith("_"))
+            if target_data:
+                all_keys.update(k for k in target_data.keys() if not k.startswith("_"))
+            
+            # Important fields to show first
+            important_fields = ["id", "dbt_id", "name", "project_id", "environment_id", "state"]
+            other_fields = sorted(all_keys - set(important_fields))
+            ordered_fields = [f for f in important_fields if f in all_keys] + other_fields
+            
+            columns = [
+                {"name": "field", "label": "Field", "field": "field", "align": "left", "style": "width: 200px;"},
+                {"name": "source", "label": "Source (YAML)", "field": "source", "align": "left"},
+                {"name": "target", "label": "Target (dbt Cloud)", "field": "target", "align": "left"},
+            ]
+            if state_resource:
+                columns.append({"name": "state", "label": "TF State", "field": "state", "align": "left"})
+            
+            rows = []
+            for field in ordered_fields[:30]:  # Limit to 30 fields
+                source_val = source_data.get(field) if source_data else None
+                target_val = target_data.get(field) if target_data else None
+                state_val = state_resource.get(field) if state_resource else None
+                
+                # Skip if all are None or empty
+                if source_val is None and target_val is None and state_val is None:
+                    continue
+                
+                row = {
+                    "field": field,
+                    "source": _format_value_for_display(source_val),
+                    "target": _format_value_for_display(target_val),
+                }
+                if state_resource:
+                    row["state"] = _format_value_for_display(state_val)
+                
+                rows.append(row)
+            
+            if rows:
+                ui.table(columns=columns, rows=rows, row_key="field").classes("w-full").props("dense flat")

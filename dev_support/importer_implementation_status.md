@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
-**Last Updated:** 2026-01-27  
-**Current Importer Version:** 0.12.6  
+**Last Updated:** 2026-01-28  
+**Current Importer Version:** 0.13.0  
 **Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -666,6 +666,13 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2026-01-28 (v0.13.0)
+- **Version:** Incremented to 0.13.0 (minor release - Enhanced Plan Summary & Persistent Execution Logs)
+- **Plan Import Count**: Plan summary now correctly parses and displays "X to import" alongside add/change/destroy
+- **Plan Viewer Updates**: Purple badge for imports, purple highlighting for import-related lines
+- **Persistent Execution Logs**: Added `reconcile_execution_logs` to DeployState for logs that survive page reloads
+- **View Logs Enhancement**: Generate Import Blocks operations now logged and viewable in Match Existing page
 
 ### 2026-01-22 (v0.12.5)
 - **Version:** Incremented to 0.12.5 (patch release - Connection ID-Based Dependency Resolution)

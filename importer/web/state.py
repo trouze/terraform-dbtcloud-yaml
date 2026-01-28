@@ -515,6 +515,15 @@ class DeployState:
     
     # Job trigger control
     disable_job_triggers: bool = False  # When True, sets all job triggers to false in generated YAML
+    
+    # State reconciliation / drift detection
+    reconcile_state_loaded: bool = False  # True after terraform show -json succeeds
+    reconcile_state_resources: list = field(default_factory=list)  # Parsed state resources
+    reconcile_drift_results: list = field(default_factory=list)  # Drift detection results
+    reconcile_adopt_selections: list = field(default_factory=list)  # Resource addresses selected for adoption
+    reconcile_imports_generated: bool = False  # True after imports.tf generated for reconciliation
+    reconcile_adopt_rows: list = field(default_factory=list)  # Full grid row data for adopted resources (includes target_id, source_type, etc.)
+    reconcile_execution_logs: list = field(default_factory=list)  # Execution logs: [(timestamp, cmd, success, output, cwd), ...]
 
     def has_state_file(self) -> bool:
         """Check if a Terraform state file exists.

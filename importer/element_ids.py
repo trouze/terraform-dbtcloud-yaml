@@ -229,6 +229,10 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
                     parent_project_name = rec.get("name")
                     break
         
+        # Extract github_installation_id from metadata (fetched via v3 API)
+        # See: https://docs.getdbt.com/dbt-cloud/api-v3#/operations/Retrieve%20Repository
+        github_installation_id = metadata.get("github_installation_id")
+        
         _register(
             records,
             resource,
@@ -240,6 +244,7 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
                 "project_name": parent_project_name,
                 "git_clone_strategy": resource.get("git_clone_strategy"),
                 "remote_url": resource.get("remote_url"),
+                "github_installation_id": github_installation_id,
             },
         )
 

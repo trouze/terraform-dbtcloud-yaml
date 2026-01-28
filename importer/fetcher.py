@@ -794,15 +794,23 @@ def _fetch_repositories(
         if progress:
             progress.on_resource_item("repositories", repo_key)
 
-        # For GitLab repositories (deploy_token strategy), fetch detailed info via v3
-        # to get the gitlab object with gitlab_project_id
+        # For GitLab and GitHub App repositories, fetch detailed info via v3
+        # - GitLab: to get gitlab_project_id
+        # - GitHub App: to get github_installation_id
+        # See: https://docs.getdbt.com/dbt-cloud/api-v3#/operations/Retrieve%20Repository
         metadata = item.copy()
-        if item.get("git_clone_strategy") == "deploy_token" or item.get("remote_backend") == "gitlab":
+        git_clone_strategy = item.get("git_clone_strategy")
+        needs_v3_detail = (
+            git_clone_strategy == "deploy_token" or 
+            item.get("remote_backend") == "gitlab" or
+            git_clone_strategy == "github_app"
+        )
+        if needs_v3_detail:
             repo_id = item.get("id")
             project_id = item.get("project_id")
             if repo_id and project_id:
                 try:
-                    log.info(f"Fetching detailed GitLab repository info for {repo_key} (v3)")
+                    log.info(f"Fetching detailed repository info for {repo_key} (v3, strategy={git_clone_strategy})")
                     # Use include_related to get the gitlab object with gitlab_project_id (undocumented API feature)
                     detailed = client.get(
                         f"/projects/{project_id}/repositories/{repo_id}/",
@@ -811,7 +819,7 @@ def _fetch_repositories(
                     )
                     if detailed and detailed.get("data"):
                         repo_data = detailed["data"]
-                        # Merge the gitlab object into metadata
+                        # Merge the gitlab object into metadata (for GitLab repos)
                         if repo_data.get("gitlab"):
                             metadata["gitlab"] = repo_data["gitlab"]
                             # Also extract gitlab_project_id to top level for easier access
@@ -819,6 +827,11 @@ def _fetch_repositories(
                             if gitlab_project_id:
                                 metadata["gitlab_project_id"] = gitlab_project_id
                                 log.info(f"Found gitlab_project_id={gitlab_project_id} for {repo_key}")
+                        # Extract github_installation_id (for GitHub App repos)
+                        github_installation_id = repo_data.get("github_installation_id")
+                        if github_installation_id:
+                            metadata["github_installation_id"] = github_installation_id
+                            log.info(f"Found github_installation_id={github_installation_id} for {repo_key}")
                 except Exception as exc:
                     log.warning(f"Failed to fetch detailed repository info for {repo_key}: {exc}")
 

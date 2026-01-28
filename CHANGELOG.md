@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-01-28
+
+### Added
+- **Terraform Plan Import Count**: Plan summary now correctly displays import counts alongside add/change/destroy
+  - Updated `_parse_plan_summary()` in deploy.py to parse "X to import" from plan output
+  - Plan viewer dialog shows purple "X to import" badge when imports are present
+  - Apply confirmation dialog displays import count with purple styling
+  - Import-related lines in plan output now highlighted in purple
+
+- **Persistent Execution Logs**: "View Logs" button in Match Existing page now shows Generate Import process logs
+  - Added `reconcile_execution_logs` field to `DeployState` for persistent log storage
+  - Logs survive page reloads (previously lost on `ui.navigate.reload()`)
+  - Logs include: Generate Import Blocks operations, Save Adoption Data, State Removal commands
+  - Each log entry shows timestamp, operation name, success/failure status, detailed output, and working directory
+
+### Changed
+- Execution logs now stored in AppState rather than local function scope
+
 ## [0.12.6] - 2026-01-27
 
 ### Fixed

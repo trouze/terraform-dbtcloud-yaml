@@ -329,25 +329,37 @@ def parse_plan_stats(plan_output: str) -> Dict[str, int]:
         plan_output: Raw terraform plan output text
 
     Returns:
-        Dictionary with add/change/destroy counts
+        Dictionary with import/add/change/destroy counts
     """
     
-    stats = {"add": 0, "change": 0, "destroy": 0}
+    stats = {"import": 0, "add": 0, "change": 0, "destroy": 0}
     
-    # Count from action comments like "# ... will be created"
+    # Count from action comments like "# ... will be created", "# ... will be imported"
+    stats["import"] = len(re.findall(r"# .+ will be imported", plan_output))
     stats["add"] = len(re.findall(r"# .+ will be created", plan_output))
     stats["change"] = len(re.findall(r"# .+ will be updated", plan_output))
     stats["destroy"] = len(re.findall(r"# .+ will be destroyed", plan_output))
     
-    # Also try the summary line: "Plan: X to add, Y to change, Z to destroy"
+    # Also try the summary line with imports: "Plan: X to import, Y to add, Z to change, W to destroy"
     summary_match = re.search(
-        r"Plan:\s*(\d+)\s+to add,\s*(\d+)\s+to change,\s*(\d+)\s+to destroy",
+        r"Plan:\s*(\d+)\s+to import,\s*(\d+)\s+to add,\s*(\d+)\s+to change,\s*(\d+)\s+to destroy",
         plan_output
     )
     if summary_match:
-        stats["add"] = int(summary_match.group(1))
-        stats["change"] = int(summary_match.group(2))
-        stats["destroy"] = int(summary_match.group(3))
+        stats["import"] = int(summary_match.group(1))
+        stats["add"] = int(summary_match.group(2))
+        stats["change"] = int(summary_match.group(3))
+        stats["destroy"] = int(summary_match.group(4))
+    else:
+        # Try summary without imports: "Plan: X to add, Y to change, Z to destroy"
+        summary_match = re.search(
+            r"Plan:\s*(\d+)\s+to add,\s*(\d+)\s+to change,\s*(\d+)\s+to destroy",
+            plan_output
+        )
+        if summary_match:
+            stats["add"] = int(summary_match.group(1))
+            stats["change"] = int(summary_match.group(2))
+            stats["destroy"] = int(summary_match.group(3))
     
     return stats
 
@@ -385,6 +397,14 @@ def create_plan_viewer_dialog(
             # Plan stats bar
             with ui.row().classes("w-full gap-4 mb-2 p-3 bg-slate-100 dark:bg-slate-800 rounded items-center"):
                 ui.label("Plan Summary:").classes("font-semibold")
+                
+                # Import count (purple) - only show if > 0
+                if stats.get('import', 0) > 0:
+                    with ui.row().classes("items-center gap-1"):
+                        ui.icon("download", size="sm").classes("text-purple-600")
+                        ui.label(f"{stats['import']} to import").classes(
+                            "text-purple-600 font-medium"
+                        )
                 
                 # Add count (green)
                 with ui.row().classes("items-center gap-1"):
@@ -439,8 +459,11 @@ def create_plan_viewer_dialog(
                 import html
                 escaped = html.escape(line)
                 
+                # Resource import lines (purple)
+                if "will be imported" in line or "Preparing import" in line:
+                    return f'<span class="text-purple-600 dark:text-purple-400">{escaped}</span>'
                 # Resource creation lines (green)
-                if line.strip().startswith("+") or "will be created" in line:
+                elif line.strip().startswith("+") or "will be created" in line:
                     return f'<span class="text-green-600 dark:text-green-400">{escaped}</span>'
                 # Resource destruction lines (red)
                 elif line.strip().startswith("-") or "will be destroyed" in line:

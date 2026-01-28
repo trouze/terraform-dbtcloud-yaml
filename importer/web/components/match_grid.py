@@ -1,11 +1,27 @@
 """Editable AG Grid component for resource matching."""
 
 from dataclasses import dataclass
-from typing import Callable, Optional
+import json
+import time
+from typing import Callable, Optional, TYPE_CHECKING
 
 from nicegui import ui
 
 from importer.web.state import CloneConfig
+
+if TYPE_CHECKING:
+    from importer.web.utils.terraform_state_reader import StateReadResult
+
+
+def _debug_log(payload: dict) -> None:
+    """Append a debug log line for runtime evidence."""
+    # region agent log
+    try:
+        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as log_file:
+            log_file.write(json.dumps(payload) + "\n")
+    except Exception:
+        pass
+    # endregion
 
 
 # Colors
@@ -29,6 +45,125 @@ class GridRow:
     project_name: str = ""
     clone_configured: bool = False  # Whether clone config exists
     clone_name: str = ""  # Name for the clone (if configured)
+
+
+# Drift status values
+DRIFT_NO_STATE = "no_state"  # No Terraform state loaded
+DRIFT_IN_SYNC = "in_sync"    # State ID matches target ID
+DRIFT_ID_MISMATCH = "id_mismatch"  # State has different ID than target
+DRIFT_NOT_IN_STATE = "not_in_state"  # Target exists but not in state
+DRIFT_STATE_ONLY = "state_only"  # Resource in state but no target matched
+
+# Resource types that are keyed by name, not by numeric ID
+# These don't have a single dbt_id - they use composite keys like project_id:name
+NAME_KEYED_TYPES = {"VAR", "JEVO"}
+
+
+def _compute_drift_status(
+    source_type: str,
+    source_name: str,
+    target_id: Optional[int],
+    state_by_name: dict[tuple[str, str], dict],
+    has_state: bool,
+    state_by_id: Optional[dict[tuple[str, int], dict]] = None,
+    project_name: Optional[str] = None,
+    state_repo_by_project: Optional[dict[str, dict]] = None,
+) -> tuple[Optional[int], str, Optional[str]]:
+    """Compute state_id, drift_status, and state_address for a resource.
+    
+    Compares the MATCHED TARGET against Terraform state. Source IDs are never used
+    since source is from a different account and its IDs are irrelevant.
+    
+    Note: Some resource types (VAR, JEVO) are name-keyed, not ID-keyed. They use
+    composite keys like project_id:name and don't have a single numeric dbt_id.
+    
+    Args:
+        source_type: Element type code (PRJ, ENV, etc.)
+        source_name: Name of the source resource (used only for name-based fallback)
+        target_id: ID of the matched target resource (if any)
+        state_by_name: Lookup dict from (element_code, name) to state resource
+        has_state: Whether Terraform state is loaded
+        state_by_id: Optional lookup dict from (element_code, dbt_id) to state resource
+        project_name: Optional project name (for repository lookups)
+        state_repo_by_project: Optional lookup dict from project_name to repo state resource
+        
+    Returns:
+        Tuple of (state_id, drift_status, state_address)
+    """
+    if not has_state:
+        return None, DRIFT_NO_STATE, None
+    
+    # Name-keyed resources (VAR, JEVO) don't have single numeric IDs
+    # They use composite keys like project_id:name, so we only check by name
+    if source_type in NAME_KEYED_TYPES:
+        state_resource = state_by_name.get((source_type, source_name))
+        if state_resource:
+            # Found by name - that's all we can check for name-keyed resources
+            return None, DRIFT_IN_SYNC, state_resource.get("address")
+        else:
+            # Not found by name - no state tracking for this variable
+            return None, DRIFT_NO_STATE, None
+    
+    state_resource = None
+    
+    # PRIORITY 1: If we have a matched target_id, look up state by that ID
+    # This is the primary and most reliable lookup - does state track this exact resource?
+    if state_by_id and target_id is not None:
+        state_resource = state_by_id.get((source_type, target_id))
+    
+    # PRIORITY 2: Fall back to name lookup only when no target_id (unmatched/create new)
+    # This helps detect if state already has a resource with the same name
+    if not state_resource and target_id is None:
+        state_resource = state_by_name.get((source_type, source_name))
+    
+    # PRIORITY 3: For ID mismatch detection, also check by name to find stale entries
+    # This catches cases where state has resource with same name but different ID
+    if not state_resource and target_id is not None:
+        name_match = state_by_name.get((source_type, source_name))
+        if name_match and name_match.get("dbt_id") != target_id:
+            # State has same-named resource with different ID - stale entry
+            state_resource = name_match
+    
+    # PRIORITY 4: For repositories, also check by project_name
+    # This handles cases where source repo name differs from terraform key
+    if not state_resource and source_type == "REP" and project_name and state_repo_by_project:
+        project_match = state_repo_by_project.get(project_name)
+        if project_match:
+            if target_id is None:
+                state_resource = project_match
+            elif project_match.get("dbt_id") != target_id:
+                # State has repo for this project but with different ID
+                state_resource = project_match
+    
+    if state_resource:
+        state_id = state_resource.get("dbt_id")
+        state_address = state_resource.get("address")
+        
+        # Only consider it "in state" if we have a valid state ID
+        # A None state_id means the TF state entry has no real ID to track
+        if state_id is None:
+            # State entry exists but has no ID - treat as not in state
+            if target_id:
+                return None, DRIFT_NOT_IN_STATE, None
+            else:
+                return None, DRIFT_NO_STATE, None
+        
+        if target_id is None:
+            # Have state with valid ID but no target matched - resource is in TF state
+            # but user is trying to create new (no match found)
+            # This is potentially problematic - show that state exists
+            return state_id, DRIFT_STATE_ONLY, state_address
+        
+        if state_id == target_id:
+            return state_id, DRIFT_IN_SYNC, state_address
+        else:
+            return state_id, DRIFT_ID_MISMATCH, state_address
+    else:
+        # Not in state
+        if target_id:
+            return None, DRIFT_NOT_IN_STATE, None
+        else:
+            return None, DRIFT_NO_STATE, None  # Neither in state nor targeting - no drift info
 
 
 # Resource type display info
@@ -57,6 +192,7 @@ def build_grid_data(
     confirmed_mappings: list[dict],
     rejected_keys: set[str],
     clone_configs: Optional[list[CloneConfig]] = None,
+    state_result: Optional["StateReadResult"] = None,
 ) -> list[dict]:
     """Build grid row data from source/target items and existing mappings.
     
@@ -66,6 +202,7 @@ def build_grid_data(
         confirmed_mappings: Already confirmed source->target mappings
         rejected_keys: Set of source keys that were rejected
         clone_configs: Optional list of clone configurations
+        state_result: Optional Terraform state for drift detection
         
     Returns:
         List of row dictionaries for AG Grid
@@ -75,18 +212,104 @@ def build_grid_data(
     if clone_configs:
         for config in clone_configs:
             clone_by_key[config.source_key] = config
+    
+    # Build state lookup by (element_code, dbt_id) for finding state resources
+    # Also build name-based lookup as fallback for "create new" scenarios
+    state_by_name: dict[tuple[str, str], dict] = {}
+    state_by_id: dict[tuple[str, int], dict] = {}
+    if state_result and state_result.resources:
+        for res in state_result.resources:
+            state_info = {
+                "address": res.address,
+                "dbt_id": res.dbt_id,
+                "name": res.name,
+                "tf_name": res.tf_name,
+                "element_code": res.element_code,
+                "project_id": res.project_id,
+            }
+            # Index by name if available (used only for "create new" scenarios)
+            if res.name:
+                key = (res.element_code, res.name)
+                state_by_name[key] = state_info
+            # Also index by tf_name as fallback (for repos without name field)
+            if res.tf_name:
+                key = (res.element_code, res.tf_name)
+                if key not in state_by_name:
+                    state_by_name[key] = state_info
+            # Index by dbt_id - this is the PRIMARY lookup for drift detection
+            if res.dbt_id is not None:
+                state_by_id[(res.element_code, res.dbt_id)] = state_info
+    
+    # Build additional lookup for repositories by project_name (resource_index)
+    # For for_each resources, the key comes from the resource_index field
+    state_repo_by_project: dict[str, dict] = {}
+    if state_result and state_result.resources:
+        for res in state_result.resources:
+            if res.element_code == "REP":
+                # Use resource_index (for_each key) if available, otherwise tf_name
+                repo_key = res.resource_index or res.tf_name
+                if repo_key:
+                    state_repo_by_project[repo_key] = {
+                        "address": res.address,
+                        "dbt_id": res.dbt_id,
+                        "name": res.name,
+                        "tf_name": res.tf_name,
+                        "element_code": res.element_code,
+                        "project_id": res.project_id,
+                        "resource_index": res.resource_index,
+                    }
+    
+    # Debug: log state lookup info
+    _debug_log({
+        "sessionId": "debug-session",
+        "runId": "run1",
+        "hypothesisId": "H17",
+        "location": "match_grid.py:250",
+        "message": "state lookups built",
+        "data": {
+            "has_state_result": state_result is not None,
+            "resource_count": len(state_result.resources) if state_result else 0,
+            "state_by_name_keys": list(state_by_name.keys())[:20] if state_by_name else [],
+            "state_repo_by_project_keys": list(state_repo_by_project.keys()) if state_repo_by_project else [],
+            "rep_resources": [
+                {"tf_name": r.tf_name, "dbt_id": r.dbt_id, "address": r.address, "resource_index": r.resource_index}
+                for r in (state_result.resources if state_result else [])
+                if r.element_code == "REP"
+            ][:5],
+        },
+        "timestamp": int(time.time() * 1000),
+    })
+    
     # Build target lookup by (type, name) for auto-matching
+    # Note: Source IDs are from a different account and should NEVER be used for lookups
     target_by_type_name: dict[tuple[str, str], dict] = {}
     target_by_id: dict[int, dict] = {}
+    # For repositories, also build lookup by remote_url and github_repo
+    # This allows matching repos that point to same Git repo but have different names
+    target_repo_by_remote_url: dict[str, dict] = {}
+    target_repo_by_github_repo: dict[str, dict] = {}
     
     for item in target_items:
-        key = (item.get("element_type_code", ""), item.get("name", ""))
+        element_type = item.get("element_type_code", "")
+        name = item.get("name", "")
+        
+        # Global lookup by (type, name) for auto-matching
+        key = (element_type, name)
         if key not in target_by_type_name:
             target_by_type_name[key] = item
         
         dbt_id = item.get("dbt_id")
         if dbt_id:
             target_by_id[dbt_id] = item
+        
+        # For repositories, also index by remote_url and github_repo
+        if element_type == "REP":
+            remote_url = item.get("remote_url") or item.get("metadata", {}).get("remote_url")
+            if remote_url:
+                target_repo_by_remote_url[remote_url] = item
+            github_repo = item.get("github_repo") or item.get("metadata", {}).get("github_repo")
+            if github_repo:
+                target_repo_by_github_repo[github_repo] = item
     
     # Build confirmed mapping lookup
     confirmed_by_source_key = {
@@ -111,9 +334,6 @@ def build_grid_data(
     
     rows = []
     for source in source_items:
-        # Skip repositories in main loop - they'll be added under their parent project
-        if source.get("element_type_code") == "REP":
-            continue
         # Use key if available, otherwise fall back to element_mapping_id
         # (Environment variables often have key=null)
         source_key = source.get("key") or source.get("element_mapping_id", "")
@@ -121,29 +341,122 @@ def build_grid_data(
         source_type = source.get("element_type_code", "")
         source_id = source.get("dbt_id")
         project_name = source.get("project_name", "")
+        project_id = source_id if source_type == "PRJ" else (
+            source.get("project_id") or (source.get("metadata") or {}).get("project_id")
+        )
         
         # Skip if no key (should rarely happen now with element_mapping_id fallback)
         if not source_key:
             continue
         
+        # Skip repositories that were already added under their parent project
+        if source_type == "REP" and source_key in added_repo_keys:
+            continue
+        
         # Check if this source is already confirmed
         confirmed = confirmed_by_source_key.get(source_key)
         if confirmed:
-            target_id = confirmed.get("target_id", "")
+            target_id_val = confirmed.get("target_id", "")
             target_name = confirmed.get("target_name", "")
+            _debug_log({
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "H1",
+                "location": "match_grid.py:276",
+                "message": "confirmed mapping loaded",
+                "data": {
+                    "source_key": source_key,
+                    "source_type": source_type,
+                    "target_id_val": target_id_val,
+                    "target_id_type": str(type(target_id_val)),
+                    "stored_action": confirmed.get("action"),
+                },
+                "timestamp": int(time.time() * 1000),
+            })
+            if isinstance(target_id_val, str) and target_id_val.lower() == "none":
+                _debug_log({
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "H2",
+                    "location": "match_grid.py:283",
+                    "message": "target_id_val is string 'None'",
+                    "data": {
+                        "source_key": source_key,
+                        "target_id_val": target_id_val,
+                    },
+                    "timestamp": int(time.time() * 1000),
+                })
+            
+            # Compute drift status - compare matched target against TF state
+            target_id_int = None
+            if target_id_val:
+                if isinstance(target_id_val, str) and target_id_val.lower() == "none":
+                    target_id_int = None
+                else:
+                    try:
+                        target_id_int = int(target_id_val)
+                    except (TypeError, ValueError):
+                        _debug_log({
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "H3",
+                            "location": "match_grid.py:288",
+                            "message": "target_id_val int conversion failed",
+                            "data": {
+                                "source_key": source_key,
+                                "target_id_val": target_id_val,
+                                "target_id_type": str(type(target_id_val)),
+                            },
+                            "timestamp": int(time.time() * 1000),
+                        })
+            _debug_log({
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "H3",
+                "location": "match_grid.py:288",
+                "message": "target_id_int conversion result",
+                "data": {
+                    "source_key": source_key,
+                    "target_id_val": target_id_val,
+                    "target_id_int": target_id_int,
+                },
+                "timestamp": int(time.time() * 1000),
+            })
+            state_id, drift_status, state_address = _compute_drift_status(
+                source_type, source_name, target_id_int, state_by_name, bool(state_result),
+                state_by_id=state_by_id,
+                project_name=project_name,
+                state_repo_by_project=state_repo_by_project,
+            )
+            
+            # Determine action: use stored action, or compute based on drift
+            stored_action = confirmed.get("action")
+            if stored_action:
+                action = stored_action
+            elif drift_status == DRIFT_NOT_IN_STATE:
+                action = "adopt"  # Target exists but not in state - needs adoption
+            elif drift_status == DRIFT_ID_MISMATCH:
+                action = "adopt"  # ID mismatch - needs state rm + import
+            else:
+                action = "match"
+            
             row = {
                 "source_key": source_key,
                 "source_name": source_name,
                 "source_type": source_type,
                 "source_id": source_id,
                 "project_name": project_name,
-                "action": "match",
-                "target_id": str(target_id) if target_id else "",
+                "project_id": project_id,
+                "action": action,
+                "target_id": str(target_id_val) if target_id_val else "",
                 "target_name": target_name,
                 "status": "confirmed",
                 "confidence": confirmed.get("match_type", "manual"),
                 "clone_configured": False,
                 "clone_name": "",
+                "state_id": state_id,
+                "drift_status": drift_status,
+                "state_address": state_address,
             }
             rows.append(row)
             continue
@@ -151,6 +464,15 @@ def build_grid_data(
         # Check if rejected
         if source_key in rejected_keys:
             clone_config = clone_by_key.get(source_key)
+            
+            # Compute drift status (no target for create_new)
+            state_id, drift_status, state_address = _compute_drift_status(
+                source_type, source_name, None, state_by_name, bool(state_result),
+                state_by_id=state_by_id,
+                project_name=project_name,
+                state_repo_by_project=state_repo_by_project,
+            )
+            
             row = {
                 "source_key": source_key,
                 "source_name": source_name,
@@ -164,32 +486,63 @@ def build_grid_data(
                 "confidence": "none",
                 "clone_configured": clone_config is not None,
                 "clone_name": clone_config.new_name if clone_config else "",
+                "state_id": state_id,
+                "drift_status": drift_status,
+                "state_address": state_address,
             }
             rows.append(row)
             continue
         
-        # Try auto-match by exact name
+        # Try auto-match by exact name in target
+        # Note: We match by name only. Source IDs are from different account and not used.
         lookup_key = (source_type, source_name)
         clone_config = clone_by_key.get(source_key)
+        target = target_by_type_name.get(lookup_key)
         
-        if lookup_key in target_by_type_name:
-            target = target_by_type_name[lookup_key]
+        if target:
+            target_id_int = target.get("dbt_id")
+            
+            # Compute drift status - compare matched target against TF state
+            state_id, drift_status, state_address = _compute_drift_status(
+                source_type, source_name, target_id_int, state_by_name, bool(state_result),
+                state_by_id=state_by_id,
+                project_name=project_name,
+                state_repo_by_project=state_repo_by_project,
+            )
+            
+            # If matched but not in state, or ID mismatch, default to "adopt"
+            if drift_status in (DRIFT_NOT_IN_STATE, DRIFT_ID_MISMATCH):
+                default_action = "adopt"
+            else:
+                default_action = "match"
+            
             row = {
                 "source_key": source_key,
                 "source_name": source_name,
                 "source_type": source_type,
                 "source_id": source_id,
                 "project_name": project_name,
-                "action": "match",
+                "action": default_action,
                 "target_id": str(target.get("dbt_id", "")),
                 "target_name": target.get("name", ""),
                 "status": "pending",
                 "confidence": "exact_match",
                 "clone_configured": False,
                 "clone_name": "",
+                "state_id": state_id,
+                "drift_status": drift_status,
+                "state_address": state_address,
             }
         else:
             # No match found - check for clone config
+            # Compute drift status (no target for create_new)
+            state_id, drift_status, state_address = _compute_drift_status(
+                source_type, source_name, None, state_by_name, bool(state_result),
+                state_by_id=state_by_id,
+                project_name=project_name,
+                state_repo_by_project=state_repo_by_project,
+            )
+            
             row = {
                 "source_key": source_key,
                 "source_name": source_name,
@@ -203,9 +556,16 @@ def build_grid_data(
                 "confidence": "none",
                 "clone_configured": clone_config is not None,
                 "clone_name": clone_config.new_name if clone_config else "",
+                "state_id": state_id,
+                "drift_status": drift_status,
+                "state_address": state_address,
             }
         
         rows.append(row)
+        
+        # Track repositories to avoid duplicate entries under parent project
+        if source_type == "REP":
+            added_repo_keys.add(source_key)
         
         # If this is a "create_new" job, add its derived resources after it
         if source_type == "JOB" and row["action"] == "create_new":
@@ -229,6 +589,8 @@ def build_grid_data(
                         "clone_name": "",
                         "parent_job_key": source_key,  # Reference to parent job
                         "parent_job_name": source_name,
+                        "state_id": None,  # Derived resources don't have state
+                        "drift_status": DRIFT_NO_STATE if not state_result else DRIFT_IN_SYNC,
                     }
                     rows.append(override_row)
             
@@ -255,6 +617,8 @@ def build_grid_data(
                     "clone_name": "",
                     "parent_job_key": source_key,
                     "parent_job_name": source_name,
+                    "state_id": None,
+                    "drift_status": DRIFT_NO_STATE if not state_result else DRIFT_IN_SYNC,
                 }
                 rows.append(trigger_row)
         
@@ -278,6 +642,14 @@ def build_grid_data(
                     # Check if repository is confirmed
                     repo_confirmed = confirmed_by_source_key.get(repo_source_key)
                     if repo_confirmed:
+                        repo_target_id = repo_confirmed.get("target_id")
+                        repo_target_id_int = int(repo_target_id) if repo_target_id else None
+                        repo_state_id, repo_drift, repo_state_addr = _compute_drift_status(
+                            "REP", repo_name, repo_target_id_int, state_by_name, bool(state_result),
+                            state_by_id=state_by_id,
+                            project_name=source_name,  # Parent project name
+                            state_repo_by_project=state_repo_by_project,
+                        )
                         repo_row = {
                             "source_key": repo_source_key,
                             "source_name": f"  ↳ {repo_name}",  # Indented under project
@@ -291,19 +663,51 @@ def build_grid_data(
                             "confidence": repo_confirmed.get("match_type", "manual"),
                             "clone_configured": False,
                             "clone_name": "",
+                            "state_id": repo_state_id,
+                            "drift_status": repo_drift,
+                            "state_address": repo_state_addr,
                         }
                     else:
                         # Try auto-match for repository
+                        # Priority: 1) remote_url, 2) github_repo, 3) name
                         repo_lookup_key = ("REP", repo_name)
                         repo_clone_config = clone_by_key.get(repo_source_key)
                         
+                        # Get remote_url and github_repo from source repo
+                        source_remote_url = repo.get("remote_url") or repo.get("metadata", {}).get("remote_url")
+                        source_github_repo = repo.get("github_repo") or repo.get("metadata", {}).get("github_repo")
+                        
+                        # Try to find target repo by remote_url or github_repo first
+                        target_repo = None
+                        match_confidence = "none"
+                        if source_remote_url and source_remote_url in target_repo_by_remote_url:
+                            target_repo = target_repo_by_remote_url[source_remote_url]
+                            match_confidence = "url_match"
+                        elif source_github_repo and source_github_repo in target_repo_by_github_repo:
+                            target_repo = target_repo_by_github_repo[source_github_repo]
+                            match_confidence = "github_match"
+                        elif repo_lookup_key in target_by_type_name:
+                            target_repo = target_by_type_name[repo_lookup_key]
+                            match_confidence = "exact_match"
+                        
                         if repo_source_key in rejected_keys:
+                            repo_state_id, repo_drift, repo_state_addr = _compute_drift_status(
+                                "REP", repo_name, None, state_by_name, bool(state_result),
+                                state_by_id=state_by_id,
+                                project_name=source_name,
+                                state_repo_by_project=state_repo_by_project,
+                            )
                             repo_row = {
                                 "source_key": repo_source_key,
                                 "source_name": f"  ↳ {repo_name}",
                                 "source_type": "REP",
                                 "source_id": repo_id,
                                 "project_name": source_name,
+                                "project_id": (
+                                    repo_item.get("project_id")
+                                    or (repo_item.get("metadata") or {}).get("project_id")
+                                    or source.get("dbt_id")
+                                ),
                                 "action": "create_new",
                                 "target_id": "",
                                 "target_name": "",
@@ -311,24 +715,48 @@ def build_grid_data(
                                 "confidence": "none",
                                 "clone_configured": repo_clone_config is not None,
                                 "clone_name": repo_clone_config.new_name if repo_clone_config else "",
+                                "state_id": repo_state_id,
+                                "drift_status": repo_drift,
+                                "state_address": repo_state_addr,
                             }
-                        elif repo_lookup_key in target_by_type_name:
-                            target_repo = target_by_type_name[repo_lookup_key]
+                        elif target_repo:
+                            # Found a target repo match (by url, github_repo, or name)
+                            repo_target_id_int = target_repo.get("dbt_id")
+                            repo_state_id, repo_drift, repo_state_addr = _compute_drift_status(
+                                "REP", repo_name, repo_target_id_int, state_by_name, bool(state_result),
+                                state_by_id=state_by_id,
+                                project_name=source_name,
+                                state_repo_by_project=state_repo_by_project,
+                            )
+                            # If matched but not in state, or ID mismatch, default to "adopt"
+                            if repo_drift in (DRIFT_NOT_IN_STATE, DRIFT_ID_MISMATCH):
+                                repo_default_action = "adopt"
+                            else:
+                                repo_default_action = "match"
                             repo_row = {
                                 "source_key": repo_source_key,
                                 "source_name": f"  ↳ {repo_name}",
                                 "source_type": "REP",
                                 "source_id": repo_id,
                                 "project_name": source_name,
-                                "action": "match",
+                                "action": repo_default_action,
                                 "target_id": str(target_repo.get("dbt_id", "")),
                                 "target_name": target_repo.get("name", ""),
                                 "status": "pending",
-                                "confidence": "exact_match",
+                                "confidence": match_confidence,  # url_match, github_match, or exact_match
                                 "clone_configured": False,
                                 "clone_name": "",
+                                "state_id": repo_state_id,
+                                "drift_status": repo_drift,
+                                "state_address": repo_state_addr,
                             }
                         else:
+                            repo_state_id, repo_drift, repo_state_addr = _compute_drift_status(
+                                "REP", repo_name, None, state_by_name, bool(state_result),
+                                state_by_id=state_by_id,
+                                project_name=source_name,
+                                state_repo_by_project=state_repo_by_project,
+                            )
                             repo_row = {
                                 "source_key": repo_source_key,
                                 "source_name": f"  ↳ {repo_name}",
@@ -342,6 +770,9 @@ def build_grid_data(
                                 "confidence": "none",
                                 "clone_configured": repo_clone_config is not None,
                                 "clone_name": repo_clone_config.new_name if repo_clone_config else "",
+                                "state_id": repo_state_id,
+                                "drift_status": repo_drift,
+                                "state_address": repo_state_addr,
                             }
                     rows.append(repo_row)
                     
@@ -363,6 +794,8 @@ def build_grid_data(
                             "clone_name": "",
                             "parent_project_key": source_key,
                             "repository_key": repo_source_key,
+                            "state_id": None,
+                            "drift_status": DRIFT_NO_STATE if not state_result else DRIFT_IN_SYNC,
                         }
                         rows.append(link_row)
     
@@ -380,6 +813,8 @@ def create_match_grid(
     on_view_details: Callable[[str], None],
     clone_configs: Optional[list[CloneConfig]] = None,
     on_configure_clone: Optional[Callable[[str], None]] = None,
+    state_result: Optional["StateReadResult"] = None,
+    on_adopt: Optional[Callable[[str], None]] = None,
 ) -> tuple:
     """Create the editable matching grid.
     
@@ -394,13 +829,16 @@ def create_match_grid(
         on_view_details: Callback when details button clicked (source_key)
         clone_configs: Optional list of existing clone configurations
         on_configure_clone: Callback when configure clone button clicked (source_key)
+        state_result: Optional Terraform state for drift detection
+        on_adopt: Callback when adopt button clicked (source_key) for drift resolution
         
     Returns:
         Tuple of (grid component, row data list)
     """
     # Build row data
     row_data = build_grid_data(
-        source_items, target_items, confirmed_mappings, rejected_keys, clone_configs
+        source_items, target_items, confirmed_mappings, rejected_keys, clone_configs,
+        state_result=state_result,
     )
     
     # Build target options for autocomplete
@@ -475,13 +913,14 @@ def create_match_grid(
             "editable": True,
             "cellEditor": "agSelectCellEditor",
             "cellEditorParams": {
-                "values": ["match", "create_new", "skip"],
+                "values": ["match", "create_new", "skip", "adopt"],
             },
             ":valueFormatter": """params => {
                 const labels = {
                     'match': '⛓️ Match',
                     'create_new': '➕ Create New',
                     'skip': '⏭️ Skip',
+                    'adopt': '📥 Adopt',
                 };
                 return labels[params.value] || params.value;
             }""",
@@ -489,6 +928,7 @@ def create_match_grid(
                 "action-match": "x === 'match'",
                 "action-create": "x === 'create_new'",
                 "action-skip": "x === 'skip'",
+                "action-adopt": "x === 'adopt'",
             },
         },
         {
@@ -506,6 +946,35 @@ def create_match_grid(
             "cellClassRules": {
                 "target-matched": "x && x.length > 0",
                 "target-empty": "!x || x.length === 0",
+            },
+        },
+        {
+            "field": "state_id",
+            "headerName": "State ID",
+            "width": 90,
+            "cellStyle": {"fontFamily": "monospace", "fontSize": "11px"},
+            ":valueFormatter": "params => params.value != null ? params.value : '-'",
+        },
+        {
+            "field": "drift_status",
+            "headerName": "Drift",
+            "width": 110,
+            ":valueFormatter": """params => {
+                const labels = {
+                    'no_state': '—',
+                    'in_sync': '✓ In Sync',
+                    'id_mismatch': '⚠️ Mismatch',
+                    'not_in_state': '➕ Not in TF',
+                    'state_only': '📌 In State',
+                };
+                return labels[params.value] || params.value || '—';
+            }""",
+            "cellClassRules": {
+                "drift-sync": "x === 'in_sync'",
+                "drift-mismatch": "x === 'id_mismatch'",
+                "drift-missing": "x === 'not_in_state'",
+                "drift-state-only": "x === 'state_only'",
+                "drift-none": "x === 'no_state' || !x",
             },
         },
         {
@@ -587,8 +1056,23 @@ def create_match_grid(
                     data["target_id"] = ""
                     data["target_name"] = ""
                     data["status"] = "pending"
+                elif new_val == "adopt":
+                    # Adopt keeps the current target_id (adopts target resource into TF state)
+                    # The resource will need an import block generated
+                    data["status"] = "pending"
+                    # If there's no target_id but we have drift info, that's still valid
+                    # The import will use the target_id from the grid
+                elif new_val == "match":
+                    # Switching back to match - restore pending status
+                    data["status"] = "pending"
                 
                 on_row_change(data)
+                
+                # If adopt action and on_adopt callback exists, trigger it
+                if new_val == "adopt" and on_adopt:
+                    source_key = data.get("source_key", "")
+                    if source_key:
+                        on_adopt(source_key)
             
             elif col == "target_id":
                 # Validate target ID
@@ -669,6 +1153,7 @@ def create_match_grid(
         .action-match { color: #047377 !important; font-weight: 500; }
         .action-create { color: #F59E0B !important; font-weight: 500; }
         .action-skip { color: #6B7280 !important; font-style: italic; }
+        .action-adopt { color: #8B5CF6 !important; font-weight: 600; background-color: rgba(139, 92, 246, 0.15) !important; }
         
         /* Status column colors */
         .status-pending { color: #D97706 !important; }
@@ -679,6 +1164,13 @@ def create_match_grid(
         /* Target column */
         .target-matched { color: #10B981 !important; }
         .target-empty { color: #9CA3AF !important; }
+        
+        /* Drift status column colors */
+        .drift-sync { color: #059669 !important; }
+        .drift-mismatch { color: #D97706 !important; font-weight: 600; background-color: rgba(217, 119, 6, 0.15) !important; }
+        .drift-missing { color: #F59E0B !important; }
+        .drift-state-only { color: #3B82F6 !important; font-weight: 600; background-color: rgba(59, 130, 246, 0.15) !important; }
+        .drift-none { color: #9CA3AF !important; }
         
         /* Dark mode overrides */
         .dark .row-confirmed,
@@ -713,6 +1205,13 @@ def create_match_grid(
         /* Dark mode target */
         .dark .target-matched, .body--dark .target-matched { color: #34D399 !important; }
         .dark .target-empty, .body--dark .target-empty { color: #6B7280 !important; }
+        
+        /* Dark mode drift colors */
+        .dark .drift-sync, .body--dark .drift-sync { color: #6EE7B7 !important; }
+        .dark .drift-mismatch, .body--dark .drift-mismatch { color: #FBBF24 !important; background-color: rgba(251, 191, 36, 0.25) !important; }
+        .dark .drift-missing, .body--dark .drift-missing { color: #FCD34D !important; }
+        .dark .drift-state-only, .body--dark .drift-state-only { color: #60A5FA !important; background-color: rgba(96, 165, 250, 0.25) !important; }
+        .dark .drift-none, .body--dark .drift-none { color: #6B7280 !important; }
         
         /* Use balham-dark theme in dark mode */
         .dark .ag-theme-balham,

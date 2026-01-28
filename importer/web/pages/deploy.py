@@ -121,6 +121,8 @@ def create_deploy_page(
         with ui.column().classes("w-full"):
             terminal.create(height="450px")
 
+        # Note: State reconciliation is now handled in the Match Existing tab
+
         # Navigation buttons
         _create_navigation_section(state, on_step_change)
 
@@ -1256,6 +1258,160 @@ async def _run_generate(
 
         terminal.info("")
 
+        # Apply adoption overrides - update YAML with target values for adopted resources
+        # This ensures imported resources match their target configuration
+        # reconcile_adopt_rows is populated when user clicks "Generate Import Blocks" on Match Existing tab
+        adopt_rows = getattr(state.deploy, "reconcile_adopt_rows", []) or []
+        terminal.info(f"Checking adoption overrides: {len(adopt_rows)} row(s) in reconcile_adopt_rows")
+        
+        if adopt_rows:
+            terminal.info(f"Applying {len(adopt_rows)} adoption override(s) to YAML...")
+            # Debug: show what we're trying to adopt
+            for i, row in enumerate(adopt_rows[:5]):  # Show first 5
+                terminal.info(f"  [{i}] source_key={row.get('source_key')}, source_type={row.get('source_type')}, target_id={row.get('target_id')}")
+            if len(adopt_rows) > 5:
+                terminal.info(f"  ... and {len(adopt_rows) - 5} more")
+            
+            try:
+                from importer.web.utils.adoption_yaml_updater import apply_adoption_overrides
+                import json as json_mod
+                
+                # Get target report items from file (TargetFetchState only has last_report_items_file)
+                target_items = []
+                if state.target_fetch and state.target_fetch.last_report_items_file:
+                    target_items_path = Path(state.target_fetch.last_report_items_file)
+                    if target_items_path.exists():
+                        with open(target_items_path, "r") as f:
+                            target_items = json_mod.load(f)
+                        terminal.info(f"  Loaded {len(target_items)} target report items from {target_items_path.name}")
+                    else:
+                        terminal.warning(f"  Target report items file not found: {target_items_path}")
+                else:
+                    terminal.warning(f"  No target_fetch.last_report_items_file configured")
+                
+                if target_items:
+                    # Create a copy of the YAML in output dir for adoption updates
+                    adoption_yaml = output_path / "dbt-cloud-config.yml"
+                    if Path(yaml_file) != adoption_yaml:
+                        shutil.copy2(yaml_file, adoption_yaml)
+                    
+                    # Debug: show target lookup for our adopt rows
+                    target_by_id = {}
+                    for item in target_items:
+                        elem_type = item.get("element_type_code") or item.get("element_type")
+                        dbt_id = item.get("dbt_id") or item.get("id")
+                        if elem_type and dbt_id:
+                            target_by_id[(elem_type, int(dbt_id))] = item
+                    
+                    for row in adopt_rows[:3]:
+                        src_type = row.get("source_type")
+                        tgt_id = row.get("target_id")
+                        if src_type and tgt_id:
+                            try:
+                                key = (src_type, int(tgt_id))
+                                found = target_by_id.get(key)
+                                if found:
+                                    terminal.info(f"  Target lookup ({src_type}, {tgt_id}): FOUND - remote_url={found.get('remote_url')}, git_clone_strategy={found.get('git_clone_strategy')}, github_installation_id={found.get('github_installation_id')}")
+                                else:
+                                    terminal.warning(f"  Target lookup ({src_type}, {tgt_id}): NOT FOUND")
+                            except ValueError:
+                                terminal.warning(f"  Target lookup ({src_type}, {tgt_id}): Invalid target_id")
+                    
+                    yaml_file = await asyncio.to_thread(
+                        apply_adoption_overrides,
+                        str(adoption_yaml),
+                        adopt_rows,
+                        target_items,
+                    )
+                    terminal.info("  Adoption overrides applied to YAML")
+                    
+                    # Verify the YAML was updated
+                    with open(adoption_yaml, "r") as f:
+                        updated_content = f.read()
+                    if "mds-emu" in updated_content:
+                        terminal.info("  Verification: Found target remote_url in updated YAML")
+                    else:
+                        terminal.warning("  Verification: Target remote_url NOT found in updated YAML")
+                else:
+                    terminal.warning("  No target data available for adoption overrides")
+                    terminal.warning("  Make sure you've fetched target account data first")
+            except Exception as e:
+                terminal.warning(f"  Failed to apply adoption overrides: {e}")
+                import traceback
+                terminal.warning(f"  {traceback.format_exc()}")
+                terminal.info("  Proceeding with original YAML values")
+        else:
+            terminal.info("  No adopt rows found - click 'Generate Import Blocks' on Match Existing tab first")
+
+        # Strip source account's github_installation_id from all repositories
+        # This ID is invalid for the target account - the module should discover it via PAT
+        # For adopted repos, the adoption updater has already set the correct target ID
+        terminal.info("")
+        terminal.info("Stripping source account github_installation_id from non-adopted repos...")
+        try:
+            import yaml as yaml_strip
+            
+            yaml_output_path = output_path / "dbt-cloud-config.yml"
+            terminal.info(f"  Output YAML path: {yaml_output_path}")
+            terminal.info(f"  Output path exists: {yaml_output_path.exists()}")
+            
+            # Ensure YAML is copied to output directory
+            if not yaml_output_path.exists():
+                terminal.info(f"  Copying {yaml_file} to {yaml_output_path}")
+                shutil.copy2(yaml_file, yaml_output_path)
+            
+            with open(yaml_output_path, "r") as f:
+                yaml_config = yaml_strip.safe_load(f)
+            
+            # Build set of adopted repo keys (these should keep their installation ID)
+            adopted_repo_keys = set()
+            for row in adopt_rows:
+                if row.get("source_type") == "REP":
+                    adopted_repo_keys.add(row.get("source_key"))
+            terminal.info(f"  Adopted repo keys: {adopted_repo_keys}")
+            
+            # Strip github_installation_id from non-adopted repositories
+            repos_stripped = 0
+            globals_repos = yaml_config.get("globals", {}).get("repositories", [])
+            terminal.info(f"  Found {len(globals_repos)} repos in globals.repositories")
+            
+            for repo in globals_repos:
+                repo_key = repo.get("key")
+                has_install_id = "github_installation_id" in repo
+                if repo_key not in adopted_repo_keys and has_install_id:
+                    terminal.info(f"    Stripping from: {repo_key}")
+                    del repo["github_installation_id"]
+                    repos_stripped += 1
+                elif repo_key in adopted_repo_keys:
+                    terminal.info(f"    Keeping for adopted: {repo_key} (github_installation_id={repo.get('github_installation_id')})")
+            
+            # Also check top-level repositories (old schema)
+            top_level_repos = yaml_config.get("repositories", [])
+            terminal.info(f"  Found {len(top_level_repos)} repos in top-level repositories")
+            
+            for repo in top_level_repos:
+                repo_key = repo.get("key")
+                has_install_id = "github_installation_id" in repo
+                if repo_key not in adopted_repo_keys and has_install_id:
+                    terminal.info(f"    Stripping from: {repo_key}")
+                    del repo["github_installation_id"]
+                    repos_stripped += 1
+            
+            terminal.info(f"  Total repos stripped: {repos_stripped}")
+            
+            if repos_stripped > 0:
+                with open(yaml_output_path, "w") as f:
+                    yaml_strip.dump(yaml_config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+                terminal.info(f"  Wrote updated YAML to {yaml_output_path}")
+            
+            # Update yaml_file to point to the output path for converter
+            yaml_file = str(yaml_output_path)
+            terminal.info(f"  Set yaml_file to: {yaml_file}")
+        except Exception as e:
+            terminal.warning(f"  Failed to strip github_installation_id: {e}")
+            import traceback
+            terminal.warning(f"  {traceback.format_exc()[:500]}")
+
         # Generate the Terraform files using the converter
         from importer.yaml_converter import YamlToTerraformConverter
         
@@ -1768,26 +1924,46 @@ async def _run_terraform_plan(
 
 
 def _parse_plan_summary(plan_output: str) -> dict:
-    """Parse terraform plan output to extract add/change/destroy counts."""
+    """Parse terraform plan output to extract import/add/change/destroy counts."""
     import re
     
-    summary = {"add": 0, "change": 0, "destroy": 0}
+    summary = {"import": 0, "add": 0, "change": 0, "destroy": 0}
     
-    # Look for the "Plan: X to add, Y to change, Z to destroy" line
-    match = re.search(r"Plan:\s*(\d+)\s*to add,\s*(\d+)\s*to change,\s*(\d+)\s*to destroy", plan_output)
+    # Look for the "Plan: X to import, Y to add, Z to change, W to destroy" line
+    # Format can be: "Plan: 2 to import, 2 to add, 1 to change, 0 to destroy."
+    # Or without imports: "Plan: 2 to add, 1 to change, 0 to destroy."
+    
+    # First try to match with imports
+    match = re.search(
+        r"Plan:\s*(\d+)\s*to import,\s*(\d+)\s*to add,\s*(\d+)\s*to change,\s*(\d+)\s*to destroy",
+        plan_output
+    )
     if match:
-        summary["add"] = int(match.group(1))
-        summary["change"] = int(match.group(2))
-        summary["destroy"] = int(match.group(3))
+        summary["import"] = int(match.group(1))
+        summary["add"] = int(match.group(2))
+        summary["change"] = int(match.group(3))
+        summary["destroy"] = int(match.group(4))
     else:
-        # Fallback: count individual resource lines
-        for line in plan_output.split("\n"):
-            if "will be created" in line:
-                summary["add"] += 1
-            elif "will be updated" in line or "will be changed" in line:
-                summary["change"] += 1
-            elif "will be destroyed" in line:
-                summary["destroy"] += 1
+        # Try without imports
+        match = re.search(
+            r"Plan:\s*(\d+)\s*to add,\s*(\d+)\s*to change,\s*(\d+)\s*to destroy",
+            plan_output
+        )
+        if match:
+            summary["add"] = int(match.group(1))
+            summary["change"] = int(match.group(2))
+            summary["destroy"] = int(match.group(3))
+        else:
+            # Fallback: count individual resource lines
+            for line in plan_output.split("\n"):
+                if "will be imported" in line:
+                    summary["import"] += 1
+                elif "will be created" in line:
+                    summary["add"] += 1
+                elif "will be updated" in line or "will be changed" in line:
+                    summary["change"] += 1
+                elif "will be destroyed" in line:
+                    summary["destroy"] += 1
     
     return summary
 
@@ -1810,7 +1986,7 @@ async def _confirm_apply(
     plan_output = deploy_state.get("last_plan_output") or state.deploy.last_plan_output or ""
     summary = _parse_plan_summary(plan_output)
     
-    total_changes = summary["add"] + summary["change"] + summary["destroy"]
+    total_changes = summary["import"] + summary["add"] + summary["change"] + summary["destroy"]
     
     with ui.dialog() as dialog:
         with ui.card().classes("w-full max-w-lg"):
@@ -1825,6 +2001,11 @@ async def _confirm_apply(
             
             # Change summary badges
             with ui.row().classes("w-full gap-3 mt-4 justify-center"):
+                if summary["import"] > 0:
+                    with ui.row().classes("items-center gap-1"):
+                        ui.icon("download", size="sm").classes("text-purple-500")
+                        ui.label(f"{summary['import']} to import").classes("text-sm font-medium text-purple-600")
+                
                 if summary["add"] > 0:
                     with ui.row().classes("items-center gap-1"):
                         ui.icon("add_circle", size="sm").classes("text-green-500")

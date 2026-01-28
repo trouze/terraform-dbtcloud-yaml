@@ -2,8 +2,9 @@
 
 import json
 import logging
+import time
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, Optional, TYPE_CHECKING
 
 from nicegui import ui
 
@@ -14,6 +15,16 @@ from importer.web.utils.mapping_file import (
     create_mapping_from_confirmations,
 )
 from importer.web.utils.yaml_viewer import create_yaml_viewer_dialog
+from importer.web.utils.terraform_state_reader import read_terraform_state, StateReadResult
+from importer.web.utils.terraform_import import (
+    generate_adopt_imports_from_grid,
+    generate_state_rm_commands,
+    generate_adoption_script,
+    write_adopt_imports_file,
+)
+
+if TYPE_CHECKING:
+    from importer.web.utils.terraform_state_reader import StateReadResult
 
 
 # dbt brand colors
@@ -230,9 +241,43 @@ def _create_matching_content(
         create_match_grid,
         create_grid_toolbar,
         export_mappings_to_csv,
+        DRIFT_ID_MISMATCH,
+        DRIFT_NOT_IN_STATE,
     )
     from importer.web.components.clone_dialog import show_clone_dialog
     from importer.web.state import CloneConfig
+    
+    # Mutable container for state result (shared across callbacks)
+    state_ref = {
+        "state_result": None,
+        "state_loaded": state.deploy.reconcile_state_loaded,
+    }
+    
+    # Store target_items for callbacks (since it's a local variable)
+    target_items_ref = {"items": target_items}
+    
+    # Try to restore state result if previously loaded
+    # (We store serialized state in reconcile_state_resources)
+    if state.deploy.reconcile_state_loaded and state.deploy.reconcile_state_resources:
+        # Reconstruct a minimal StateReadResult from saved data
+        from importer.web.utils.terraform_state_reader import StateReadResult, StateResource
+        state_result = StateReadResult(success=True)
+        for res_data in state.deploy.reconcile_state_resources:
+            resource = StateResource(
+                address=res_data.get("address", ""),
+                tf_type=res_data.get("tf_type", ""),
+                element_code=res_data.get("element_code", ""),
+                tf_name=res_data.get("tf_name", ""),
+                dbt_id=res_data.get("dbt_id"),
+                name=res_data.get("name"),
+                project_id=res_data.get("project_id"),
+                attributes=res_data.get("attributes", {}),
+                resource_index=res_data.get("resource_index"),
+            )
+            state_result.resources.append(resource)
+            if resource.dbt_id is not None:
+                state_result.resources_by_id[(resource.element_code, resource.dbt_id)] = resource
+        state_ref["state_result"] = state_result
     
     # Build grid data from source/target items and existing mappings
     rejected_keys = state.map.rejected_suggestions if isinstance(state.map.rejected_suggestions, set) else set(state.map.rejected_suggestions)
@@ -244,6 +289,7 @@ def _create_matching_content(
         state.map.confirmed_mappings,
         rejected_keys,
         clone_configs,
+        state_result=state_ref["state_result"],
     )
     
     # Stats from grid data - separate primary resources from derived resources
@@ -301,6 +347,22 @@ def _create_matching_content(
                 )
         
         _create_stat_card("Existing Target Items", len(target_items), f"color: {DBT_TEAL}", "download")
+        
+        # Drift stats (only show if state is loaded)
+        drift_count = sum(
+            1 for r in grid_row_data 
+            if r.get("drift_status") in [DRIFT_ID_MISMATCH, DRIFT_NOT_IN_STATE]
+        )
+        if state_ref["state_loaded"]:
+            with ui.card().classes("p-3 min-w-[100px]"):
+                with ui.row().classes("items-center gap-2"):
+                    if drift_count > 0:
+                        ui.icon("warning", size="sm").classes("text-amber-500")
+                        ui.label(str(drift_count)).classes("text-2xl font-bold text-amber-500")
+                    else:
+                        ui.icon("check_circle", size="sm").classes("text-green-500")
+                        ui.label("0").classes("text-2xl font-bold text-green-500")
+                ui.label("Drift").classes("text-xs text-slate-500")
     
     # Store grid row data in a mutable container for callbacks
     grid_data_ref = {"data": grid_row_data}
@@ -540,11 +602,188 @@ def _create_matching_content(
                 ui.notify(f"Parent project not found for repository link: {source_key}", type="warning")
             return
         
-        # Regular resource - use standard detail dialog
+        # Regular resource - use enhanced match detail dialog with drift info
         source_item = find_source_item(source_key)
         if source_item:
-            from importer.web.components.entity_table import show_entity_detail_dialog
-            show_entity_detail_dialog(source_item, state)
+            from importer.web.components.entity_table import show_match_detail_dialog
+            
+            # Find grid row data for this source
+            grid_row = None
+            for row in grid_data_ref["data"]:
+                if row.get("source_key") == source_key:
+                    grid_row = row
+                    break
+            
+            if not grid_row:
+                grid_row = {"source_key": source_key, "drift_status": "no_state"}
+            
+            # Find target data if matched
+            target_data = None
+            target_id = grid_row.get("target_id")
+            if target_id:
+                # Use target_items_ref which stores the target items passed to this function
+                for t in target_items_ref.get("items", []):
+                    if str(t.get("dbt_id")) == str(target_id):
+                        target_data = t
+                        break
+            
+            # Find state resource data if available
+            state_resource = None
+            state_id = grid_row.get("state_id")
+            if state_ref.get("state_result") and state_ref["state_result"].resources:
+                source_type = source_item.get("element_type_code", "")
+                # Try to find by ID first
+                if state_id:
+                    for res in state_ref["state_result"].resources:
+                        if res.dbt_id == state_id and res.element_code == source_type:
+                            state_resource = {
+                                "address": res.address,
+                                "dbt_id": res.dbt_id,
+                                "name": res.name,
+                                "tf_name": res.tf_name,
+                                "element_code": res.element_code,
+                                "project_id": res.project_id,
+                                **res.attributes,
+                            }
+                            break
+            
+            # Callback to handle manual target selection from dropdown
+            def handle_target_selected(selected_target: dict):
+                """Handle when user selects a target from the dropdown."""
+                source_key = source_item.get("key") or source_item.get("element_mapping_id", "")
+                source_type = source_item.get("element_type_code", "")
+                target_id = selected_target.get("dbt_id")
+                target_name = selected_target.get("name", "")
+                # region agent log
+                try:
+                    with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as log_file:
+                        log_file.write(json.dumps({
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "H4",
+                            "location": "match.py:646",
+                            "message": "handle_target_selected input",
+                            "data": {
+                                "source_key": source_key,
+                                "source_type": source_type,
+                                "target_id": target_id,
+                                "target_id_type": str(type(target_id)),
+                                "target_name": target_name,
+                            },
+                            "timestamp": int(time.time() * 1000),
+                        }) + "\n")
+                except Exception:
+                    pass
+                # endregion
+                
+                # Check if target is in TF state to determine action
+                action = "match"
+                if state_ref.get("state_result") and state_ref["state_result"].resources:
+                    # Check if this target_id is in state
+                    found_in_state = False
+                    for res in state_ref["state_result"].resources:
+                        if res.dbt_id == target_id and res.element_code == source_type:
+                            found_in_state = True
+                            break
+                    if not found_in_state:
+                        action = "adopt"  # Target exists but not in TF state - needs adoption
+                elif state_ref.get("state_loaded"):
+                    # State is loaded but target not found
+                    action = "adopt"
+                
+                # Add to confirmed mappings
+                if not hasattr(state.map, "confirmed_mappings"):
+                    state.map.confirmed_mappings = []
+                
+                # Remove any existing mapping for this source
+                state.map.confirmed_mappings = [
+                    m for m in state.map.confirmed_mappings
+                    if m.get("source_key") != source_key
+                ]
+                
+                # Add new mapping with action
+                state.map.confirmed_mappings.append({
+                    "source_key": source_key,
+                    "target_id": target_id,
+                    "target_name": target_name,
+                    "match_type": "manual",
+                    "action": action,  # Store the action with the mapping
+                })
+                
+                # Also remove from rejected keys if it was there
+                if hasattr(state.map, "rejected_suggestions"):
+                    if isinstance(state.map.rejected_suggestions, set):
+                        state.map.rejected_suggestions.discard(source_key)
+                    elif isinstance(state.map.rejected_suggestions, list):
+                        state.map.rejected_suggestions = [k for k in state.map.rejected_suggestions if k != source_key]
+                
+                save_state()
+                ui.notify(f"Matched to {target_name} (ID: {target_id}) with action '{action}'", type="positive")
+                ui.navigate.reload()  # Reload to update the grid
+            
+            # Callback to handle "Set to Adopt" button click
+            def handle_adopt():
+                """Handle when user clicks Set to Adopt button."""
+                source_key = source_item.get("key") or source_item.get("element_mapping_id", "")
+                source_type = source_item.get("element_type_code", "")
+                target_id = grid_row.get("target_id")
+                target_name = grid_row.get("target_name", "")
+                # region agent log
+                try:
+                    with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as log_file:
+                        log_file.write(json.dumps({
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "H5",
+                            "location": "match.py:709",
+                            "message": "handle_adopt input",
+                            "data": {
+                                "source_key": source_key,
+                                "source_type": source_type,
+                                "target_id": target_id,
+                                "target_id_type": str(type(target_id)),
+                                "target_name": target_name,
+                            },
+                            "timestamp": int(time.time() * 1000),
+                        }) + "\n")
+                except Exception:
+                    pass
+                # endregion
+                
+                # Add/update confirmed mapping with adopt action
+                if not hasattr(state.map, "confirmed_mappings"):
+                    state.map.confirmed_mappings = []
+                
+                # Remove any existing mapping for this source
+                state.map.confirmed_mappings = [
+                    m for m in state.map.confirmed_mappings
+                    if m.get("source_key") != source_key
+                ]
+                
+                # Add new mapping with adopt action
+                state.map.confirmed_mappings.append({
+                    "source_key": source_key,
+                    "target_id": target_id,
+                    "target_name": target_name,
+                    "match_type": "manual",
+                    "action": "adopt",
+                })
+                
+                save_state()
+                ui.notify(f"Set {source_item.get('name', source_key)} to adopt", type="positive")
+                ui.navigate.reload()
+            
+            show_match_detail_dialog(
+                source_data=source_item,
+                grid_row=grid_row,
+                target_data=target_data,
+                state_resource=state_resource,
+                app_state=state,
+                available_targets=target_items_ref.get("items", []),
+                has_state_loaded=state_ref.get("state_loaded", False),
+                on_target_selected=handle_target_selected,
+                on_adopt=handle_adopt,
+            )
     
     def on_configure_clone(source_key: str):
         """Configure clone for a resource set to Create New."""
@@ -586,7 +825,51 @@ def _create_matching_content(
             existing_config=existing_config,
         )
     
-    # Info banner with Reset button
+    # Load Terraform State function
+    async def load_terraform_state():
+        """Load Terraform state to enable drift detection."""
+        # Get terraform directory
+        tf_dir = state.deploy.terraform_dir or "deployments/migration"
+        tf_path = Path(tf_dir)
+        if not tf_path.is_absolute():
+            # Make relative to project root
+            project_root = Path(state.fetch.output_dir).parent.parent if state.fetch.output_dir else Path.cwd()
+            tf_path = project_root / tf_dir
+        
+        ui.notify("Loading Terraform state...", type="info")
+        
+        result = await read_terraform_state(tf_path)
+        
+        if not result.success:
+            ui.notify(f"Failed to load state: {result.error_message}", type="negative")
+            return
+        
+        if not result.resources:
+            ui.notify("Terraform state is empty or no dbt Cloud resources found", type="warning")
+            # Still mark as loaded so we can show "not in state" drift
+        
+        # Save to app state for persistence
+        state.deploy.reconcile_state_loaded = True
+        state.deploy.reconcile_state_resources = [
+            {
+                "address": r.address,
+                "tf_type": r.tf_type,
+                "element_code": r.element_code,
+                "tf_name": r.tf_name,
+                "dbt_id": r.dbt_id,
+                "name": r.name,
+                "project_id": r.project_id,
+                "attributes": r.attributes,
+                "resource_index": r.resource_index,
+            }
+            for r in result.resources
+        ]
+        save_state()
+        
+        ui.notify(f"Loaded {len(result.resources)} resources from Terraform state", type="positive")
+        ui.navigate.reload()
+    
+    # Info banner with Reset button and Load State button
     with ui.card().classes("w-full p-3 mb-4").style(f"border-left: 4px solid {DBT_TEAL};"):
         with ui.row().classes("w-full items-start justify-between"):
             with ui.row().classes("items-start gap-2"):
@@ -598,15 +881,38 @@ def _create_matching_content(
                         "Match = import existing, Create New = create fresh, Skip = exclude from migration. "
                         "Double-click a row to view details."
                     ).classes("text-xs text-slate-500")
+                    if state_ref["state_loaded"]:
+                        ui.label(
+                            "Terraform state loaded - State ID and Drift columns show reconciliation status."
+                        ).classes("text-xs text-green-600")
             
-            # Reset All Mappings button - use flat with explicit color for dark mode
-            ui.button(
-                "Reset All Mappings",
-                icon="refresh",
-                on_click=reset_all_mappings,
-            ).props("flat text-color=orange-6 size=sm").tooltip(
-                "Clear all mappings and regenerate suggestions"
-            )
+            with ui.row().classes("items-center gap-2"):
+                # Load Terraform State button
+                if state_ref["state_loaded"]:
+                    ui.button(
+                        "State Loaded",
+                        icon="check_circle",
+                        on_click=load_terraform_state,
+                    ).props("flat text-color=green-6 size=sm").tooltip(
+                        "Click to reload Terraform state"
+                    )
+                else:
+                    ui.button(
+                        "Load TF State",
+                        icon="cloud_download",
+                        on_click=load_terraform_state,
+                    ).props("outline size=sm").tooltip(
+                        "Load Terraform state to detect drift between state and target"
+                    )
+                
+                # Reset All Mappings button
+                ui.button(
+                    "Reset All Mappings",
+                    icon="refresh",
+                    on_click=reset_all_mappings,
+                ).props("flat text-color=orange-6 size=sm").tooltip(
+                    "Clear all mappings and regenerate suggestions"
+                )
     
     # Grid toolbar
     create_grid_toolbar(
@@ -630,7 +936,567 @@ def _create_matching_content(
             on_view_details=on_view_details,
             clone_configs=clone_configs,
             on_configure_clone=on_configure_clone,
+            state_result=state_ref["state_result"],
         )
+    
+    # Adopt imports section - show when TF state is loaded so user can adopt resources
+    # This section lets users generate import blocks for resources marked with action="adopt"
+    adopt_count = sum(1 for r in grid_row_data if r.get("action") == "adopt" and r.get("target_id"))
+    drift_resources_exist = sum(1 for r in grid_row_data if r.get("drift_status") in ("not_in_state", "id_mismatch", "state_only"))
+    mismatch_count = sum(1 for r in grid_row_data if r.get("action") == "adopt" and r.get("drift_status") == "id_mismatch")
+    has_state = state_ref.get("state_result") is not None
+    
+    # Shared log storage for execution results - persisted in state
+    # Format: {"logs": [(timestamp, cmd, success, output, cwd), ...]}
+    # Initialize from persisted state so logs survive page reloads
+    execution_logs_ref: dict[str, list] = {"logs": state.deploy.reconcile_execution_logs}
+    
+    def strip_ansi(text: str) -> str:
+        """Remove ANSI escape codes from text."""
+        import re
+        ansi_pattern = re.compile(r'\x1b\[[0-9;]*m')
+        return ansi_pattern.sub('', text)
+    
+    # Show adopt section if state is loaded and there are resources that could be adopted
+    if has_state and (adopt_count > 0 or drift_resources_exist > 0):
+        with ui.card().classes("w-full p-4 mt-4").style("border: 2px solid #8B5CF6;"):
+            with ui.row().classes("w-full items-center justify-between"):
+                with ui.column().classes("gap-1"):
+                    with ui.row().classes("items-center gap-2"):
+                        ui.icon("download", size="sm").classes("text-purple-600")
+                        ui.label("Adopt Resources into Terraform State").classes("font-semibold")
+                    
+                    if adopt_count > 0:
+                        ui.label(
+                            f"{adopt_count} resources marked for adoption"
+                        ).classes("text-sm text-purple-600")
+                    else:
+                        ui.label(
+                            f"{drift_resources_exist} resources have drift - change Action to 'adopt' to import them"
+                        ).classes("text-sm text-amber-600")
+                    
+                    ui.label(
+                        "Set Action='adopt' in the grid for resources you want to import, then click Generate"
+                    ).classes("text-xs text-slate-500")
+                    
+                    if state.deploy.reconcile_imports_generated:
+                        ui.label("Import blocks generated - run terraform plan/apply").classes(
+                            "text-xs text-green-600 mt-1"
+                        )
+                
+                def generate_adopt_imports():
+                    # region agent log
+                    try:
+                        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as log_file:
+                            log_file.write(json.dumps({
+                                "sessionId": "debug-session",
+                                "runId": "run1",
+                                "hypothesisId": "H8",
+                                "location": "match.py:925",
+                                "message": "generate_adopt_imports clicked",
+                                "data": {
+                                    "state_loaded": bool(state_ref.get("state_result")),
+                                    "grid_ref_count": len(grid_data_ref.get("data", [])),
+                                },
+                                "timestamp": int(time.time() * 1000),
+                            }) + "\n")
+                    except Exception:
+                        pass
+                    # endregion
+                    # Get terraform directory
+                    tf_dir = state.deploy.terraform_dir or "deployments/migration"
+                    tf_path = Path(tf_dir)
+                    if not tf_path.is_absolute():
+                        project_root = Path(state.fetch.output_dir).parent.parent if state.fetch.output_dir else Path.cwd()
+                        tf_path = project_root / tf_dir
+                    # region agent log
+                    try:
+                        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as log_file:
+                            log_file.write(json.dumps({
+                                "sessionId": "debug-session",
+                                "runId": "run1",
+                                "hypothesisId": "H12",
+                                "location": "match.py:930",
+                                "message": "terraform path resolved",
+                                "data": {
+                                    "tf_dir": tf_dir,
+                                    "tf_path": str(tf_path),
+                                },
+                                "timestamp": int(time.time() * 1000),
+                            }) + "\n")
+                    except Exception:
+                        pass
+                    # endregion
+                    
+                    # Get ALL grid rows - function will filter internally but needs PRJ rows for lookup
+                    all_rows = grid_data_ref["data"]
+                    adopt_rows = [r for r in all_rows if r.get("action") == "adopt" and r.get("target_id")]
+                    # region agent log
+                    try:
+                        sample = []
+                        for r in adopt_rows[:5]:
+                            sample.append({
+                                "source_key": r.get("source_key"),
+                                "source_type": r.get("source_type"),
+                                "source_name": r.get("source_name"),
+                                "project_name": r.get("project_name"),
+                                "target_id": r.get("target_id"),
+                            })
+                        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as log_file:
+                            log_file.write(json.dumps({
+                                "sessionId": "debug-session",
+                                "runId": "run1",
+                                "hypothesisId": "H9",
+                                "location": "match.py:933",
+                                "message": "adopt_rows selected",
+                                "data": {
+                                    "adopt_count": len(adopt_rows),
+                                    "sample": sample,
+                                },
+                                "timestamp": int(time.time() * 1000),
+                            }) + "\n")
+                    except Exception:
+                        pass
+                    # endregion
+                    
+                    if not adopt_rows:
+                        # Log the attempt
+                        from datetime import datetime
+                        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        execution_logs_ref["logs"].append((
+                            timestamp,
+                            "Generate Import Blocks",
+                            False,
+                            "No resources marked for adoption. Set Action='adopt' in the grid first.",
+                            str(tf_path),
+                        ))
+                        save_state()  # Persist the log entry
+                        ui.notify("No resources marked for adoption. Set Action='adopt' in the grid first.", type="warning")
+                        return
+                    
+                    # Generate and write imports file - pass ALL rows so PRJ lookup works
+                    output_path, error = write_adopt_imports_file(
+                        all_rows,
+                        tf_path,
+                        filename="adopt_imports.tf",
+                    )
+                    # region agent log
+                    try:
+                        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as log_file:
+                            log_file.write(json.dumps({
+                                "sessionId": "debug-session",
+                                "runId": "run1",
+                                "hypothesisId": "H10",
+                                "location": "match.py:941",
+                                "message": "write_adopt_imports_file returned",
+                                "data": {
+                                    "output_path": str(output_path) if output_path else None,
+                                    "error": error,
+                                },
+                                "timestamp": int(time.time() * 1000),
+                            }) + "\n")
+                    except Exception:
+                        pass
+                    # endregion
+                    
+                    if error:
+                        # Log the failure
+                        from datetime import datetime
+                        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        execution_logs_ref["logs"].append((
+                            timestamp,
+                            f"Generate Import Blocks ({len(adopt_rows)} resources)",
+                            False,
+                            f"Error: {error}",
+                            str(tf_path),
+                        ))
+                        save_state()  # Persist the log entry
+                        ui.notify(f"Error generating imports: {error}", type="negative")
+                        return
+                    
+                    # Log the success
+                    from datetime import datetime
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    # Build detailed output message
+                    import_summary_lines = ["Generated import blocks for:"]
+                    for row in adopt_rows:
+                        import_summary_lines.append(f"  - {row.get('source_type', '?')}: {row.get('source_name', row.get('source_key', '?'))} → target ID {row.get('target_id', '?')}")
+                    import_summary_lines.append(f"\nOutput file: {output_path}")
+                    
+                    execution_logs_ref["logs"].append((
+                        timestamp,
+                        f"Generate Import Blocks ({len(adopt_rows)} resources)",
+                        True,
+                        "\n".join(import_summary_lines),
+                        str(tf_path),
+                    ))
+                    
+                    state.deploy.reconcile_imports_generated = True
+                    
+                    # Save adopt rows for use in Generate Files (adoption YAML overrides)
+                    # Debug: log all REP rows and their actions
+                    rep_rows = [r for r in all_rows if r.get("source_type") == "REP"]
+                    # region agent log
+                    try:
+                        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as log_file:
+                            log_file.write(json.dumps({
+                                "sessionId": "debug-session",
+                                "runId": "run1",
+                                "hypothesisId": "H20",
+                                "location": "match.py:adopt_rows",
+                                "message": "REP rows before filtering",
+                                "data": {
+                                    "rep_count": len(rep_rows),
+                                    "samples": [{"source_key": r.get("source_key"), "action": r.get("action"), "target_id": r.get("target_id"), "drift_status": r.get("drift_status")} for r in rep_rows[:5]],
+                                },
+                                "timestamp": int(time.time() * 1000),
+                            }) + "\n")
+                    except Exception:
+                        pass
+                    # endregion
+                    
+                    adopt_rows = [
+                        {
+                            "source_key": r.get("source_key"),
+                            "source_type": r.get("source_type"),
+                            "source_name": r.get("source_name"),
+                            "target_id": r.get("target_id"),
+                            "target_name": r.get("target_name"),
+                            "project_name": r.get("project_name"),
+                            "project_id": r.get("project_id"),
+                            "drift_status": r.get("drift_status"),
+                        }
+                        for r in all_rows
+                        if r.get("action") == "adopt" and r.get("target_id")
+                    ]
+                    
+                    # region agent log
+                    try:
+                        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as log_file:
+                            log_file.write(json.dumps({
+                                "sessionId": "debug-session",
+                                "runId": "run1",
+                                "hypothesisId": "H21",
+                                "location": "match.py:adopt_rows",
+                                "message": "adopt_rows after filtering",
+                                "data": {
+                                    "adopt_count": len(adopt_rows),
+                                    "samples": adopt_rows[:5] if adopt_rows else [],
+                                },
+                                "timestamp": int(time.time() * 1000),
+                            }) + "\n")
+                    except Exception:
+                        pass
+                    # endregion
+                    
+                    state.deploy.reconcile_adopt_rows = adopt_rows
+                    
+                    # Log the saved adoption data
+                    saved_data_lines = [f"Saved {len(adopt_rows)} resources for adoption override in Deploy:"]
+                    for row in adopt_rows:
+                        saved_data_lines.append(f"  - {row.get('source_type', '?')}: {row.get('source_key', '?')} (drift: {row.get('drift_status', 'unknown')})")
+                    
+                    execution_logs_ref["logs"].append((
+                        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        f"Save Adoption Data ({len(adopt_rows)} resources)",
+                        True,
+                        "\n".join(saved_data_lines),
+                        str(tf_path),
+                    ))
+                    
+                    save_state()
+                    
+                    ui.notify(f"Import blocks written to {output_path}. Re-run 'terraform plan' to see imports.", type="positive", timeout=5000)
+                    ui.navigate.reload()
+                
+                with ui.row().classes("gap-2"):
+                    ui.button(
+                        "Generate Import Blocks",
+                        icon="file_download",
+                        on_click=generate_adopt_imports,
+                    ).style("background-color: #8B5CF6;")
+                    def preview_adopt_imports():
+                        # Build preview content - pass ALL rows so PRJ lookup works for project_id
+                        all_rows = grid_data_ref["data"]
+                        
+                        # Get state rm commands for ID mismatches
+                        state_rm_cmds = generate_state_rm_commands(all_rows)
+                        
+                        # Get import blocks
+                        import_content = generate_adopt_imports_from_grid(all_rows, module_name="dbt_cloud")
+                        adopt_count = sum(1 for r in all_rows if r.get("action") == "adopt" and r.get("target_id"))
+                        mismatch_count = sum(1 for r in all_rows if r.get("action") == "adopt" and r.get("drift_status") == "id_mismatch")
+                        
+                        with ui.dialog().classes("w-3/4") as dialog, ui.card().classes("w-full max-h-screen overflow-auto"):
+                            ui.label("Adoption Plan Preview").classes("text-lg font-semibold mb-2")
+                            
+                            # Show state rm commands if any
+                            if state_rm_cmds:
+                                with ui.expansion(f"Step 1: Remove Stale State ({len(state_rm_cmds)} commands)", icon="delete_sweep").classes("w-full mb-2").props("default-opened"):
+                                    ui.label("These resources have different IDs in Terraform state vs target. The stale state entries must be removed before importing the correct resources.").classes("text-sm text-amber-600 mb-2")
+                                    ui.label("This does NOT destroy any actual dbt Cloud resources.").classes("text-xs text-slate-500 mb-2")
+                                    state_rm_content = "\n".join(state_rm_cmds)
+                                    ui.code(state_rm_content, language="bash").classes("w-full text-xs")
+                            else:
+                                ui.label("Step 1: No stale state entries to remove").classes("text-sm text-green-600 mb-2")
+                            
+                            # Show import blocks
+                            with ui.expansion(f"Step 2: Import Blocks ({adopt_count} resources)", icon="file_download").classes("w-full").props("default-opened"):
+                                ui.code(import_content, language="hcl").classes("w-full text-xs")
+                            
+                            with ui.row().classes("w-full justify-end mt-4 gap-2"):
+                                if state_rm_cmds:
+                                    async def run_state_rm():
+                                        """Execute state rm commands"""
+                                        from datetime import datetime
+                                        import subprocess
+                                        
+                                        # Resolve terraform directory
+                                        tf_dir = state.deploy.terraform_dir or "deployments/migration"
+                                        tf_path = Path(tf_dir)
+                                        if not tf_path.is_absolute():
+                                            project_root = Path(state.fetch.output_dir).parent.parent if state.fetch.output_dir else Path.cwd()
+                                            tf_path = project_root / tf_dir
+                                        
+                                        if not tf_path.exists():
+                                            ui.notify(f"Terraform directory not found: {tf_path}", type="negative")
+                                            return
+                                        
+                                        results = []
+                                        for cmd in state_rm_cmds:
+                                            timestamp = datetime.now().isoformat(timespec='seconds')
+                                            try:
+                                                result = subprocess.run(
+                                                    cmd,
+                                                    shell=True,
+                                                    cwd=str(tf_path),
+                                                    capture_output=True,
+                                                    text=True,
+                                                )
+                                                output = strip_ansi(result.stdout + result.stderr)
+                                                results.append((timestamp, cmd, result.returncode == 0, output, str(tf_path)))
+                                            except Exception as e:
+                                                results.append((timestamp, cmd, False, str(e), str(tf_path)))
+                                        
+                                        # Store logs for later viewing
+                                        execution_logs_ref["logs"].extend(results)
+                                        save_state()  # Persist logs
+                                        
+                                        # Close the preview dialog
+                                        dialog.close()
+                                        
+                                        # Show results in a new dialog
+                                        success_count = sum(1 for _, _, ok, _, _ in results if ok)
+                                        with ui.dialog().classes("w-3/4") as results_dialog, ui.card().classes("w-full max-h-screen overflow-auto"):
+                                            if success_count == len(results):
+                                                ui.label("State Removal Complete").classes("text-lg font-semibold text-green-600 mb-2")
+                                                ui.label(f"Successfully removed {success_count} stale state entries.").classes("text-sm mb-4")
+                                            else:
+                                                ui.label("State Removal Results").classes("text-lg font-semibold text-amber-600 mb-2")
+                                                ui.label(f"Removed {success_count}/{len(results)} entries.").classes("text-sm mb-4")
+                                            
+                                            ui.label(f"Working directory: {tf_path}").classes("text-xs text-slate-500 mb-4 font-mono")
+                                            
+                                            # Show command output
+                                            for ts, cmd, ok, output, cwd in results:
+                                                status_icon = "check_circle" if ok else "error"
+                                                status_color = "text-green-600" if ok else "text-red-600"
+                                                with ui.expansion(f"{cmd}", icon=status_icon).classes(f"w-full mb-2 {status_color}").props("default-opened" if not ok else ""):
+                                                    ui.label(f"[{ts}]").classes("text-xs text-slate-400 font-mono")
+                                                    if output.strip():
+                                                        ui.code(output, language="text").classes("w-full text-xs")
+                                                    else:
+                                                        ui.label("(no output)").classes("text-xs text-slate-500")
+                                            
+                                            with ui.row().classes("w-full justify-end mt-4"):
+                                                ui.button("Close", on_click=results_dialog.close).props("flat")
+                                        results_dialog.open()
+                                    
+                                    ui.button(
+                                        "Run State Remove Commands",
+                                        icon="delete_sweep",
+                                        on_click=run_state_rm,
+                                    ).props("color=warning")
+                                ui.button("Close", on_click=dialog.close).props("flat")
+                        dialog.open()
+
+                    ui.button(
+                        "Preview Adoption Plan",
+                        icon="visibility",
+                        on_click=preview_adopt_imports,
+                    ).props("outline").classes("text-purple-600")
+                    
+                    # Direct Run State Removal button (if there are mismatches)
+                    if mismatch_count > 0:
+                        async def run_state_removal_direct():
+                            """Execute state rm commands directly"""
+                            from datetime import datetime
+                            import subprocess
+                            
+                            all_rows = grid_data_ref["data"]
+                            state_rm_cmds = generate_state_rm_commands(all_rows)
+                            
+                            if not state_rm_cmds:
+                                ui.notify("No stale state entries to remove", type="info")
+                                return
+                            
+                            # Resolve terraform directory - use deployment dir from state
+                            tf_dir = state.deploy.terraform_dir or "deployments/migration"
+                            tf_path = Path(tf_dir)
+                            if not tf_path.is_absolute():
+                                # Make relative to project root
+                                project_root = Path(state.fetch.output_dir).parent.parent if state.fetch.output_dir else Path.cwd()
+                                tf_path = project_root / tf_dir
+                            
+                            if not tf_path.exists():
+                                ui.notify(f"Terraform directory not found: {tf_path}", type="negative")
+                                return
+                            
+                            results = []
+                            for cmd in state_rm_cmds:
+                                timestamp = datetime.now().isoformat(timespec='seconds')
+                                try:
+                                    result = subprocess.run(
+                                        cmd,
+                                        shell=True,
+                                        cwd=str(tf_path),
+                                        capture_output=True,
+                                        text=True,
+                                    )
+                                    output = strip_ansi(result.stdout + result.stderr)
+                                    results.append((timestamp, cmd, result.returncode == 0, output, str(tf_path)))
+                                except Exception as e:
+                                    results.append((timestamp, cmd, False, str(e), str(tf_path)))
+                            
+                            # Store logs for later viewing
+                            execution_logs_ref["logs"].extend(results)
+                            save_state()  # Persist logs
+                            
+                            # Show results dialog
+                            success_count = sum(1 for _, _, ok, _, _ in results if ok)
+                            with ui.dialog().classes("w-3/4") as results_dialog, ui.card().classes("w-full max-h-screen overflow-auto"):
+                                if success_count == len(results):
+                                    ui.label("State Removal Complete").classes("text-lg font-semibold text-green-600 mb-2")
+                                    ui.label(f"Successfully removed {success_count} stale state entries.").classes("text-sm mb-4")
+                                else:
+                                    ui.label("State Removal Results").classes("text-lg font-semibold text-amber-600 mb-2")
+                                    ui.label(f"Removed {success_count}/{len(results)} entries.").classes("text-sm mb-4")
+                                
+                                ui.label(f"Working directory: {tf_path}").classes("text-xs text-slate-500 mb-4 font-mono")
+                                
+                                # Show command output
+                                for ts, cmd, ok, output, cwd in results:
+                                    status_icon = "check_circle" if ok else "error"
+                                    status_color = "text-green-600" if ok else "text-red-600"
+                                    with ui.expansion(f"{cmd}", icon=status_icon).classes(f"w-full mb-2 {status_color}").props("default-opened" if not ok else ""):
+                                        ui.label(f"[{ts}]").classes("text-xs text-slate-400 font-mono")
+                                        if output.strip():
+                                            ui.code(output, language="text").classes("w-full text-xs")
+                                        else:
+                                            ui.label("(no output)").classes("text-xs text-slate-500")
+                                
+                                with ui.row().classes("w-full justify-end mt-4"):
+                                    ui.button("Close", on_click=results_dialog.close).props("flat")
+                            results_dialog.open()
+                        
+                        ui.button(
+                            f"Run State Removal ({mismatch_count})",
+                            icon="delete_sweep",
+                            on_click=run_state_removal_direct,
+                        ).props("color=warning")
+                    
+                    # View Logs button
+                    def show_execution_logs():
+                        """Show last execution logs in traditional format"""
+                        logs = execution_logs_ref.get("logs", [])
+                        filter_text = {"value": ""}
+                        
+                        with ui.dialog().props("maximized") as logs_dialog, ui.card().classes("w-full h-full"):
+                            # Header bar
+                            with ui.row().classes("w-full items-center justify-between p-4 border-b dark:border-slate-700"):
+                                with ui.row().classes("items-center gap-4"):
+                                    ui.icon("article", size="md").classes("text-slate-600")
+                                    ui.label("Execution Logs").classes("text-xl font-semibold")
+                                    if logs:
+                                        # Summary badges
+                                        total = len(logs)
+                                        success = sum(1 for e in logs if (e[2] if len(e) == 5 else e[1]))
+                                        failed = total - success
+                                        ui.badge(f"{total} total").props("outline")
+                                        ui.badge(f"{success} success", color="green")
+                                        if failed > 0:
+                                            ui.badge(f"{failed} failed", color="red")
+                                
+                                with ui.row().classes("items-center gap-2"):
+                                    if logs:
+                                        # Search input
+                                        search_input = ui.input(placeholder="Filter logs...").props("dense outlined").classes("w-64")
+                                        
+                                        def clear_logs():
+                                            execution_logs_ref["logs"].clear()  # Clear in-place to preserve reference
+                                            state.deploy.reconcile_execution_logs.clear()  # Also clear persisted state
+                                            save_state()
+                                            logs_dialog.close()
+                                            ui.notify("Logs cleared", type="info")
+                                        ui.button("Clear All", icon="delete", on_click=clear_logs).props("flat color=negative")
+                                    ui.button("Close", icon="close", on_click=logs_dialog.close).props("flat")
+                            
+                            if not logs:
+                                with ui.column().classes("w-full h-full items-center justify-center"):
+                                    ui.icon("inbox", size="4rem").classes("text-slate-300 mb-4")
+                                    ui.label("No execution logs yet").classes("text-lg text-slate-500")
+                                    ui.label("Run a command to see logs here.").classes("text-sm text-slate-400")
+                            else:
+                                # Main log content area - full height terminal style
+                                with ui.scroll_area().classes("w-full flex-grow bg-slate-900 dark:bg-slate-950"):
+                                    with ui.element("div").classes("p-6 font-mono text-sm"):
+                                        for idx, entry in enumerate(logs):
+                                            # Handle both old format (3-tuple) and new format (5-tuple)
+                                            if len(entry) == 5:
+                                                ts, cmd, ok, output, cwd = entry
+                                            else:
+                                                cmd, ok, output = entry
+                                                ts = "unknown"
+                                                cwd = "unknown"
+                                            
+                                            status_text = "SUCCESS" if ok else "FAILED"
+                                            status_color = "text-green-400" if ok else "text-red-400"
+                                            bg_color = "bg-green-900/20" if ok else "bg-red-900/20"
+                                            
+                                            # Log entry container
+                                            with ui.element("div").classes(f"mb-4 p-4 rounded-lg {bg_color} border border-slate-700"):
+                                                # Header row with timestamp and status
+                                                with ui.row().classes("w-full items-center gap-4 mb-2"):
+                                                    ui.label(f"#{idx + 1}").classes("text-slate-500 font-bold")
+                                                    ui.label(f"[{ts}]").classes("text-slate-400")
+                                                    ui.label(status_text).classes(f"{status_color} font-bold px-2 py-0.5 rounded text-xs")
+                                                
+                                                # Command line
+                                                with ui.row().classes("w-full items-start gap-2 mb-2"):
+                                                    ui.label("$").classes("text-cyan-400 font-bold")
+                                                    ui.label(cmd).classes("text-white break-all whitespace-pre-wrap")
+                                                
+                                                # Working directory
+                                                if cwd and cwd != "unknown":
+                                                    ui.label(f"cwd: {cwd}").classes("text-slate-500 text-xs mb-2")
+                                                
+                                                # Output
+                                                if output and output.strip():
+                                                    ui.label("Output:").classes("text-slate-400 text-xs mt-2 mb-1")
+                                                    with ui.element("pre").classes("text-xs bg-black/30 p-3 rounded overflow-x-auto whitespace-pre-wrap"):
+                                                        line_color = "text-red-300" if not ok else "text-slate-300"
+                                                        ui.label(output.strip()).classes(f"{line_color}")
+                                                elif not ok:
+                                                    ui.label("(no output captured)").classes("text-slate-500 text-xs italic")
+                        
+                        logs_dialog.open()
+                    
+                    ui.button(
+                        "View Logs",
+                        icon="article",
+                        on_click=show_execution_logs,
+                    ).props("flat").classes("text-slate-600")
     
     # Save mapping file section (show if there are any confirmed or pending matches)
     has_matches = any(r.get("action") == "match" and r.get("target_id") for r in grid_row_data)
