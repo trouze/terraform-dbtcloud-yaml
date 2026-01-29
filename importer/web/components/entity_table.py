@@ -26,6 +26,11 @@ def _is_sensitive_field(field_name: str) -> bool:
     return any(pattern in field_lower for pattern in SENSITIVE_FIELD_PATTERNS)
 
 
+# Resource types that are matched by name, not by key or numeric ID
+# For these types, key comparison is not meaningful
+NAME_KEYED_TYPES = {"VAR", "JEVO"}
+
+
 def _keys_match_with_project_prefix(
     source_key: Optional[str],
     state_resource_index: Optional[str],
@@ -39,6 +44,9 @@ def _keys_match_with_project_prefix(
     the simple key. Additionally, the Terraform module may append deduplication
     suffixes like "_2", "_3" when there are key collisions.
     
+    Note: VAR and JEVO types are name-keyed (matched by name, not key) so key
+    comparison is not meaningful for them.
+    
     Args:
         source_key: The source key from YAML (e.g., "qa")
         state_resource_index: The for_each key from Terraform state (e.g., "bt_data_ops_db_qa")
@@ -51,9 +59,15 @@ def _keys_match_with_project_prefix(
         - "project_key": Repository keyed by project name
         - "project_prefixed": State key is {project_name}_{source_key}
         - "project_prefixed_dedup": State key is {project_name}_{source_key}_N (deduplication suffix)
+        - "name_keyed": Resource type is matched by name (key comparison N/A)
         - "none": No match found
     """
     import re
+    
+    # Name-keyed types (VAR, JEVO) are matched by name, not by key
+    # Key comparison doesn't apply - always return "name_keyed"
+    if source_type in NAME_KEYED_TYPES:
+        return True, "name_keyed"
     
     if not source_key or not state_resource_index:
         return False, "none"
@@ -1545,78 +1559,100 @@ def _render_match_debug_tab(
                 source_key, state_resource_index, project_name, source_type
             )
             
-            with ui.element("div").classes("w-full border rounded"):
-                # Source key row
-                with ui.row().classes("w-full items-center border-b py-2 px-3 bg-blue-50 dark:bg-blue-900/20"):
-                    ui.label("Source Key").classes("text-sm font-medium w-1/3")
-                    ui.code(source_key or "(none)").classes("text-sm")
+            # For name-keyed types, show a different message
+            if match_type == "name_keyed":
+                with ui.card().classes("w-full p-2").style("background-color: rgba(99, 102, 241, 0.1);"):
+                    ui.label("Name-Keyed Resource").classes("text-xs font-semibold text-indigo-700")
+                    ui.label(
+                        f"{source_type} resources are matched by **name** ('{source_name}'), not by key. "
+                        "Key comparison does not apply to this resource type."
+                    ).classes("text-xs text-indigo-600")
                 
-                # State resource_index row
-                with ui.row().classes("w-full items-center border-b py-2 px-3 bg-purple-50 dark:bg-purple-900/20"):
-                    ui.label("State resource_index").classes("text-sm font-medium w-1/3")
-                    if state_resource_index:
-                        ui.code(state_resource_index).classes("text-sm")
-                        # Show match status using helper function result
-                        if match_type == "exact":
-                            ui.badge("✓ Exact match").props("color=green dense")
-                        elif match_type == "project_key":
-                            ui.badge("✓ Project key").props("color=blue dense")
-                        elif match_type == "project_prefixed":
-                            ui.badge("✓ Prefixed match").props("color=green dense")
-                            ui.label(f"({project_name}_{source_key})").classes("text-xs text-green-600 ml-1")
-                        elif match_type == "project_prefixed_dedup":
-                            ui.badge("✓ Prefixed + dedup").props("color=teal dense")
-                            ui.label(f"(base: {project_name}_{source_key})").classes("text-xs text-teal-600 ml-1")
+                with ui.element("div").classes("w-full border rounded mt-2"):
+                    # Source key row (informational only)
+                    with ui.row().classes("w-full items-center border-b py-2 px-3 bg-slate-50 dark:bg-slate-900/20"):
+                        ui.label("Source Key").classes("text-sm font-medium w-1/3")
+                        ui.code(source_key or "(none)").classes("text-sm text-slate-500")
+                        ui.badge("N/A for matching").props("color=slate dense")
+                    
+                    # Source name row (this is what matters)
+                    with ui.row().classes("w-full items-center py-2 px-3 bg-indigo-50 dark:bg-indigo-900/20"):
+                        ui.label("Matched by Name").classes("text-sm font-medium w-1/3")
+                        ui.code(source_name).classes("text-sm")
+                        ui.badge("✓ Used for matching").props("color=indigo dense")
+            else:
+                with ui.element("div").classes("w-full border rounded"):
+                    # Source key row
+                    with ui.row().classes("w-full items-center border-b py-2 px-3 bg-blue-50 dark:bg-blue-900/20"):
+                        ui.label("Source Key").classes("text-sm font-medium w-1/3")
+                        ui.code(source_key or "(none)").classes("text-sm")
+                    
+                    # State resource_index row
+                    with ui.row().classes("w-full items-center border-b py-2 px-3 bg-purple-50 dark:bg-purple-900/20"):
+                        ui.label("State resource_index").classes("text-sm font-medium w-1/3")
+                        if state_resource_index:
+                            ui.code(state_resource_index).classes("text-sm")
+                            # Show match status using helper function result
+                            if match_type == "exact":
+                                ui.badge("✓ Exact match").props("color=green dense")
+                            elif match_type == "project_key":
+                                ui.badge("✓ Project key").props("color=blue dense")
+                            elif match_type == "project_prefixed":
+                                ui.badge("✓ Prefixed match").props("color=green dense")
+                                ui.label(f"({project_name}_{source_key})").classes("text-xs text-green-600 ml-1")
+                            elif match_type == "project_prefixed_dedup":
+                                ui.badge("✓ Prefixed + dedup").props("color=teal dense")
+                                ui.label(f"(base: {project_name}_{source_key})").classes("text-xs text-teal-600 ml-1")
+                            else:
+                                ui.badge("✗ Different").props("color=amber dense")
                         else:
-                            ui.badge("✗ Different").props("color=amber dense")
-                    else:
-                        ui.label("(not in state)").classes("text-sm text-slate-400 italic")
+                            ui.label("(not in state)").classes("text-sm text-slate-400 italic")
+                    
+                    # Project name row (for repository matching or showing prefix pattern)
+                    if source_type == "REP":
+                        with ui.row().classes("w-full items-center py-2 px-3"):
+                            ui.label("Project Name (repo key)").classes("text-sm font-medium w-1/3")
+                            ui.code(project_name or "(none)").classes("text-sm")
+                            if project_name and state_resource_index and project_name == state_resource_index:
+                                ui.badge("Used for matching").props("color=green dense")
+                    elif project_name and match_type in ("project_prefixed", "project_prefixed_dedup"):
+                        # Show project prefix explanation for non-REP resources
+                        bg_color = "bg-green-50 dark:bg-green-900/20" if match_type == "project_prefixed" else "bg-teal-50 dark:bg-teal-900/20"
+                        with ui.row().classes(f"w-full items-center py-2 px-3 {bg_color}"):
+                            ui.label("Project Prefix Pattern").classes("text-sm font-medium w-1/3")
+                            ui.code(f"{project_name}_{source_key}").classes("text-sm")
+                            if match_type == "project_prefixed_dedup":
+                                ui.badge("+ dedup suffix").props("color=teal dense")
+                            else:
+                                ui.badge("✓ State key uses this pattern").props("color=green dense")
                 
-                # Project name row (for repository matching or showing prefix pattern)
-                if source_type == "REP":
-                    with ui.row().classes("w-full items-center py-2 px-3"):
-                        ui.label("Project Name (repo key)").classes("text-sm font-medium w-1/3")
-                        ui.code(project_name or "(none)").classes("text-sm")
-                        if project_name and state_resource_index and project_name == state_resource_index:
-                            ui.badge("Used for matching").props("color=green dense")
-                elif project_name and match_type in ("project_prefixed", "project_prefixed_dedup"):
-                    # Show project prefix explanation for non-REP resources
-                    bg_color = "bg-green-50 dark:bg-green-900/20" if match_type == "project_prefixed" else "bg-teal-50 dark:bg-teal-900/20"
-                    with ui.row().classes(f"w-full items-center py-2 px-3 {bg_color}"):
-                        ui.label("Project Prefix Pattern").classes("text-sm font-medium w-1/3")
-                        ui.code(f"{project_name}_{source_key}").classes("text-sm")
-                        if match_type == "project_prefixed_dedup":
-                            ui.badge("+ dedup suffix").props("color=teal dense")
-                        else:
-                            ui.badge("✓ State key uses this pattern").props("color=green dense")
-            
-            # Explanation for key differences
-            if state_resource_index and not keys_match:
-                with ui.card().classes("w-full p-2 mt-2").style("background-color: rgba(245, 158, 11, 0.1);"):
-                    ui.label("Key Mismatch").classes("text-xs font-semibold text-amber-700")
-                    ui.label(
-                        f"Source key '{source_key}' differs from state key '{state_resource_index}'. "
-                        "This may indicate the resource was renamed or indexed differently."
-                    ).classes("text-xs text-amber-600")
-            elif state_resource_index and keys_match and match_type == "project_prefixed":
-                # Show informational note for prefixed matches
-                with ui.card().classes("w-full p-2 mt-2").style("background-color: rgba(16, 185, 129, 0.1);"):
-                    ui.label("Project-Prefixed Key").classes("text-xs font-semibold text-green-700")
-                    ui.label(
-                        f"Keys match via project prefix pattern: Terraform state uses '{state_resource_index}' "
-                        f"which equals '{project_name}_{source_key}' (project_name + source_key)."
-                    ).classes("text-xs text-green-600")
-            elif state_resource_index and keys_match and match_type == "project_prefixed_dedup":
-                # Show informational note for prefixed matches with deduplication suffix
-                import re
-                suffix_match = re.search(r'_(\d+)$', state_resource_index)
-                suffix = suffix_match.group(1) if suffix_match else "N"
-                with ui.card().classes("w-full p-2 mt-2").style("background-color: rgba(20, 184, 166, 0.1);"):
-                    ui.label("Project-Prefixed Key with Deduplication").classes("text-xs font-semibold text-teal-700")
-                    ui.label(
-                        f"State key '{state_resource_index}' matches the pattern '{project_name}_{source_key}_N' "
-                        f"where _{suffix} is a deduplication suffix added by Terraform to avoid key collisions."
-                    ).classes("text-xs text-teal-600")
+                # Explanation for key differences (only for non-name-keyed types)
+                if state_resource_index and not keys_match:
+                    with ui.card().classes("w-full p-2 mt-2").style("background-color: rgba(245, 158, 11, 0.1);"):
+                        ui.label("Key Mismatch").classes("text-xs font-semibold text-amber-700")
+                        ui.label(
+                            f"Source key '{source_key}' differs from state key '{state_resource_index}'. "
+                            "This may indicate the resource was renamed or indexed differently."
+                        ).classes("text-xs text-amber-600")
+                elif state_resource_index and keys_match and match_type == "project_prefixed":
+                    # Show informational note for prefixed matches
+                    with ui.card().classes("w-full p-2 mt-2").style("background-color: rgba(16, 185, 129, 0.1);"):
+                        ui.label("Project-Prefixed Key").classes("text-xs font-semibold text-green-700")
+                        ui.label(
+                            f"Keys match via project prefix pattern: Terraform state uses '{state_resource_index}' "
+                            f"which equals '{project_name}_{source_key}' (project_name + source_key)."
+                        ).classes("text-xs text-green-600")
+                elif state_resource_index and keys_match and match_type == "project_prefixed_dedup":
+                    # Show informational note for prefixed matches with deduplication suffix
+                    import re
+                    suffix_match = re.search(r'_(\d+)$', state_resource_index)
+                    suffix = suffix_match.group(1) if suffix_match else "N"
+                    with ui.card().classes("w-full p-2 mt-2").style("background-color: rgba(20, 184, 166, 0.1);"):
+                        ui.label("Project-Prefixed Key with Deduplication").classes("text-xs font-semibold text-teal-700")
+                        ui.label(
+                            f"State key '{state_resource_index}' matches the pattern '{project_name}_{source_key}_N' "
+                            f"where _{suffix} is a deduplication suffix added by Terraform to avoid key collisions."
+                        ).classes("text-xs text-teal-600")
         
         # Section 3: Lookup Diagnostics
         with ui.card().classes("w-full p-4"):
@@ -1887,7 +1923,12 @@ def _build_llm_diagnostic(
     lines.append(f"- Match type: **{match_type}**")
     lines.append("")
     
-    if source_type == "REP":
+    if match_type == "name_keyed":
+        lines.append(f"**{source_type} is a name-keyed resource type** - it's matched by name, not by key.")
+        lines.append(f"- ✅ Matched by name: `{source_name}`")
+        lines.append(f"- ℹ️ Key comparison does not apply to {source_type} resources")
+        lines.append("- Name-keyed resources (VAR, JEVO) use composite keys like project_id:name internally")
+    elif source_type == "REP":
         lines.append("Repository resources are keyed by **project name** in Terraform (for_each), not by repository name.")
         if keys_match and match_type == "project_key":
             lines.append(f"- ✅ Keys match via project key: state uses `{state_resource_index}` which equals project name")
