@@ -930,9 +930,18 @@ def build_grid_data(
                         rows.append(link_row)
     
     # Post-process: Add protection status to all rows
+    # Protection is True if:
+    # 1. User has set it (source_key in protected_resources), OR
+    # 2. Resource is in a protected_* map in Terraform state (state_address contains ".protected_")
     for row in rows:
         source_key = row.get("source_key", "")
-        row["protected"] = source_key in protected_resources
+        state_address = row.get("state_address", "")
+        
+        # Check if resource is in a protected Terraform map (e.g., protected_repositories, protected_projects)
+        is_state_protected = ".protected_" in state_address if state_address else False
+        
+        # Protected if user-set OR state indicates protection
+        row["protected"] = source_key in protected_resources or is_state_protected
     
     return rows
 
