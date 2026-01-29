@@ -1,8 +1,8 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2026-01-29  
-**Current Importer Version:** 0.15.1  
-**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix
+**Current Importer Version:** 0.15.2  
+**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix + Match Diagnostics Improvements
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
 > 
@@ -1194,6 +1194,17 @@ The following items require API endpoint research before implementation can begi
   - API returns error string instead of expected array, which `jsondecode()` parses as a string
   - Caused "Inconsistent conditional result types" error in `modules/projects_v2/data_sources.tf`
   - Solution: Wrapped decode in `try(tolist(jsondecode(...)), [])` to ensure consistent list type
+
+### 2026-01-29 (v0.15.2)
+- **Version:** Incremented to 0.15.2 (patch release)
+- **Match Diagnostics Improvements**: Comprehensive fixes for key comparison in Match Debug tab
+  - Added project-prefixed key recognition (`{project_name}_{source_key}` patterns)
+  - Added deduplication suffix support (`_2`, `_3` patterns from Terraform key collisions)
+  - Added name-keyed resource handling (VAR, JEVO matched by name, not key)
+  - Added no-state handling for resources without Terraform state tracking
+  - Added normalized key support for Terraform (hyphens → underscores in for_each keys)
+  - Fixed confidence tracking to preserve specific match types (state_id_match, env_match, etc.)
+  - Key mismatches now correctly identified as cosmetic vs actual issues
 
 ### 2025-12-19 (v0.4.2)
 - **Version:** Incremented to 0.4.2 (patch release)

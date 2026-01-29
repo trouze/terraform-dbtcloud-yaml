@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.2] - 2026-01-29
+
+### Fixed
+- **Match Diagnostics Improvements**: Comprehensive fixes for key comparison in Match Debug tab
+  - Added project-prefixed key recognition (`{project_name}_{source_key}` patterns)
+  - Added deduplication suffix support (`_2`, `_3` patterns from Terraform key collisions)
+  - Added name-keyed resource handling (VAR, JEVO matched by name, not key)
+  - Added no-state handling for resources without Terraform state tracking
+  - Added normalized key support for Terraform (hyphens → underscores in for_each keys)
+  - Fixed confidence tracking to preserve specific match types (state_id_match, env_match, etc.)
+  - Key mismatches now correctly identified as cosmetic vs actual issues
+
 ## [0.15.1] - 2026-01-29
 
 ### Added
