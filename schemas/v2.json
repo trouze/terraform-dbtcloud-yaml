@@ -128,6 +128,11 @@
           "description": "Git repository URL (HTTPS or SSH format). Supports GitHub, GitLab, Azure DevOps, and Bitbucket.",
           "minLength": 1
         },
+        "protected": {
+          "type": ["boolean", "null"],
+          "description": "If true, Terraform will prevent this resource from being destroyed (lifecycle.prevent_destroy = true)",
+          "default": false
+        },
         "git_clone_strategy": {
           "type": ["string", "null"],
           "description": "Git clone strategy. If omitted, auto-detected based on provider: 'deploy_key' (default), 'github_app' (GitHub native), 'deploy_token' (GitLab native), 'azure_active_directory_app' (Azure DevOps native)",
@@ -232,6 +237,11 @@
           "enum": ["development", "deployment"],
           "default": "development"
         },
+        "protected": {
+          "type": ["boolean", "null"],
+          "description": "If true, Terraform will prevent this resource from being destroyed (lifecycle.prevent_destroy = true)",
+          "default": false
+        },
         "connection": {
           "$ref": "#/$defs/resourceRef",
           "description": "Connection reference (ID, key, or LOOKUP placeholder)."
@@ -312,6 +322,11 @@
         "environment_key": {
           "$ref": "#/$defs/slug",
           "description": "Key of the environment this job runs in."
+        },
+        "protected": {
+          "type": ["boolean", "null"],
+          "description": "If true, Terraform will prevent this resource from being destroyed (lifecycle.prevent_destroy = true)",
+          "default": false
         },
         "description": {
           "type": ["string", "null"],
@@ -493,6 +508,11 @@
           "pattern": "^[a-zA-Z0-9_-]+$",
           "minLength": 1,
           "maxLength": 128
+        },
+        "protected": {
+          "type": ["boolean", "null"],
+          "description": "If true, Terraform will prevent this resource from being destroyed (lifecycle.prevent_destroy = true)",
+          "default": false
         },
         "repository": {
           "$ref": "#/$defs/repositoryRef"

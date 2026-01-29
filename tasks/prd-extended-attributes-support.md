@@ -661,6 +661,396 @@ Create test fixtures in `test/fixtures/`:
 
 ---
 
+## Phase 10: Resource Protection Integration
+
+Extended attributes must integrate with the **cascade protection system** defined in `prd-web-ui-09-resource-protection.md` (Section 4.8).
+
+### Cascade Chain Position
+
+Extended Attributes are **project-scoped** resources, so they follow the cascade pattern:
+
+| Resource Type | Parent Chain | Example |
+|--------------|--------------|---------|
+| Extended Attributes | PRJ | Protect "prod_databricks_config" → protect "Analytics" project |
+
+Additionally, since **Environments reference Extended Attributes** via `extended_attributes_id`:
+- Protecting an Environment should prompt to also protect its linked Extended Attributes
+- This creates a **sibling dependency** (ENV and EXTATTR both cascade to PRJ)
+
+### US-10.1: Extended Attributes Protection Field
+**As a** user  
+**I want** to mark extended attributes as protected  
+**So that** Terraform prevents accidental destruction
+
+**Acceptance Criteria:**
+- [ ] Add `protected: boolean` field to extended attributes in YAML schema
+- [ ] Protection checkbox column appears in match grid for extended attributes
+- [ ] Default to protected=true for adopted extended attributes
+- [ ] Shield icon and blue row styling for protected extended attributes
+
+**Schema Addition:**
+```json
+"extendedAttributes": {
+  "type": "object",
+  "properties": {
+    "key": { "$ref": "#/$defs/slug" },
+    "protected": {
+      "type": ["boolean", "null"],
+      "default": false,
+      "description": "If true, Terraform will prevent this resource from being destroyed"
+    },
+    "extended_attributes": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}
+```
+
+### US-10.2: Protected Extended Attributes Terraform Block
+**As a** user  
+**I want** protected extended attributes in a separate Terraform resource block  
+**So that** they have `lifecycle { prevent_destroy = true }`
+
+**Acceptance Criteria:**
+- [ ] Create `dbtcloud_extended_attributes.protected_extended_attrs` resource block
+- [ ] Protected extended attributes use `lifecycle { prevent_destroy = true }`
+- [ ] Unprotected extended attributes use standard resource block
+- [ ] Both blocks have identical configuration except lifecycle
+
+**Terraform Implementation:**
+```hcl
+locals {
+  protected_extended_attrs_map = {
+    for key, item in local.extended_attrs_map :
+    key => item
+    if try(item.protected, false) == true
+  }
+  
+  unprotected_extended_attrs_map = {
+    for key, item in local.extended_attrs_map :
+    key => item
+    if try(item.protected, false) != true
+  }
+}
+
+resource "dbtcloud_extended_attributes" "extended_attrs" {
+  for_each = local.unprotected_extended_attrs_map
+  
+  project_id          = each.value.project_id
+  state               = lookup(each.value, "state", 1)
+  extended_attributes = jsonencode(each.value.extended_attributes)
+}
+
+resource "dbtcloud_extended_attributes" "protected_extended_attrs" {
+  for_each = local.protected_extended_attrs_map
+  
+  project_id          = each.value.project_id
+  state               = lookup(each.value, "state", 1)
+  extended_attributes = jsonencode(each.value.extended_attributes)
+  
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+```
+
+### US-10.3: Protection Manager Extended Attributes Support
+**As a** developer  
+**I want** the protection manager to handle extended attributes  
+**So that** protection changes generate correct moved blocks and cascade correctly
+
+**Acceptance Criteria:**
+- [ ] Add "EXTATTR" resource type to `protection_manager.py`
+- [ ] `get_resource_addresses()` returns correct addresses for extended attributes
+- [ ] `detect_protection_changes()` detects extended attributes protection changes
+- [ ] `generate_moved_blocks()` generates valid moved blocks for extended attributes
+- [ ] `get_resources_to_protect()` returns EXTATTR + [PRJ] for cascade
+- [ ] `get_resources_to_unprotect()` includes extended attributes when unprotecting PRJ
+
+**Code Addition to `protection_manager.py`:**
+```python
+# Add to type_map in get_resource_addresses()
+type_map = {
+    "PRJ": ("dbtcloud_project", "projects", "protected_projects"),
+    "ENV": ("dbtcloud_environment", "environments", "protected_environments"),
+    "JOB": ("dbtcloud_job", "jobs", "protected_jobs"),
+    "REP": ("dbtcloud_repository", "repositories", "protected_repositories"),
+    "CRD": ("dbtcloud_credential", "credentials", "protected_credentials"),
+    "VAR": ("dbtcloud_environment_variable", "env_vars", "protected_env_vars"),
+    "EXTATTR": ("dbtcloud_extended_attributes", "extended_attrs", "protected_extended_attrs"),
+}
+
+# Add to PARENT_CHAIN for cascade protection
+PARENT_CHAIN = {
+    "JOB": ["ENV", "PRJ"],
+    "CRD": ["ENV", "PRJ"],
+    "ENV": ["PRJ"],
+    "VAR": ["PRJ"],
+    "REP": ["PRJ"],  # For project-linked repos
+    "EXTATTR": ["PRJ"],  # Extended attributes cascade to project
+}
+```
+
+### US-10.4: Cascade Protection - Extended Attributes to Project
+**As a** user  
+**I want** protecting extended attributes to cascade to its parent project  
+**So that** the project isn't deleted (which would destroy the extended attributes)
+
+**Acceptance Criteria:**
+- [ ] Clicking protect on Extended Attributes shows cascade dialog
+- [ ] Dialog lists: "To protect 'prod_databricks_config', these parents must also be protected: [Analytics project]"
+- [ ] "Protect All (2)" button protects both EXTATTR and PRJ
+- [ ] "Cancel" button cancels without protecting anything
+- [ ] If PRJ already protected, skip cascade dialog
+
+**UI Flow:**
+```
+[Cascade Protection Dialog]
+  To protect "prod_databricks_config", these parents must also be protected:
+  
+  ☑ Analytics (Project)
+  
+  [Cancel] [Protect All (2)]
+```
+
+### US-10.5: Environment Protection with Linked Extended Attributes
+**As a** user  
+**I want** protecting an environment to prompt about its linked extended attributes  
+**So that** I don't accidentally leave dependencies unprotected
+
+**Acceptance Criteria:**
+- [ ] When protecting ENV that has `extended_attributes_id`, include EXTATTR in cascade
+- [ ] Cascade chain becomes: ENV → EXTATTR (sibling) + PRJ (parent)
+- [ ] Dialog shows: "To protect 'Production', these resources must also be protected: [prod_databricks_config (Extended Attrs), Analytics (Project)]"
+- [ ] Extended attributes shown with "(linked)" indicator
+
+**Updated Cascade for Environment:**
+```python
+# When protecting an environment with extended_attributes_id:
+# 1. Standard cascade: ENV → PRJ
+# 2. Plus linked resources: EXTATTR (if extended_attributes_id is set)
+
+def get_resources_to_protect(resource_type: str, resource_key: str, yaml_config: dict):
+    resources = [{"type": resource_type, "key": resource_key}]
+    
+    # Standard parent cascade
+    for parent_type in PARENT_CHAIN.get(resource_type, []):
+        parent = find_parent(resource_type, resource_key, parent_type, yaml_config)
+        if parent:
+            resources.append(parent)
+    
+    # Special case: ENV with linked EXTATTR
+    if resource_type == "ENV":
+        env = find_resource("ENV", resource_key, yaml_config)
+        if env and env.get("extended_attributes_key"):
+            resources.append({
+                "type": "EXTATTR", 
+                "key": env["extended_attributes_key"],
+                "reason": "linked"
+            })
+    
+    return resources
+```
+
+### US-10.6: Unprotect Project with Extended Attributes Children
+**As a** user  
+**I want** unprotecting a project to prompt about protected extended attributes  
+**So that** I can cascade unprotect or leave children protected
+
+**Acceptance Criteria:**
+- [ ] Unprotecting PRJ checks for protected EXTATTR children
+- [ ] Dialog: "Would you like to unprotect the children as well?"
+- [ ] "Unprotect All (N)" removes protection from PRJ and all EXTATTR
+- [ ] "Unprotect This Only" removes protection from PRJ only, EXTATTR stays protected
+
+### US-10.7: Protected Extended Attributes in Deploy Panel
+**As a** user  
+**I want** to see protected extended attributes in the Deploy page panel  
+**So that** I know which extended attributes are protected
+
+**Acceptance Criteria:**
+- [ ] Protected extended attributes listed in "Protected Resources" panel
+- [ ] Shows: Name/Key, Type (EXTATTR), Project
+- [ ] "Remove Protection" button available
+- [ ] Warning when removing protection: "Environments may still reference this"
+
+### US-10.8: Match Grid Protection Column for Extended Attributes
+**As a** user  
+**I want** to see and toggle protection for extended attributes in the match grid  
+**So that** I can manage protection alongside other resources
+
+**Acceptance Criteria:**
+- [ ] Protection checkbox column (🛡️) shows for EXTATTR rows
+- [ ] Clicking checkbox triggers cascade dialog (EXTATTR → PRJ)
+- [ ] Protected EXTATTR rows have blue left border styling
+- [ ] Row shows shield icon when protected
+
+---
+
+## Phase 11: Matching with Dependency Awareness
+
+### US-11.1: Extended Attributes Match Dependency Indicator
+**As a** user  
+**I want** to see which environments depend on each extended attribute in the match grid  
+**So that** I understand the impact of my matching decisions
+
+**Acceptance Criteria:**
+- [ ] Match grid shows "Used by N environments" for extended attributes
+- [ ] Hover/click reveals list of dependent environment names
+- [ ] If environment is matched but extended attributes is not, show warning
+- [ ] Suggest matching extended attributes when matching environment
+
+### US-11.2: Auto-Match Extended Attributes with Environments
+**As a** user  
+**I want** extended attributes auto-matched when I match an environment  
+**So that** dependencies are preserved
+
+**Acceptance Criteria:**
+- [ ] When matching source environment to target environment:
+  - Check if source has extended_attributes_id
+  - Check if target has extended_attributes_id
+  - Suggest matching source extended_attributes to target extended_attributes
+- [ ] Auto-match option: "Also match linked extended attributes"
+- [ ] Show diff between source and target extended_attributes JSON
+
+### US-11.3: Orphan Extended Attributes Warning
+**As a** user  
+**I want** a warning when extended attributes would become orphaned  
+**So that** I don't create unused resources
+
+**Acceptance Criteria:**
+- [ ] Warning when extended attributes are selected but no environment references them
+- [ ] Option to: "Create anyway" or "Skip this extended attribute"
+- [ ] Report orphaned extended attributes in validation summary
+
+---
+
+## Testing Requirements - Protection Integration
+
+### Protection Unit Tests (`test/test_protection_extended_attributes.py`)
+
+| Test ID | Test Case | Expected Result |
+|---------|-----------|-----------------|
+| UT-EA-P01 | `get_resource_addresses()` with EXTATTR protected=True | Returns `protected_extended_attrs` address |
+| UT-EA-P02 | `get_resource_addresses()` with EXTATTR protected=False | Returns `extended_attrs` address |
+| UT-EA-P03 | `detect_protection_changes()` with EXTATTR protection added | Returns ProtectionChange with direction="protect" |
+| UT-EA-P04 | `detect_protection_changes()` with EXTATTR protection removed | Returns ProtectionChange with direction="unprotect" |
+| UT-EA-P05 | `generate_moved_blocks()` for EXTATTR protect | Generates valid HCL moved block |
+| UT-EA-P06 | `generate_moved_blocks()` for EXTATTR unprotect | Generates reverse moved block |
+
+### Cascade Protection Tests for Extended Attributes
+
+| Test ID | Test Case | Expected Result |
+|---------|-----------|-----------------|
+| CP-EA-01 | Protect Extended Attributes (has PRJ parent) | Dialog shows PRJ to be protected |
+| CP-EA-02 | Confirm cascade protection on EXTATTR | EXTATTR and PRJ both marked protected |
+| CP-EA-03 | Cancel cascade protection on EXTATTR | No resources protected |
+| CP-EA-04 | Protect EXTATTR when PRJ already protected | No dialog, directly protected |
+| CP-EA-05 | Protect Environment with linked EXTATTR | Dialog shows EXTATTR + PRJ chain |
+| CP-EA-06 | `get_resources_to_protect()` with EXTATTR | Returns EXTATTR + [PRJ] |
+| CP-EA-07 | `get_resources_to_protect()` with ENV+EXTATTR link | Returns ENV + [EXTATTR, PRJ] |
+| CP-EA-08 | Unprotect PRJ with protected EXTATTR children | Dialog asks about cascade unprotect |
+| CP-EA-09 | Choose "Unprotect All" on PRJ | PRJ and all EXTATTR children unprotected |
+| CP-EA-10 | Choose "Unprotect This Only" on PRJ | Only PRJ unprotected, EXTATTR stays |
+| CP-EA-11 | `get_resources_to_unprotect()` on PRJ | Returns all protected EXTATTR descendants |
+| CP-EA-12 | Protected EXTATTR row styling in grid | Blue left border, subtle blue background |
+| CP-EA-13 | Protection checkbox column for EXTATTR | Checkbox visible and functional |
+
+### Protection Integration Tests - Terraform
+
+| Test ID | Test Case | Expected Result |
+|---------|-----------|-----------------|
+| IT-EA-P01 | Protected EXTATTR in YAML | EXTATTR in `protected_extended_attrs` block |
+| IT-EA-P02 | Unprotected EXTATTR in YAML | EXTATTR in `extended_attrs` block |
+| IT-EA-P03 | Mix of protected/unprotected EXTATTR | Split between both resource blocks |
+| IT-EA-P04 | `terraform destroy` on protected EXTATTR | Fails with "prevent_destroy" error |
+| IT-EA-P05 | `terraform apply` with moved block (protect EXTATTR) | Resource moved, not recreated |
+| IT-EA-P06 | `terraform apply` with moved block (unprotect EXTATTR) | Resource moved, not recreated |
+
+### Dependency & Selection Tests
+
+| Test ID | Test Case | Expected Result |
+|---------|-----------|-----------------|
+| DEP-EA-01 | Select environment with linked EXTATTR | EXTATTR auto-selected |
+| DEP-EA-02 | Deselect EXTATTR while ENV selected | Warning dialog shown |
+| DEP-EA-03 | EXTATTR becomes orphan (no ENV references) | Warning in validation |
+| DEP-EA-04 | Match ENV with linked EXTATTR | Suggest matching EXTATTR too |
+
+---
+
+## Updated File Changes Summary
+
+### Additional New Files for Protection
+| File | Description |
+|------|-------------|
+| `test/test_protection_extended_attributes.py` | Protection unit tests for extended attributes |
+
+### Additional Modified Files for Protection
+| File | Changes |
+|------|---------|
+| `schemas/v2.json` | Add `protected` field to extendedAttributes |
+| `modules/extended_attributes/main.tf` | Split into protected/unprotected resource blocks |
+| `importer/web/utils/protection_manager.py` | Add EXTATTR resource type |
+| `importer/web/utils/dependency_analyzer.py` | Add environment→extended_attributes dependency |
+| `importer/web/pages/match.py` | Extended attributes dependency indicators, cascade matching |
+| `importer/web/pages/deploy.py` | Extended attributes in protected resources panel |
+| `importer/web/components/match_grid.py` | "Used by N environments" column for extended attributes |
+
+---
+
+## Updated Implementation Order
+
+### Sprint 1: Foundation
+1. US-1.1: Extended Attributes Model
+2. US-1.2: Environment Model Update
+3. US-1.3: Project Model Update
+4. US-1.4: Fetch Extended Attributes
+5. US-1.5: Link Extended Attributes to Environments
+
+### Sprint 2: YAML & Schema
+1. US-2.1: Update YAML Schema (including `protected` field)
+2. US-2.2: Environment Schema Update
+3. US-2.3: YAML Converter Update
+4. US-8.1: Normalizer Support
+5. US-8.2: Import Mapping
+
+### Sprint 3: Web UI Display
+1. US-3.1: Entity Table Integration
+2. US-3.2: Environment Details (with extended attributes section)
+3. US-3.3: Detail Dialog
+4. US-3.4: Resource Counts
+5. US-9.1: Reports
+6. US-9.2: Report Items
+
+### Sprint 4: Web UI Interaction & Dependencies
+1. US-4.1: Scope Selection
+2. US-4.2: Selection Cascade (including extended attributes as env dependency)
+3. US-5.1: Matching
+4. US-5.2: Match Validation
+5. US-11.1: Dependency Indicators in Match Grid
+6. US-11.2: Auto-Match with Environments
+7. US-11.3: Orphan Warning
+
+### Sprint 5: Editor & Terraform
+1. US-6.1: JSON Editor
+2. US-6.2: Key-Value Form
+3. US-6.3: Editor Toggle
+4. US-6.4: Target Credentials Integration
+5. US-7.1: Terraform Module (with protected blocks)
+6. US-7.2: Environments Module Update
+7. US-7.3: Terraform Generation
+
+### Sprint 6: Protection Integration
+1. US-10.1: Protection Field in Schema
+2. US-10.2: Protected Terraform Block
+3. US-10.3: Protection Manager Support
+4. US-10.4: Environment Dependency Tracking
+5. US-10.5: Cascade Protection UI
+6. US-10.6: Deploy Panel Integration
+
+---
+
 ## References
 
 - [Terraform Provider Docs: Extended Attributes](https://registry.terraform.io/providers/dbt-labs/dbtcloud/latest/docs/resources/extended_attributes)

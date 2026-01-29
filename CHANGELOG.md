@@ -9,6 +9,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-01-29
+
+### Added
+- **Destroy Section with Protection Support**: New destroy section in the Deploy page
+  - Auto-skips protected resources using `-target` flags (no more Terraform errors)
+  - Shows "Skipping N protected resources" notification with list of preserved resources
+  - Protected Resources panel displays resources grouped by type
+  - "Unprotect All" button with confirmation dialog for explicit unprotection
+  - "Destroy All" button with confirmation dialog
+  - Handles edge case where all resources are protected
+
+- **Terraform Module Protection Support**: Enhanced modules to support `lifecycle.prevent_destroy`
+  - Split resources into `protected` and `unprotected` maps in all modules
+  - `projects.tf`: `protected_projects` and `protected_repositories` with `prevent_destroy = true`
+  - `environments.tf`: `protected_environments` with `prevent_destroy = true`
+  - `jobs.tf`: `protected_jobs` with `prevent_destroy = true`
+  - `environment_vars.tf`: Added `env_var_project_id_lookup` for protected project support
+  - `globals.tf`: Updated `project_id` lookups to use `coalesce()` for protected projects
+  - `outputs.tf`: Merged outputs include both protected and unprotected resources
+
+- **YAML Schema Updates**: Added `protected` field to resource definitions
+  - `schemas/v2.json`: Added `protected: boolean` to project, environment, job, repository
+
+### Changed
+- **Drift Detection Logic**: Improved accuracy of drift counting in Match Existing page
+  - Only counts resources that actually need adoption (have target_id + not_in_state/id_mismatch)
+  - Excludes "state_only" orphan resources from drift count
+  - Shows which specific resources have drift for easier debugging
+
+### Fixed
+- Protected resources no longer cause Terraform destroy to fail
+- Drift message no longer shows phantom "2 resources have drift" after applying moves
+
+## [0.14.0] - 2026-01-28
+
+### Added
+- **Resource Protection with Cascade**: Comprehensive protection system for Terraform-managed resources
+  - Protection checkbox column (🛡️) in Match Existing grid allows protecting any resource
+  - Cascade protection: protecting a child resource auto-protects its parent chain
+    - Job → Environment → Project
+    - Credential → Environment → Project
+    - Environment → Project
+    - Env Variable → Project
+    - Repository (project-linked) → Project
+  - Confirmation dialog shows parent resources that will be protected
+  - Unprotection cascade: dialog asks whether to unprotect children when unprotecting a parent
+  - Protected rows highlighted with blue left border and subtle blue background
+  - `protected_resources` set persisted in session state
+  - `apply_protection_from_set()` function applies protection flags to YAML during generation
+
+- **Protection Manager Utilities** (`importer/web/utils/protection_manager.py`):
+  - `get_resources_to_protect()` - Returns resource and all unprotected ancestors
+  - `get_resources_to_unprotect()` - Returns all protected descendants
+  - `CascadeResource` dataclass for cascade dialog display
+
+### Changed
+- `MapState` now includes `protected_resources: set` for tracking protected source keys
+- Match grid passes `protected_resources` to `build_grid_data()` and `create_match_grid()`
+- Deploy page applies protection from set before Terraform generation
+
+### Documentation
+- Updated PRD (`tasks/prd-web-ui-09-resource-protection.md`) with:
+  - Section 4.8: Cascade Protection user stories (US-RP-70 to US-RP-80)
+  - Section 6.8: Cascade Protection test cases (CP-RP-01 to CP-RP-18)
+  - Updated manual testing checklist for cascade protection
+  - Complete cascade chain documentation
+
 ## [0.13.1] - 2026-01-28
 
 ### Fixed

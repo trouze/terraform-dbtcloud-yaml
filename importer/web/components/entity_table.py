@@ -1511,16 +1511,36 @@ def _render_drift_comparison(
             
             # Recommended action
             if drift_status in ("id_mismatch", "not_in_state"):
-                with ui.row().classes("mt-3 items-center gap-4"):
+                # State to track protection checkbox
+                protection_state = {"protected": True}  # Default to protected
+                
+                with ui.column().classes("mt-3 gap-2"):
                     with ui.row().classes("items-center gap-2"):
                         ui.icon("lightbulb", color="amber")
                         ui.label("Recommended: Set Action to 'adopt' and generate import blocks").classes("text-sm font-medium")
+                    
+                    # Protection option when adopting
                     if on_adopt and action != "adopt":
-                        ui.button(
-                            "Set to Adopt",
-                            icon="download",
-                            on_click=on_adopt,
-                        ).props("color=warning dense")
+                        with ui.row().classes("items-center gap-4 mt-2"):
+                            # Protection checkbox
+                            protect_checkbox = ui.checkbox(
+                                "Protect from destroy",
+                                value=True,
+                            ).props("dense").on(
+                                "update:model-value",
+                                lambda e: protection_state.update({"protected": e.args})
+                            )
+                            with ui.row().classes("items-center gap-1"):
+                                ui.icon("shield", size="sm").classes("text-blue-500")
+                                ui.label("Terraform will refuse to destroy this resource").classes("text-xs text-slate-500")
+                        
+                        # Adopt button
+                        with ui.row().classes("mt-2"):
+                            ui.button(
+                                "Set to Adopt",
+                                icon="download",
+                                on_click=lambda: on_adopt(protected=protection_state["protected"]),
+                            ).props("color=warning dense")
         
         # Target selector dropdown (for manual matching)
         if available_targets and not target_id:

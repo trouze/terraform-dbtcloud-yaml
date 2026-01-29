@@ -219,9 +219,13 @@ resource "dbtcloud_service_token" "service_tokens" {
       permission_set = service_token_permissions.value.permission_set
       all_projects   = try(service_token_permissions.value.all_projects, false)
       # Resolve project_key to target project_id, or use explicit project_id if provided
+      # Check both protected and unprotected projects
       project_id = (
         try(service_token_permissions.value.project_key, null) != null
-        ? try(dbtcloud_project.projects[service_token_permissions.value.project_key].id, null)
+        ? coalesce(
+            try(dbtcloud_project.projects[service_token_permissions.value.project_key].id, null),
+            try(dbtcloud_project.protected_projects[service_token_permissions.value.project_key].id, null)
+          )
         : try(service_token_permissions.value.project_id, null)
       )
       writable_environment_categories = try(
@@ -232,7 +236,8 @@ resource "dbtcloud_service_token" "service_tokens" {
   }
 
   depends_on = [
-    dbtcloud_project.projects
+    dbtcloud_project.projects,
+    dbtcloud_project.protected_projects
   ]
 }
 
@@ -254,9 +259,13 @@ resource "dbtcloud_group" "groups" {
       permission_set = group_permissions.value.permission_set
       all_projects   = try(group_permissions.value.all_projects, false)
       # Resolve project_key to target project_id, or use explicit project_id if provided
+      # Check both protected and unprotected projects
       project_id = (
         try(group_permissions.value.project_key, null) != null
-        ? try(dbtcloud_project.projects[group_permissions.value.project_key].id, null)
+        ? coalesce(
+            try(dbtcloud_project.projects[group_permissions.value.project_key].id, null),
+            try(dbtcloud_project.protected_projects[group_permissions.value.project_key].id, null)
+          )
         : try(group_permissions.value.project_id, null)
       )
       writable_environment_categories = try(
@@ -267,7 +276,8 @@ resource "dbtcloud_group" "groups" {
   }
 
   depends_on = [
-    dbtcloud_project.projects
+    dbtcloud_project.projects,
+    dbtcloud_project.protected_projects
   ]
 }
 

@@ -6,12 +6,23 @@
 #############################################
 
 locals {
+  # Helper to get project_id from either protected or unprotected projects
+  # This allows env vars to reference their parent project regardless of protection status
+  env_var_project_id_lookup = {
+    for project in var.projects :
+    project.key => (
+      try(project.protected, false) == true
+      ? dbtcloud_project.protected_projects[project.key].id
+      : dbtcloud_project.projects[project.key].id
+    )
+  }
+
   # Flatten all environment variables across all projects
   all_environment_variables = flatten([
     for project in var.projects : [
       for env_var in try(project.environment_variables, []) : {
         project_key  = project.key
-        project_id   = dbtcloud_project.projects[project.key].id
+        project_id   = local.env_var_project_id_lookup[project.key]
         env_var_key  = env_var.name
         env_var_data = env_var
       }

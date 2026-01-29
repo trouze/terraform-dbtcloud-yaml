@@ -15,10 +15,16 @@ output "connection_ids" {
 
 output "repository_ids" {
   description = "Map of project keys to repository IDs"
-  value = {
-    for key, repo in dbtcloud_repository.repositories :
-    key => repo.id
-  }
+  value = merge(
+    {
+      for key, repo in dbtcloud_repository.repositories :
+      key => repo.id
+    },
+    {
+      for key, repo in dbtcloud_repository.protected_repositories :
+      key => repo.id
+    }
+  )
 }
 
 output "service_token_ids" {
@@ -48,26 +54,44 @@ output "notification_ids" {
 # Project resource IDs
 output "project_ids" {
   description = "Map of project keys to project IDs"
-  value = {
-    for key, project in dbtcloud_project.projects :
-    key => project.id
-  }
+  value = merge(
+    {
+      for key, project in dbtcloud_project.projects :
+      key => project.id
+    },
+    {
+      for key, project in dbtcloud_project.protected_projects :
+      key => project.id
+    }
+  )
 }
 
 output "environment_ids" {
   description = "Map of project_key_environment_key to environment IDs"
-  value = {
-    for key, env in dbtcloud_environment.environments :
-    key => env.id
-  }
+  value = merge(
+    {
+      for key, env in dbtcloud_environment.environments :
+      key => env.id
+    },
+    {
+      for key, env in dbtcloud_environment.protected_environments :
+      key => env.id
+    }
+  )
 }
 
 output "job_ids" {
   description = "Map of project_key_environment_key_job_key to job IDs"
-  value = {
-    for key, job in dbtcloud_job.jobs :
-    key => job.id
-  }
+  value = merge(
+    {
+      for key, job in dbtcloud_job.jobs :
+      key => job.id
+    },
+    {
+      for key, job in dbtcloud_job.protected_jobs :
+      key => job.id
+    }
+  )
 }
 
 output "credential_ids" {
@@ -92,31 +116,60 @@ output "connection_mapping" {
 
 output "environment_connections" {
   description = "Debug: Environment to connection mapping"
-  value = {
-    for key, env in dbtcloud_environment.environments :
-    key => {
-      environment_id = env.id
-      connection_id  = env.connection_id
-      project_key    = split("_", key)[0]
-      env_key        = split("_", key)[1]
+  value = merge(
+    {
+      for key, env in dbtcloud_environment.environments :
+      key => {
+        environment_id = env.id
+        connection_id  = env.connection_id
+        project_key    = split("_", key)[0]
+        env_key        = split("_", key)[1]
+        protected      = false
+      }
+    },
+    {
+      for key, env in dbtcloud_environment.protected_environments :
+      key => {
+        environment_id = env.id
+        connection_id  = env.connection_id
+        project_key    = split("_", key)[0]
+        env_key        = split("_", key)[1]
+        protected      = true
+      }
     }
-  }
+  )
 }
 
 output "repository_integration_status" {
   description = "Debug: Repository integration linking status"
-  value = {
-    for key, repo in dbtcloud_repository.repositories :
-    key => {
-      repository_id          = repo.id
-      git_clone_strategy     = repo.git_clone_strategy
-      github_installation_id = repo.github_installation_id
-      gitlab_project_id      = repo.gitlab_project_id
-      azure_project_id       = repo.azure_active_directory_project_id
-      azure_repository_id    = repo.azure_active_directory_repository_id
-      linked_to_project      = try(dbtcloud_project_repository.project_repositories[key].id, null) != null
+  value = merge(
+    {
+      for key, repo in dbtcloud_repository.repositories :
+      key => {
+        repository_id          = repo.id
+        git_clone_strategy     = repo.git_clone_strategy
+        github_installation_id = repo.github_installation_id
+        gitlab_project_id      = repo.gitlab_project_id
+        azure_project_id       = repo.azure_active_directory_project_id
+        azure_repository_id    = repo.azure_active_directory_repository_id
+        linked_to_project      = try(dbtcloud_project_repository.project_repositories[key].id, null) != null
+        protected              = false
+      }
+    },
+    {
+      for key, repo in dbtcloud_repository.protected_repositories :
+      key => {
+        repository_id          = repo.id
+        git_clone_strategy     = repo.git_clone_strategy
+        github_installation_id = repo.github_installation_id
+        gitlab_project_id      = repo.gitlab_project_id
+        azure_project_id       = repo.azure_active_directory_project_id
+        azure_repository_id    = repo.azure_active_directory_repository_id
+        linked_to_project      = try(dbtcloud_project_repository.protected_project_repositories[key].id, null) != null
+        protected              = true
+      }
     }
-  }
+  )
 }
 
 output "github_integration_discovery" {
@@ -142,8 +195,11 @@ output "job_deferral_debug" {
   value = {
     # All environment keys from all_environments
     all_environments_keys = [for env in local.all_environments : "${env.project_key}_${env.env_key}"]
-    # Direct environment resource keys
-    environment_resource_keys = keys(dbtcloud_environment.environments)
+    # Direct environment resource keys (both protected and unprotected)
+    environment_resource_keys = concat(
+      keys(dbtcloud_environment.environments),
+      keys(dbtcloud_environment.protected_environments)
+    )
     # Job deferral lookups
     deferring_env_lookups = {
       for key, item in local.jobs_map :
@@ -151,7 +207,10 @@ output "job_deferral_debug" {
         project_key               = item.project_key
         deferring_environment_key = try(item.job_data.deferring_environment_key, "NULL")
         lookup_key                = "${item.project_key}_${try(item.job_data.deferring_environment_key, "NULL")}"
-        key_exists_in_envs        = contains(keys(dbtcloud_environment.environments), "${item.project_key}_${try(item.job_data.deferring_environment_key, "")}")
+        key_exists_in_envs        = contains(
+          concat(keys(dbtcloud_environment.environments), keys(dbtcloud_environment.protected_environments)),
+          "${item.project_key}_${try(item.job_data.deferring_environment_key, "")}"
+        )
         run_compare_changes       = try(item.job_data.run_compare_changes, false)
       }
       if try(item.job_data.deferring_environment_key, null) != null

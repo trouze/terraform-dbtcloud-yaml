@@ -112,15 +112,20 @@ def apply_adoption_overrides(
             logger.warning(f"Target data not found for {resource_type} ID {target_id}")
             continue
         
+        # Get protection flag from adoption data
+        protected = row.get("protected", True)  # Default to protected for adopted resources
+        
         # Apply updates based on resource type
         if resource_type == "REP":
-            changes_made += _update_repository(config, source_key, target_data, project_name)
+            changes_made += _update_repository(config, source_key, target_data, project_name, protected)
         elif resource_type == "ENV":
-            changes_made += _update_environment(config, source_key, target_data)
+            changes_made += _update_environment(config, source_key, target_data, protected)
         elif resource_type == "JOB":
-            changes_made += _update_job(config, source_key, target_data)
+            changes_made += _update_job(config, source_key, target_data, protected)
         elif resource_type == "CON":
-            changes_made += _update_connection(config, source_key, target_data)
+            changes_made += _update_connection(config, source_key, target_data, protected)
+        elif resource_type == "PRJ":
+            changes_made += _update_project(config, source_key, target_data, protected)
         # Add more resource types as needed
     
     if changes_made == 0:
@@ -136,18 +141,25 @@ def apply_adoption_overrides(
     return output_file
 
 
-def _update_repository(config: dict, source_key: str, target_data: dict, project_name: Optional[str] = None) -> int:
+def _update_repository(config: dict, source_key: str, target_data: dict, project_name: Optional[str] = None, protected: bool = True) -> int:
     """Update repository config with target values.
     
     Repositories can be:
     1. Top-level in config["repositories"]
     2. Nested under projects in config["projects"][i]["repositories"]
+    
+    Args:
+        config: YAML config dict
+        source_key: Source resource key
+        target_data: Target resource data
+        project_name: Optional project name filter
+        protected: Whether to mark this resource as protected from destroy
     """
     # Get target repository details - data may be at top level or in metadata
     # Target report items typically have values at top level (remote_url, git_clone_strategy, etc.)
     metadata = target_data.get("metadata", {})
     
-    logger.info(f"  Target data for {source_key}: remote_url={target_data.get('remote_url')}, git_clone_strategy={target_data.get('git_clone_strategy')}, github_installation_id={target_data.get('github_installation_id')}")
+    logger.info(f"  Target data for {source_key}: remote_url={target_data.get('remote_url')}, git_clone_strategy={target_data.get('git_clone_strategy')}, github_installation_id={target_data.get('github_installation_id')}, protected={protected}")
     
     # Helper to get value from target_data or metadata
     def get_target_value(key: str) -> Any:
@@ -192,6 +204,17 @@ def _update_repository(config: dict, source_key: str, target_data: dict, project
                 old_val = repo.pop("github_installation_id", None)
                 logger.info(f"  Removed github_installation_id: {old_val}")
                 updated = True
+        
+        # Set protection status
+        if protected:
+            repo["protected"] = True
+            logger.info(f"  Set protected=True")
+            updated = True
+        elif "protected" in repo:
+            del repo["protected"]
+            logger.info(f"  Removed protected flag")
+            updated = True
+            
         return updated
     
     # Extract the repo key from source_key
@@ -231,8 +254,15 @@ def _update_repository(config: dict, source_key: str, target_data: dict, project
     return 0
 
 
-def _update_environment(config: dict, source_key: str, target_data: dict) -> int:
-    """Update environment config with target values."""
+def _update_environment(config: dict, source_key: str, target_data: dict, protected: bool = True) -> int:
+    """Update environment config with target values.
+    
+    Args:
+        config: YAML config dict
+        source_key: Source resource key (format: project_key_env_key)
+        target_data: Target resource data
+        protected: Whether to mark this resource as protected from destroy
+    """
     # Environments are nested under projects
     projects = config.get("projects", [])
     
@@ -248,14 +278,28 @@ def _update_environment(config: dict, source_key: str, target_data: dict) -> int
                 if metadata.get("dbt_version"):
                     env["dbt_version"] = metadata["dbt_version"]
                 
+                # Set protection status
+                if protected:
+                    env["protected"] = True
+                    logger.info(f"  Set protected=True for environment {env_key}")
+                elif "protected" in env:
+                    del env["protected"]
+                
                 logger.info(f"Updated environment {env_key} with target values")
                 return 1
     
     return 0
 
 
-def _update_job(config: dict, source_key: str, target_data: dict) -> int:
-    """Update job config with target values."""
+def _update_job(config: dict, source_key: str, target_data: dict, protected: bool = True) -> int:
+    """Update job config with target values.
+    
+    Args:
+        config: YAML config dict
+        source_key: Source resource key (format: project_key_job_key)
+        target_data: Target resource data
+        protected: Whether to mark this resource as protected from destroy
+    """
     projects = config.get("projects", [])
     
     for project in projects:
@@ -270,14 +314,28 @@ def _update_job(config: dict, source_key: str, target_data: dict) -> int:
                 if metadata.get("execute_steps"):
                     job["execute_steps"] = metadata["execute_steps"]
                 
+                # Set protection status
+                if protected:
+                    job["protected"] = True
+                    logger.info(f"  Set protected=True for job {job_key}")
+                elif "protected" in job:
+                    del job["protected"]
+                
                 logger.info(f"Updated job {job_key} with target values")
                 return 1
     
     return 0
 
 
-def _update_connection(config: dict, source_key: str, target_data: dict) -> int:
-    """Update connection config with target values."""
+def _update_connection(config: dict, source_key: str, target_data: dict, protected: bool = True) -> int:
+    """Update connection config with target values.
+    
+    Args:
+        config: YAML config dict
+        source_key: Source resource key
+        target_data: Target resource data
+        protected: Whether to mark this resource as protected from destroy
+    """
     connections = config.get("connections", [])
     
     for conn in connections:
@@ -288,7 +346,183 @@ def _update_connection(config: dict, source_key: str, target_data: dict) -> int:
             if metadata.get("name"):
                 conn["name"] = metadata["name"]
             
+            # Set protection status
+            if protected:
+                conn["protected"] = True
+                logger.info(f"  Set protected=True for connection {source_key}")
+            elif "protected" in conn:
+                del conn["protected"]
+            
             logger.info(f"Updated connection {source_key} with target values")
             return 1
     
+    # Also check globals.connections (v2 schema)
+    globals_section = config.get("globals", {})
+    for conn in globals_section.get("connections", []):
+        if conn.get("key") == source_key:
+            metadata = target_data.get("metadata", {})
+            
+            if metadata.get("name"):
+                conn["name"] = metadata["name"]
+            
+            if protected:
+                conn["protected"] = True
+                logger.info(f"  Set protected=True for globals.connection {source_key}")
+            elif "protected" in conn:
+                del conn["protected"]
+            
+            logger.info(f"Updated globals.connection {source_key} with target values")
+            return 1
+    
     return 0
+
+
+def _update_project(config: dict, source_key: str, target_data: dict, protected: bool = True) -> int:
+    """Update project config with target values.
+    
+    Args:
+        config: YAML config dict
+        source_key: Source resource key
+        target_data: Target resource data
+        protected: Whether to mark this resource as protected from destroy
+    """
+    projects = config.get("projects", [])
+    
+    for project in projects:
+        if project.get("key") == source_key:
+            metadata = target_data.get("metadata", {})
+            
+            # Update relevant fields
+            if metadata.get("name"):
+                project["name"] = metadata["name"]
+            
+            # Set protection status
+            if protected:
+                project["protected"] = True
+                logger.info(f"  Set protected=True for project {source_key}")
+            elif "protected" in project:
+                del project["protected"]
+            
+            logger.info(f"Updated project {source_key} with target values")
+            return 1
+    
+    return 0
+
+
+def apply_protection_from_set(
+    yaml_file: str,
+    protected_keys: set[str],
+    output_path: Optional[str] = None,
+) -> str:
+    """Apply protection flag to all resources in the protected_keys set.
+    
+    This function scans the YAML config and sets protected=True on any
+    resources whose key matches one in the protected_keys set.
+    
+    Args:
+        yaml_file: Path to the YAML config file
+        protected_keys: Set of source_keys that should be marked as protected
+        output_path: Optional path to write updated YAML (defaults to overwriting input)
+        
+    Returns:
+        Path to the updated YAML file
+    """
+    if not protected_keys:
+        logger.info("No protected resources to apply")
+        return yaml_file
+    
+    # Load YAML
+    with open(yaml_file, "r") as f:
+        config = yaml.safe_load(f)
+    
+    if not config:
+        logger.warning(f"Empty YAML config: {yaml_file}")
+        return yaml_file
+    
+    updated_count = 0
+    
+    # Process projects
+    for project in config.get("projects", []):
+        project_key = project.get("key", "")
+        if project_key in protected_keys:
+            project["protected"] = True
+            updated_count += 1
+            logger.info(f"  Set protected=True for project {project_key}")
+        elif "protected" in project and project_key not in protected_keys:
+            # Remove protection if key is not in set
+            del project["protected"]
+            logger.info(f"  Removed protection from project {project_key}")
+        
+        # Process environments within project
+        for env in project.get("environments", []):
+            env_key = env.get("key", "")
+            full_env_key = f"{project_key}_{env_key}" if env_key else ""
+            
+            # Check both standalone key and project-prefixed key
+            if env_key in protected_keys or full_env_key in protected_keys:
+                env["protected"] = True
+                updated_count += 1
+                logger.info(f"  Set protected=True for environment {env_key}")
+            elif "protected" in env:
+                del env["protected"]
+            
+            # Process jobs within environment
+            for job in env.get("jobs", []):
+                job_key = job.get("key", "")
+                full_job_key = f"{project_key}_{job_key}" if job_key else ""
+                
+                if job_key in protected_keys or full_job_key in protected_keys:
+                    job["protected"] = True
+                    updated_count += 1
+                    logger.info(f"  Set protected=True for job {job_key}")
+                elif "protected" in job:
+                    del job["protected"]
+        
+        # Process repository in project
+        if "repository" in project and isinstance(project["repository"], dict):
+            repo = project["repository"]
+            repo_key = repo.get("key", "")
+            # Check multiple key formats:
+            # 1. repo's own key
+            # 2. project_key (repos often use project key as their identifier)
+            # 3. project_key_repo suffix format
+            possible_keys = [repo_key, project_key, f"{project_key}_repo"]
+            
+            if any(k in protected_keys for k in possible_keys if k):
+                repo["protected"] = True
+                updated_count += 1
+                logger.info(f"  Set protected=True for repository (keys: {[k for k in possible_keys if k]})")
+            elif "protected" in repo:
+                del repo["protected"]
+    
+    # Process globals section
+    globals_section = config.get("globals", {})
+    
+    # Process global connections
+    for conn in globals_section.get("connections", []):
+        conn_key = conn.get("key", "")
+        if conn_key in protected_keys:
+            conn["protected"] = True
+            updated_count += 1
+            logger.info(f"  Set protected=True for connection {conn_key}")
+        elif "protected" in conn:
+            del conn["protected"]
+    
+    # Process global repositories
+    for repo in globals_section.get("repositories", []):
+        repo_key = repo.get("key", "")
+        if repo_key in protected_keys:
+            repo["protected"] = True
+            updated_count += 1
+            logger.info(f"  Set protected=True for global repository {repo_key}")
+        elif "protected" in repo:
+            del repo["protected"]
+    
+    # Save updated YAML
+    output = output_path or yaml_file
+    with open(output, "w") as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    
+    logger.info(f"Applied protection to {updated_count} resources in {output}")
+    
+    return output

@@ -193,6 +193,7 @@ def build_grid_data(
     rejected_keys: set[str],
     clone_configs: Optional[list[CloneConfig]] = None,
     state_result: Optional["StateReadResult"] = None,
+    protected_resources: Optional[set[str]] = None,
 ) -> list[dict]:
     """Build grid row data from source/target items and existing mappings.
     
@@ -203,10 +204,14 @@ def build_grid_data(
         rejected_keys: Set of source keys that were rejected
         clone_configs: Optional list of clone configurations
         state_result: Optional Terraform state for drift detection
+        protected_resources: Optional set of source_keys that are protected
         
     Returns:
         List of row dictionaries for AG Grid
     """
+    # Initialize protected_resources set if None
+    protected_resources = protected_resources or set()
+    
     # Build clone config lookup
     clone_by_key = {}
     if clone_configs:
@@ -820,6 +825,11 @@ def build_grid_data(
                         }
                         rows.append(link_row)
     
+    # Post-process: Add protection status to all rows
+    for row in rows:
+        source_key = row.get("source_key", "")
+        row["protected"] = source_key in protected_resources
+    
     return rows
 
 
@@ -836,6 +846,7 @@ def create_match_grid(
     on_configure_clone: Optional[Callable[[str], None]] = None,
     state_result: Optional["StateReadResult"] = None,
     on_adopt: Optional[Callable[[str], None]] = None,
+    protected_resources: Optional[set[str]] = None,
 ) -> tuple:
     """Create the editable matching grid.
     
@@ -852,6 +863,7 @@ def create_match_grid(
         on_configure_clone: Callback when configure clone button clicked (source_key)
         state_result: Optional Terraform state for drift detection
         on_adopt: Callback when adopt button clicked (source_key) for drift resolution
+        protected_resources: Optional set of source_keys that are protected
         
     Returns:
         Tuple of (grid component, row data list)
@@ -860,6 +872,7 @@ def create_match_grid(
     row_data = build_grid_data(
         source_items, target_items, confirmed_mappings, rejected_keys, clone_configs,
         state_result=state_result,
+        protected_resources=protected_resources,
     )
     
     # Build target options for autocomplete
@@ -951,6 +964,17 @@ def create_match_grid(
                 "action-skip": "x === 'skip'",
                 "action-adopt": "x === 'adopt'",
             },
+        },
+        {
+            "field": "protected",
+            "headerName": "🛡️",
+            "headerTooltip": "Protect from destroy - Terraform will refuse to delete protected resources",
+            "width": 55,
+            "maxWidth": 55,
+            "editable": True,
+            "cellDataType": "boolean",
+            "cellStyle": {"textAlign": "center"},
+            ":cellRenderer": """params => params.value ? '<span style="color: #3B82F6; font-size: 16px;" title="Protected from destroy">🛡️</span>' : '<span style="color: #D1D5DB; font-size: 14px; cursor: pointer;" title="Click to protect">○</span>'""",
         },
         {
             "field": "target_id",
@@ -1049,6 +1073,7 @@ def create_match_grid(
             "row-confirmed": "data.status === 'confirmed'",
             "row-error": "data.status === 'error'",
             "row-skipped": "data.status === 'skipped' || data.action === 'skip'",
+            "row-protected": "data.protected === true",
         },
         "stopEditingWhenCellsLoseFocus": True,
         "singleClickEdit": True,
@@ -1120,6 +1145,11 @@ def create_match_grid(
                     data["status"] = "pending" if data.get("action") == "create_new" else "error"
                 
                 on_row_change(data)
+            
+            elif col == "protected":
+                # Protection status changed - pass to callback for cascade handling
+                data["protected"] = new_val
+                on_row_change(data)
     
     grid.on("cellValueChanged", on_cell_changed)
     
@@ -1156,6 +1186,10 @@ def create_match_grid(
         }
         .row-skipped {
             background-color: rgba(156, 163, 175, 0.15) !important;
+        }
+        .row-protected {
+            background-color: rgba(59, 130, 246, 0.08) !important;
+            border-left: 3px solid #3B82F6 !important;
         }
         
         /* Type column colors */
@@ -1205,6 +1239,10 @@ def create_match_grid(
         .dark .row-skipped,
         .body--dark .row-skipped {
             background-color: rgba(156, 163, 175, 0.25) !important;
+        }
+        .dark .row-protected,
+        .body--dark .row-protected {
+            background-color: rgba(59, 130, 246, 0.20) !important;
         }
         
         /* Dark mode type colors - brighter for visibility */

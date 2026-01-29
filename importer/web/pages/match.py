@@ -22,6 +22,12 @@ from importer.web.utils.terraform_import import (
     generate_adoption_script,
     write_adopt_imports_file,
 )
+from importer.web.utils.protection_manager import (
+    get_resources_to_protect,
+    get_resources_to_unprotect,
+    CascadeResource,
+)
+from importer.web.components.hierarchy_index import HierarchyIndex
 
 if TYPE_CHECKING:
     from importer.web.utils.terraform_state_reader import StateReadResult
@@ -256,6 +262,9 @@ def _create_matching_content(
     # Store target_items for callbacks (since it's a local variable)
     target_items_ref = {"items": target_items}
     
+    # Build hierarchy index for parent/child lookups (used for protection cascade)
+    hierarchy_index = HierarchyIndex(source_items)
+    
     # Try to restore state result if previously loaded
     # (We store serialized state in reconcile_state_resources)
     if state.deploy.reconcile_state_loaded and state.deploy.reconcile_state_resources:
@@ -437,11 +446,164 @@ def _create_matching_content(
         ''')
         ui.notify("CSV exported", type="positive")
     
+    def show_protection_cascade_dialog(
+        resource_name: str,
+        parents_to_protect: list[CascadeResource],
+        on_confirm: Callable[[], None],
+    ) -> None:
+        """Show dialog confirming protection of resource and its parents."""
+        with ui.dialog() as dialog, ui.card().classes("p-4").style("min-width: 450px;"):
+            with ui.row().classes("items-center gap-2 mb-4"):
+                ui.icon("shield", size="md").classes("text-blue-500")
+                ui.label("Protect Resource").classes("text-lg font-bold")
+            
+            ui.label(
+                f"To protect '{resource_name}', the following parent resources must also be protected:"
+            ).classes("mb-3")
+            
+            with ui.column().classes("pl-4 gap-1 mb-4"):
+                for res in parents_to_protect:
+                    with ui.row().classes("items-center gap-2"):
+                        ui.icon("subdirectory_arrow_right", size="xs").classes("text-slate-400")
+                        ui.badge(res.type_label).props("dense color=blue-grey")
+                        ui.label(res.name).classes("text-sm")
+            
+            ui.label(
+                "This ensures Terraform won't destroy parent resources that protected children depend on."
+            ).classes("text-xs text-slate-500 mb-4")
+            
+            with ui.row().classes("gap-2 justify-end"):
+                ui.button("Cancel", on_click=dialog.close).props("flat")
+                
+                def confirm_and_close():
+                    on_confirm()
+                    dialog.close()
+                
+                ui.button(
+                    f"Protect All ({len(parents_to_protect) + 1})",
+                    on_click=confirm_and_close,
+                ).props("color=primary")
+        
+        dialog.open()
+    
+    def show_unprotection_cascade_dialog(
+        resource_name: str,
+        protected_children: list[CascadeResource],
+        on_unprotect_all: Callable[[], None],
+        on_unprotect_self_only: Callable[[], None],
+    ) -> None:
+        """Show dialog asking about unprotecting children."""
+        with ui.dialog() as dialog, ui.card().classes("p-4").style("min-width: 450px;"):
+            with ui.row().classes("items-center gap-2 mb-4"):
+                ui.icon("shield_outlined", size="md").classes("text-amber-500")
+                ui.label("Unprotect Resource").classes("text-lg font-bold")
+            
+            ui.label(
+                f"'{resource_name}' has {len(protected_children)} protected child resource(s):"
+            ).classes("mb-3")
+            
+            with ui.column().classes("pl-4 gap-1 mb-4"):
+                for res in protected_children[:10]:  # Show max 10
+                    with ui.row().classes("items-center gap-2"):
+                        ui.icon("subdirectory_arrow_right", size="xs").classes("text-slate-400")
+                        ui.badge(res.type_label).props("dense color=blue-grey")
+                        ui.label(res.name).classes("text-sm")
+                if len(protected_children) > 10:
+                    ui.label(f"... and {len(protected_children) - 10} more").classes("text-xs text-slate-400 pl-6")
+            
+            ui.label(
+                "Would you like to unprotect the children as well?"
+            ).classes("text-sm mb-4")
+            
+            with ui.row().classes("gap-2 justify-end"):
+                ui.button("Cancel", on_click=dialog.close).props("flat")
+                
+                def unprotect_self_and_close():
+                    on_unprotect_self_only()
+                    dialog.close()
+                
+                def unprotect_all_and_close():
+                    on_unprotect_all()
+                    dialog.close()
+                
+                ui.button(
+                    "Unprotect This Only",
+                    on_click=unprotect_self_and_close,
+                ).props("flat color=grey")
+                
+                ui.button(
+                    f"Unprotect All ({len(protected_children) + 1})",
+                    on_click=unprotect_all_and_close,
+                ).props("color=amber")
+        
+        dialog.open()
+    
+    def apply_protection(keys_to_protect: list[str]) -> None:
+        """Apply protection to multiple resources."""
+        for key in keys_to_protect:
+            state.map.protected_resources.add(key)
+        save_state()
+        ui.notify(f"Protected {len(keys_to_protect)} resource(s)", type="positive")
+        ui.navigate.reload()
+    
+    def remove_protection(keys_to_unprotect: list[str]) -> None:
+        """Remove protection from multiple resources."""
+        for key in keys_to_unprotect:
+            state.map.protected_resources.discard(key)
+        save_state()
+        ui.notify(f"Unprotected {len(keys_to_unprotect)} resource(s)", type="info")
+        ui.navigate.reload()
+    
     def on_row_change(row_data: dict):
         """Handle row data changes from the grid."""
         source_key = row_data.get("source_key")
         action = row_data.get("action")
+        new_protected = row_data.get("protected", False)
         row_data.get("status")
+        
+        # Check if protection status changed
+        old_protected = source_key in state.map.protected_resources
+        
+        if new_protected and not old_protected:
+            # User is protecting this resource - check for cascade
+            target_resource, parents_to_protect = get_resources_to_protect(
+                source_key, hierarchy_index, source_items, state.map.protected_resources
+            )
+            
+            if parents_to_protect:
+                # Has unprotected parents - show confirmation dialog
+                all_keys = [source_key] + [p.key for p in parents_to_protect]
+                show_protection_cascade_dialog(
+                    target_resource.name,
+                    parents_to_protect,
+                    on_confirm=lambda keys=all_keys: apply_protection(keys),
+                )
+                return  # Don't save yet - wait for dialog
+            else:
+                # No parents to protect, just protect this one
+                state.map.protected_resources.add(source_key)
+                ui.notify(f"Protected: {target_resource.name}", type="positive")
+        
+        elif not new_protected and old_protected:
+            # User is removing protection - check for protected children
+            target_resource, protected_children = get_resources_to_unprotect(
+                source_key, hierarchy_index, source_items, state.map.protected_resources
+            )
+            
+            if protected_children:
+                # Has protected children - show dialog
+                child_keys = [c.key for c in protected_children]
+                show_unprotection_cascade_dialog(
+                    target_resource.name,
+                    protected_children,
+                    on_unprotect_all=lambda keys=[source_key] + child_keys: remove_protection(keys),
+                    on_unprotect_self_only=lambda: remove_protection([source_key]),
+                )
+                return  # Don't save yet - wait for dialog
+            else:
+                # No protected children, just unprotect
+                state.map.protected_resources.discard(source_key)
+                ui.notify(f"Unprotected: {target_resource.name}", type="info")
         
         # Update grid data ref
         for i, row in enumerate(grid_data_ref["data"]):
@@ -722,8 +884,12 @@ def _create_matching_content(
                 ui.navigate.reload()  # Reload to update the grid
             
             # Callback to handle "Set to Adopt" button click
-            def handle_adopt():
-                """Handle when user clicks Set to Adopt button."""
+            def handle_adopt(protected: bool = True):
+                """Handle when user clicks Set to Adopt button.
+                
+                Args:
+                    protected: Whether to protect this resource from destroy (default: True)
+                """
                 source_key = source_item.get("key") or source_item.get("element_mapping_id", "")
                 source_type = source_item.get("element_type_code", "")
                 target_id = grid_row.get("target_id")
@@ -743,6 +909,7 @@ def _create_matching_content(
                                 "target_id": target_id,
                                 "target_id_type": str(type(target_id)),
                                 "target_name": target_name,
+                                "protected": protected,
                             },
                             "timestamp": int(time.time() * 1000),
                         }) + "\n")
@@ -760,17 +927,19 @@ def _create_matching_content(
                     if m.get("source_key") != source_key
                 ]
                 
-                # Add new mapping with adopt action
+                # Add new mapping with adopt action and protection flag
                 state.map.confirmed_mappings.append({
                     "source_key": source_key,
                     "target_id": target_id,
                     "target_name": target_name,
                     "match_type": "manual",
                     "action": "adopt",
+                    "protected": protected,  # Store protection preference
                 })
                 
                 save_state()
-                ui.notify(f"Set {source_item.get('name', source_key)} to adopt", type="positive")
+                protection_msg = " (protected)" if protected else ""
+                ui.notify(f"Set {source_item.get('name', source_key)} to adopt{protection_msg}", type="positive")
                 ui.navigate.reload()
             
             show_match_detail_dialog(
@@ -937,12 +1106,22 @@ def _create_matching_content(
             clone_configs=clone_configs,
             on_configure_clone=on_configure_clone,
             state_result=state_ref["state_result"],
+            protected_resources=state.map.protected_resources,
         )
     
     # Adopt imports section - show when TF state is loaded so user can adopt resources
     # This section lets users generate import blocks for resources marked with action="adopt"
     adopt_count = sum(1 for r in grid_row_data if r.get("action") == "adopt" and r.get("target_id"))
-    drift_resources_exist = sum(1 for r in grid_row_data if r.get("drift_status") in ("not_in_state", "id_mismatch", "state_only"))
+    # Only count resources that NEED adoption (target exists but not in state, or ID mismatch)
+    # Exclude "state_only" - those are orphan resources in state, not adoption candidates
+    # Also require that the resource has a target_id (something to adopt)
+    drift_needing_adoption = [
+        r for r in grid_row_data 
+        if r.get("drift_status") in ("not_in_state", "id_mismatch") 
+        and r.get("target_id")
+        and r.get("action") != "adopt"  # Don't double-count already marked for adopt
+    ]
+    drift_resources_exist = len(drift_needing_adoption)
     mismatch_count = sum(1 for r in grid_row_data if r.get("action") == "adopt" and r.get("drift_status") == "id_mismatch")
     has_state = state_ref.get("state_result") is not None
     
@@ -970,10 +1149,18 @@ def _create_matching_content(
                         ui.label(
                             f"{adopt_count} resources marked for adoption"
                         ).classes("text-sm text-purple-600")
-                    else:
+                    elif drift_resources_exist > 0:
+                        # Show which resources have drift
+                        drift_names = [f"{r.get('source_type', '?')}:{r.get('source_name', '?')}" for r in drift_needing_adoption[:3]]
+                        drift_preview = ", ".join(drift_names)
+                        if len(drift_needing_adoption) > 3:
+                            drift_preview += f" (+{len(drift_needing_adoption) - 3} more)"
                         ui.label(
-                            f"{drift_resources_exist} resources have drift - change Action to 'adopt' to import them"
+                            f"{drift_resources_exist} resources have drift: {drift_preview}"
                         ).classes("text-sm text-amber-600")
+                        ui.label(
+                            "Change Action to 'adopt' to import them"
+                        ).classes("text-xs text-slate-500")
                     
                     ui.label(
                         "Set Action='adopt' in the grid for resources you want to import, then click Generate"

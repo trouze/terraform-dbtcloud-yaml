@@ -4,20 +4,50 @@
 # Creates credentials and environments for each project.
 # Credentials are created based on credential type from environment_credentials.
 # Environments reference global connections and credentials.
+# Supports protected resources with lifecycle.prevent_destroy.
 #############################################
 
 locals {
+  # Helper to get project_id from either protected or unprotected projects
+  # This allows environments to reference their parent project regardless of protection status
+  project_id_lookup = {
+    for project in var.projects :
+    project.key => (
+      try(project.protected, false) == true
+      ? dbtcloud_project.protected_projects[project.key].id
+      : dbtcloud_project.projects[project.key].id
+    )
+  }
+
   # Flatten all environments across all projects with project context
   all_environments = flatten([
     for project in var.projects : [
       for env in project.environments : {
         project_key = project.key
-        project_id  = dbtcloud_project.projects[project.key].id
+        project_id  = local.project_id_lookup[project.key]
         env_key     = env.key
         env_data    = env
       }
     ]
   ])
+
+  #############################################
+  # Protection: Split environments into protected/unprotected
+  #############################################
+
+  # Protected environments (protected: true in env_data)
+  protected_environments = [
+    for item in local.all_environments :
+    item
+    if try(item.env_data.protected, false) == true
+  ]
+
+  # Unprotected environments (protected: false or not set)
+  unprotected_environments = [
+    for item in local.all_environments :
+    item
+    if try(item.env_data.protected, false) != true
+  ]
 
   # Non-sensitive set of token names available in token_map
   # Use nonsensitive() to extract keys from sensitive map for filtering
@@ -337,13 +367,13 @@ resource "dbtcloud_teradata_credential" "credentials" {
 }
 
 #############################################
-# Environments
+# Unprotected Environments - standard lifecycle
 # Note: If fusion is not available on target account, API will return an error
 # This allows users to see the error and act on it, rather than silently filtering
 #############################################
 resource "dbtcloud_environment" "environments" {
   for_each = {
-    for item in local.all_environments :
+    for item in local.unprotected_environments :
     "${item.project_key}_${item.env_key}" => item
   }
 
@@ -380,3 +410,45 @@ resource "dbtcloud_environment" "environments" {
   use_custom_branch = try(each.value.env_data.custom_branch, null) != null
 }
 
+#############################################
+# Protected Environments - prevent_destroy lifecycle
+#############################################
+resource "dbtcloud_environment" "protected_environments" {
+  for_each = {
+    for item in local.protected_environments :
+    "${item.project_key}_${item.env_key}" => item
+  }
+
+  project_id    = each.value.project_id
+  name          = each.value.env_data.name
+  type          = each.value.env_data.type
+  connection_id = local.resolve_connection_id["${each.value.project_key}_${each.value.env_key}"]
+
+  # Look up credential_id from the appropriate credential resource based on type
+  # Use try() to handle environments without credentials (returns null)
+  credential_id = try(coalesce(
+    try(dbtcloud_databricks_credential.credentials[each.key].credential_id, null),
+    try(dbtcloud_snowflake_credential.credentials[each.key].credential_id, null),
+    try(dbtcloud_bigquery_credential.credentials[each.key].credential_id, null),
+    try(dbtcloud_postgres_credential.credentials[each.key].credential_id, null),
+    try(dbtcloud_athena_credential.credentials[each.key].credential_id, null),
+    try(dbtcloud_fabric_credential.credentials_sql[each.key].credential_id, null),
+    try(dbtcloud_fabric_credential.credentials_sp[each.key].credential_id, null),
+    try(dbtcloud_synapse_credential.credentials_sql[each.key].credential_id, null),
+    try(dbtcloud_synapse_credential.credentials_sp[each.key].credential_id, null),
+    try(dbtcloud_starburst_credential.credentials[each.key].credential_id, null),
+    try(dbtcloud_spark_credential.credentials[each.key].credential_id, null),
+    try(dbtcloud_teradata_credential.credentials[each.key].credential_id, null),
+  ), null)
+
+  # Optional fields
+  dbt_version                = try(each.value.env_data.dbt_version, null)
+  enable_model_query_history = try(each.value.env_data.enable_model_query_history, null)
+  custom_branch              = try(each.value.env_data.custom_branch, null)
+  deployment_type            = try(each.value.env_data.deployment_type, null)
+  use_custom_branch          = try(each.value.env_data.custom_branch, null) != null
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}

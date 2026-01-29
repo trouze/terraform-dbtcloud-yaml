@@ -3,6 +3,7 @@
 # 
 # Creates jobs for each project/environment combination.
 # Handles cross-references (environments, notifications, deferral).
+# Supports protected resources with lifecycle.prevent_destroy.
 #############################################
 
 locals {
@@ -12,19 +13,49 @@ locals {
     for project in var.projects : [
       for job in try(project.jobs, []) : {
         project_key     = project.key
-        project_id      = dbtcloud_project.projects[project.key].id
+        project_id      = local.project_id_lookup[project.key]
         environment_key = job.environment_key
-        environment_id  = dbtcloud_environment.environments["${project.key}_${job.environment_key}"].environment_id
+        environment_id  = local.environment_id_lookup["${project.key}_${job.environment_key}"]
         job_key         = job.key
         job_data        = job
       }
     ] if try(project.jobs, null) != null
   ])
 
+  # Helper to get environment_id from either protected or unprotected environments
+  environment_id_lookup = merge(
+    {
+      for item in local.unprotected_environments :
+      "${item.project_key}_${item.env_key}" => dbtcloud_environment.environments["${item.project_key}_${item.env_key}"].environment_id
+    },
+    {
+      for item in local.protected_environments :
+      "${item.project_key}_${item.env_key}" => dbtcloud_environment.protected_environments["${item.project_key}_${item.env_key}"].environment_id
+    }
+  )
+
   # Create map keyed by project_key_job_key
   jobs_map = {
     for item in local.all_jobs :
     "${item.project_key}_${item.job_key}" => item
+  }
+
+  #############################################
+  # Protection: Split jobs into protected/unprotected
+  #############################################
+
+  # Protected jobs (protected: true in job_data)
+  protected_jobs_map = {
+    for key, item in local.jobs_map :
+    key => item
+    if try(item.job_data.protected, false) == true
+  }
+
+  # Unprotected jobs (protected: false or not set)
+  unprotected_jobs_map = {
+    for key, item in local.jobs_map :
+    key => item
+    if try(item.job_data.protected, false) != true
   }
 
   # Map of environment keys to environment IDs (separate local for clarity)
@@ -123,7 +154,9 @@ locals {
   }
 
   # All jobs can be created - SAO features are gated separately by validate_run_compare_changes
-  jobs_creatable_map = local.jobs_map
+  # Split into protected and unprotected for lifecycle management
+  jobs_creatable_map           = local.unprotected_jobs_map
+  protected_jobs_creatable_map = local.protected_jobs_map
 
   # SAO (State-Aware Orchestration) field handling
   # Detect CI/Merge jobs: force_node_selection must be omitted for these job types
@@ -147,12 +180,15 @@ locals {
 
 }
 
-# Create jobs
+#############################################
+# Unprotected Jobs - standard lifecycle
+#############################################
 resource "dbtcloud_job" "jobs" {
   for_each = local.jobs_creatable_map
 
   depends_on = [
     dbtcloud_environment.environments,
+    dbtcloud_environment.protected_environments,
     dbtcloud_environment_variable.environment_variables
   ]
 
@@ -165,11 +201,10 @@ resource "dbtcloud_job" "jobs" {
   # Optional fields
   description = try(each.value.job_data.description, null)
   dbt_version = try(each.value.job_data.dbt_version, null)
-  # Deferring environment ID: Look up from the referenced environment key
-  # Note: deferring_job_id is not set - it conflicts with deferring_environment_id
+  # Deferring environment ID: Look up from the environment_id_lookup which handles both protected/unprotected
   deferring_environment_id = (
     try(each.value.job_data.deferring_environment_key, null) != null
-  ) ? try(dbtcloud_environment.environments["${each.value.project_key}_${each.value.job_data.deferring_environment_key}"].environment_id, null) : null
+  ) ? try(local.environment_id_lookup["${each.value.project_key}_${each.value.job_data.deferring_environment_key}"], null) : null
   errors_on_lint_failure = try(each.value.job_data.errors_on_lint_failure, true)
   generate_docs          = try(each.value.job_data.generate_docs, false)
   is_active              = try(each.value.job_data.is_active, true)
@@ -202,6 +237,66 @@ resource "dbtcloud_job" "jobs" {
   cost_optimization_features = try(each.value.job_data.cost_optimization_features, null)
 
   lifecycle {
+    ignore_changes = [
+      job_completion_trigger_condition
+    ]
+  }
+}
+
+#############################################
+# Protected Jobs - prevent_destroy lifecycle
+#############################################
+resource "dbtcloud_job" "protected_jobs" {
+  for_each = local.protected_jobs_creatable_map
+
+  depends_on = [
+    dbtcloud_environment.environments,
+    dbtcloud_environment.protected_environments,
+    dbtcloud_environment_variable.environment_variables
+  ]
+
+  project_id     = each.value.project_id
+  name           = each.value.job_data.name
+  environment_id = each.value.environment_id
+  execute_steps  = each.value.job_data.execute_steps
+  triggers       = each.value.job_data.triggers
+
+  # Optional fields
+  description = try(each.value.job_data.description, null)
+  dbt_version = try(each.value.job_data.dbt_version, null)
+  # Deferring environment ID: Look up from the environment_id_lookup which handles both protected/unprotected
+  deferring_environment_id = (
+    try(each.value.job_data.deferring_environment_key, null) != null
+  ) ? try(local.environment_id_lookup["${each.value.project_key}_${each.value.job_data.deferring_environment_key}"], null) : null
+  errors_on_lint_failure = try(each.value.job_data.errors_on_lint_failure, true)
+  generate_docs          = try(each.value.job_data.generate_docs, false)
+  is_active              = try(each.value.job_data.is_active, true)
+  num_threads            = coalesce(try(each.value.job_data.num_threads, null), 4)
+  # Only enable run_compare_changes if validation passes (staging/prod environment and not CI/Merge job)
+  run_compare_changes = local.validate_run_compare_changes[each.key]
+  # Use null for compare_changes_flags if validation fails - empty string still triggers SAO validation
+  compare_changes_flags = local.validate_run_compare_changes[each.key] ? try(each.value.job_data.compare_changes_flags, "--select state:modified") : null
+  run_generate_sources  = try(each.value.job_data.run_generate_sources, false)
+  run_lint              = try(each.value.job_data.run_lint, false)
+  schedule_cron         = local.schedule_cron_effective[each.key]
+  schedule_days         = try(each.value.job_data.schedule_days, null)
+  schedule_hours        = local.schedule_hours_effective[each.key]
+  schedule_interval     = local.schedule_interval_effective[each.key]
+  schedule_type         = try(each.value.job_data.schedule_type, null)
+  target_name           = try(each.value.job_data.target_name, null)
+  timeout_seconds       = try(each.value.job_data.timeout_seconds, 0)
+  triggers_on_draft_pr  = try(each.value.job_data.triggers_on_draft_pr, false)
+  # self_deferring conflicts with deferring_environment_id - only set when no environment deferral
+  self_deferring = (
+    try(each.value.job_data.deferring_environment_key, null) == null
+  ) ? try(each.value.job_data.self_deferring, null) : null
+
+  # SAO (State-Aware Orchestration) fields
+  force_node_selection       = local.force_node_selection_effective[each.key]
+  cost_optimization_features = try(each.value.job_data.cost_optimization_features, null)
+
+  lifecycle {
+    prevent_destroy = true
     ignore_changes = [
       job_completion_trigger_condition
     ]

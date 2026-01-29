@@ -468,6 +468,11 @@ class MapState:
     mapping_file_valid: bool = False
     mapping_validation_errors: list = field(default_factory=list)
     
+    # Resource protection state
+    # Set of source_keys for resources marked as protected
+    # When protecting a resource, its ancestors (parents) are also automatically protected
+    protected_resources: set = field(default_factory=set)
+    
     # Resource cloning state
     cloned_resources: list = field(default_factory=list)  # List of CloneConfig
 
@@ -515,6 +520,9 @@ class DeployState:
     
     # Job trigger control
     disable_job_triggers: bool = False  # When True, sets all job triggers to false in generated YAML
+    
+    # Protection tracking
+    previous_yaml_file: Optional[str] = None  # Path to previous YAML for detecting protection changes
     
     # State reconciliation / drift detection
     reconcile_state_loaded: bool = False  # True after terraform show -json succeeds
