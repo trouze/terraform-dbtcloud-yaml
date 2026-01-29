@@ -32,11 +32,12 @@ def _keys_match_with_project_prefix(
     project_name: Optional[str],
     source_type: str,
 ) -> tuple[bool, str]:
-    """Check if keys match, considering project name prefixes.
+    """Check if keys match, considering project name prefixes and deduplication suffixes.
     
     For project-scoped resources (ENV, JOB, VAR, etc.), Terraform state may use
     a key format of "{project_name}_{source_key}" while the source key is just
-    the simple key.
+    the simple key. Additionally, the Terraform module may append deduplication
+    suffixes like "_2", "_3" when there are key collisions.
     
     Args:
         source_key: The source key from YAML (e.g., "qa")
@@ -49,8 +50,11 @@ def _keys_match_with_project_prefix(
         - "exact": Keys match exactly
         - "project_key": Repository keyed by project name
         - "project_prefixed": State key is {project_name}_{source_key}
+        - "project_prefixed_dedup": State key is {project_name}_{source_key}_N (deduplication suffix)
         - "none": No match found
     """
+    import re
+    
     if not source_key or not state_resource_index:
         return False, "none"
     
@@ -73,6 +77,12 @@ def _keys_match_with_project_prefix(
         # This handles potential variations in separators
         if state_resource_index.startswith(project_name) and state_resource_index.endswith(f"_{source_key}"):
             return True, "project_prefixed"
+        
+        # Check for deduplication suffix pattern: {project_name}_{source_key}_N
+        # where N is a number (e.g., _2, _3, _10)
+        dedup_pattern = f"^{re.escape(expected_prefixed_key)}_\\d+$"
+        if re.match(dedup_pattern, state_resource_index):
+            return True, "project_prefixed_dedup"
     
     return False, "none"
 
@@ -1554,6 +1564,9 @@ def _render_match_debug_tab(
                         elif match_type == "project_prefixed":
                             ui.badge("✓ Prefixed match").props("color=green dense")
                             ui.label(f"({project_name}_{source_key})").classes("text-xs text-green-600 ml-1")
+                        elif match_type == "project_prefixed_dedup":
+                            ui.badge("✓ Prefixed + dedup").props("color=teal dense")
+                            ui.label(f"(base: {project_name}_{source_key})").classes("text-xs text-teal-600 ml-1")
                         else:
                             ui.badge("✗ Different").props("color=amber dense")
                     else:
@@ -1566,14 +1579,18 @@ def _render_match_debug_tab(
                         ui.code(project_name or "(none)").classes("text-sm")
                         if project_name and state_resource_index and project_name == state_resource_index:
                             ui.badge("Used for matching").props("color=green dense")
-                elif project_name and match_type == "project_prefixed":
+                elif project_name and match_type in ("project_prefixed", "project_prefixed_dedup"):
                     # Show project prefix explanation for non-REP resources
-                    with ui.row().classes("w-full items-center py-2 px-3 bg-green-50 dark:bg-green-900/20"):
+                    bg_color = "bg-green-50 dark:bg-green-900/20" if match_type == "project_prefixed" else "bg-teal-50 dark:bg-teal-900/20"
+                    with ui.row().classes(f"w-full items-center py-2 px-3 {bg_color}"):
                         ui.label("Project Prefix Pattern").classes("text-sm font-medium w-1/3")
                         ui.code(f"{project_name}_{source_key}").classes("text-sm")
-                        ui.badge("✓ State key uses this pattern").props("color=green dense")
+                        if match_type == "project_prefixed_dedup":
+                            ui.badge("+ dedup suffix").props("color=teal dense")
+                        else:
+                            ui.badge("✓ State key uses this pattern").props("color=green dense")
             
-            # Explanation for key differences (only show for actual mismatches)
+            # Explanation for key differences
             if state_resource_index and not keys_match:
                 with ui.card().classes("w-full p-2 mt-2").style("background-color: rgba(245, 158, 11, 0.1);"):
                     ui.label("Key Mismatch").classes("text-xs font-semibold text-amber-700")
@@ -1589,6 +1606,17 @@ def _render_match_debug_tab(
                         f"Keys match via project prefix pattern: Terraform state uses '{state_resource_index}' "
                         f"which equals '{project_name}_{source_key}' (project_name + source_key)."
                     ).classes("text-xs text-green-600")
+            elif state_resource_index and keys_match and match_type == "project_prefixed_dedup":
+                # Show informational note for prefixed matches with deduplication suffix
+                import re
+                suffix_match = re.search(r'_(\d+)$', state_resource_index)
+                suffix = suffix_match.group(1) if suffix_match else "N"
+                with ui.card().classes("w-full p-2 mt-2").style("background-color: rgba(20, 184, 166, 0.1);"):
+                    ui.label("Project-Prefixed Key with Deduplication").classes("text-xs font-semibold text-teal-700")
+                    ui.label(
+                        f"State key '{state_resource_index}' matches the pattern '{project_name}_{source_key}_N' "
+                        f"where _{suffix} is a deduplication suffix added by Terraform to avoid key collisions."
+                    ).classes("text-xs text-teal-600")
         
         # Section 3: Lookup Diagnostics
         with ui.card().classes("w-full p-4"):
@@ -1789,6 +1817,8 @@ def _build_llm_diagnostic(
     
     # Determine the issue
     issues = []
+    informational = []  # Non-critical observations
+    
     if drift_status == "state_only":
         issues.append("Resource exists in Terraform state but has no matched target")
     if drift_status == "not_in_state" and target_id:
@@ -1797,15 +1827,30 @@ def _build_llm_diagnostic(
         issues.append(f"ID mismatch: state has ID {state_id}, target has ID {target_id}")
     if confidence == "none" and not target_id:
         issues.append("No target match found by any lookup method")
-    # Only report key mismatch if keys don't match (accounting for project prefix pattern)
+    
+    # Key mismatch handling: only report as issue if it's a real problem
+    # If drift_status is "in_sync" and we have a valid target, key differences are informational
     if source_key and state_resource_index and not keys_match:
-        issues.append(f"Key mismatch: source_key '{source_key}' != state resource_index '{state_resource_index}'")
+        if drift_status == "in_sync" and target_id and str(state_id) == str(target_id):
+            # State ID matches target ID - key difference is just cosmetic
+            informational.append(
+                f"Key difference (cosmetic): source_key '{source_key}' != state resource_index '{state_resource_index}' "
+                "(not an issue since state ID matches target ID)"
+            )
+        else:
+            issues.append(f"Key mismatch: source_key '{source_key}' != state resource_index '{state_resource_index}'")
     
     if issues:
         for issue in issues:
             lines.append(f"- {issue}")
     else:
         lines.append("- No obvious issues detected")
+    
+    if informational:
+        lines.append("")
+        lines.append("**Informational Notes:**")
+        for note in informational:
+            lines.append(f"- ℹ️ {note}")
     lines.append("")
     
     # Resource identification
@@ -1856,6 +1901,14 @@ def _build_llm_diagnostic(
         elif match_type == "project_prefixed":
             lines.append(f"- ✅ Keys match via project prefix pattern: `{project_name}_{source_key}` = `{state_resource_index}`")
             lines.append("  (Project-scoped resources like ENV, JOB use `{{project_name}}_{{source_key}}` as the Terraform for_each key)")
+        elif match_type == "project_prefixed_dedup":
+            import re
+            suffix_match = re.search(r'_(\d+)$', state_resource_index or "")
+            suffix = suffix_match.group(1) if suffix_match else "N"
+            lines.append(f"- ✅ Keys match via project prefix pattern with deduplication suffix")
+            lines.append(f"  - Base pattern: `{project_name}_{source_key}`")
+            lines.append(f"  - State key: `{state_resource_index}` (with `_{suffix}` deduplication suffix)")
+            lines.append("  - The Terraform module adds numeric suffixes (_2, _3, etc.) to avoid key collisions")
         else:
             lines.append(f"- ✅ Keys match ({match_type})")
     else:
@@ -1865,6 +1918,7 @@ def _build_llm_diagnostic(
             lines.append(f"  Expected patterns checked:")
             lines.append(f"  - Exact: `{source_key}` != `{state_resource_index}`")
             lines.append(f"  - Project-prefixed: `{expected_prefixed}` != `{state_resource_index}`")
+            lines.append(f"  - Project-prefixed with dedup: `{expected_prefixed}_N` pattern not matched")
     lines.append("")
     
     # Lookup attempts
