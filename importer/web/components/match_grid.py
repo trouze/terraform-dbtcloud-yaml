@@ -553,6 +553,7 @@ def build_grid_data(
         lookup_key = (source_type, source_name)
         clone_config = clone_by_key.get(source_key)
         target = target_by_type_name.get(lookup_key)
+        match_confidence = "exact_match" if target else "none"
         
         # Special handling for CRD (credentials) - match by parent environment instead of name
         # since credential names are generic like "Credential (snowflake)" and often don't match exactly
@@ -562,6 +563,8 @@ def build_grid_data(
             if source_proj_name and source_env_name:
                 crd_lookup = (source_proj_name, source_env_name)
                 target = target_crd_by_env.get(crd_lookup)
+                if target:
+                    match_confidence = "env_match"  # Matched by environment
         
         # STATE-AWARE AUTO-MATCHING: If no target found by name but resource is in TF state,
         # look up the state's ID in targets and auto-suggest that match. This handles cases
@@ -591,6 +594,7 @@ def build_grid_data(
                     target_from_state = target_by_id.get(state_resource.get("dbt_id"))
                 if target_from_state and target_from_state.get("element_type_code") == source_type:
                     target = target_from_state
+                    match_confidence = "state_id_match"  # Found via Terraform state ID lookup
                     _debug_log({
                         "sessionId": "debug-session",
                         "runId": "run1",
@@ -634,7 +638,7 @@ def build_grid_data(
                 "target_id": str(target.get("dbt_id", "")),
                 "target_name": target.get("name", ""),
                 "status": "pending",
-                "confidence": "exact_match",
+                "confidence": match_confidence,  # Use tracked confidence (exact_match, state_id_match, etc.)
                 "clone_configured": False,
                 "clone_name": "",
                 "state_id": state_id,

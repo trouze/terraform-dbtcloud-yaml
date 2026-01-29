@@ -418,15 +418,21 @@ def _create_matching_content(
     
     def accept_all_pending():
         """Accept all pending matches."""
+        # Confidence types that represent automatic matching (not manual selection)
+        auto_match_types = {
+            "exact_match", "state_id_match", "url_match", "github_match", "env_match"
+        }
         for row in grid_data_ref["data"]:
             if row.get("status") == "pending" and row.get("action") == "match" and row.get("target_id"):
+                confidence = row.get("confidence", "manual")
                 state.map.confirmed_mappings.append({
                     "resource_type": row.get("source_type"),
                     "source_name": row.get("source_name"),
                     "source_key": row.get("source_key"),
                     "target_id": row.get("target_id"),
                     "target_name": row.get("target_name"),
-                    "match_type": "auto" if row.get("confidence") == "exact_match" else "manual",
+                    # Preserve the actual confidence type for better diagnostics
+                    "match_type": confidence if confidence in auto_match_types else "manual",
                 })
         save_state()
         ui.navigate.reload()
@@ -1724,17 +1730,23 @@ def _create_matching_content(
                 
                 def save_mappings():
                     try:
+                        # Confidence types that represent automatic matching (not manual selection)
+                        auto_match_types = {
+                            "exact_match", "state_id_match", "url_match", "github_match", "env_match"
+                        }
                         # Build confirmed mappings from grid data
                         mappings_to_save = []
                         for row in grid_data_ref["data"]:
                             if row.get("status") == "confirmed" and row.get("target_id"):
+                                confidence = row.get("confidence", "manual")
                                 mappings_to_save.append({
                                     "resource_type": row.get("source_type"),
                                     "source_name": row.get("source_name"),
                                     "source_key": row.get("source_key"),
                                     "target_id": row.get("target_id"),
                                     "target_name": row.get("target_name"),
-                                    "match_type": "auto" if row.get("confidence") == "exact_match" else "manual",
+                                    # Preserve the actual confidence type for better diagnostics
+                                    "match_type": confidence if confidence in auto_match_types else "manual",
                                 })
                         
                         if not mappings_to_save:

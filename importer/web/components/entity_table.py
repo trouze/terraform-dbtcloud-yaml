@@ -26,6 +26,57 @@ def _is_sensitive_field(field_name: str) -> bool:
     return any(pattern in field_lower for pattern in SENSITIVE_FIELD_PATTERNS)
 
 
+def _keys_match_with_project_prefix(
+    source_key: Optional[str],
+    state_resource_index: Optional[str],
+    project_name: Optional[str],
+    source_type: str,
+) -> tuple[bool, str]:
+    """Check if keys match, considering project name prefixes.
+    
+    For project-scoped resources (ENV, JOB, VAR, etc.), Terraform state may use
+    a key format of "{project_name}_{source_key}" while the source key is just
+    the simple key.
+    
+    Args:
+        source_key: The source key from YAML (e.g., "qa")
+        state_resource_index: The for_each key from Terraform state (e.g., "bt_data_ops_db_qa")
+        project_name: The project name (e.g., "bt_data_ops_db")
+        source_type: The resource type code (e.g., "ENV", "JOB")
+        
+    Returns:
+        Tuple of (is_match, match_type) where match_type is one of:
+        - "exact": Keys match exactly
+        - "project_key": Repository keyed by project name
+        - "project_prefixed": State key is {project_name}_{source_key}
+        - "none": No match found
+    """
+    if not source_key or not state_resource_index:
+        return False, "none"
+    
+    # Exact match
+    if source_key == state_resource_index:
+        return True, "exact"
+    
+    # Repository special case: keyed by project name
+    if source_type == "REP" and project_name and project_name == state_resource_index:
+        return True, "project_key"
+    
+    # Project-prefixed pattern: {project_name}_{source_key}
+    # Common for environments, jobs, and other project-scoped resources
+    if project_name:
+        expected_prefixed_key = f"{project_name}_{source_key}"
+        if expected_prefixed_key == state_resource_index:
+            return True, "project_prefixed"
+        
+        # Also check if state_resource_index ends with _{source_key} and starts with project_name
+        # This handles potential variations in separators
+        if state_resource_index.startswith(project_name) and state_resource_index.endswith(f"_{source_key}"):
+            return True, "project_prefixed"
+    
+    return False, "none"
+
+
 def _load_full_data_for_type(state: AppState, type_code: str, is_target: bool = False) -> List[Dict[str, Any]]:
     """Load full data from the JSON snapshot for a specific entity type.
     
@@ -1450,6 +1501,13 @@ def _render_match_debug_tab(
                 "manual": ("Manual Selection", "User manually selected this target", "blue"),
                 "derived": ("Derived", "Auto-generated from parent resource", "purple"),
                 "none": ("No Match", "No matching target found", "slate"),
+                # State-aware matching
+                "state_id_match": ("State ID Match", "Found via Terraform state ID lookup", "teal"),
+                # Repository matching strategies
+                "url_match": ("URL Match", "Repository matched by remote_url", "green"),
+                "github_match": ("GitHub Match", "Repository matched by github_repo", "green"),
+                # Credential matching
+                "env_match": ("Environment Match", "Credential matched by parent environment", "blue"),
             }
             
             strategy_label, strategy_desc, strategy_color = strategy_info.get(
@@ -1460,10 +1518,8 @@ def _render_match_debug_tab(
                 ui.badge(strategy_label).props(f"color={strategy_color}")
                 ui.label(strategy_desc).classes("text-sm text-slate-600")
             
-            # Check if state-aware matching might have been used
-            if confidence == "exact_match" and state_resource and not target_data:
-                ui.label("ℹ️ State-aware fallback may have been used").classes("text-xs text-blue-500 mt-1")
-            elif confidence == "none" and state_resource:
+            # Check for special cases
+            if confidence == "none" and state_resource:
                 ui.label("⚠️ Resource exists in state but no target match").classes("text-xs text-amber-500 mt-1")
         
         # Section 2: Key Comparison
@@ -1473,6 +1529,11 @@ def _render_match_debug_tab(
                 ui.label("Key Comparison").classes("font-semibold")
             
             state_resource_index = state_resource.get("resource_index") if state_resource else None
+            
+            # Check for key match using helper that accounts for project prefixes
+            keys_match, match_type = _keys_match_with_project_prefix(
+                source_key, state_resource_index, project_name, source_type
+            )
             
             with ui.element("div").classes("w-full border rounded"):
                 # Source key row
@@ -1485,38 +1546,49 @@ def _render_match_debug_tab(
                     ui.label("State resource_index").classes("text-sm font-medium w-1/3")
                     if state_resource_index:
                         ui.code(state_resource_index).classes("text-sm")
-                        # Show if they match
-                        if source_key == state_resource_index:
-                            ui.badge("✓ Match").props("color=green dense")
-                        elif project_name == state_resource_index:
+                        # Show match status using helper function result
+                        if match_type == "exact":
+                            ui.badge("✓ Exact match").props("color=green dense")
+                        elif match_type == "project_key":
                             ui.badge("✓ Project key").props("color=blue dense")
+                        elif match_type == "project_prefixed":
+                            ui.badge("✓ Prefixed match").props("color=green dense")
+                            ui.label(f"({project_name}_{source_key})").classes("text-xs text-green-600 ml-1")
                         else:
                             ui.badge("✗ Different").props("color=amber dense")
                     else:
                         ui.label("(not in state)").classes("text-sm text-slate-400 italic")
                 
-                # Project name row (for repository matching)
+                # Project name row (for repository matching or showing prefix pattern)
                 if source_type == "REP":
                     with ui.row().classes("w-full items-center py-2 px-3"):
                         ui.label("Project Name (repo key)").classes("text-sm font-medium w-1/3")
                         ui.code(project_name or "(none)").classes("text-sm")
                         if project_name and state_resource_index and project_name == state_resource_index:
                             ui.badge("Used for matching").props("color=green dense")
+                elif project_name and match_type == "project_prefixed":
+                    # Show project prefix explanation for non-REP resources
+                    with ui.row().classes("w-full items-center py-2 px-3 bg-green-50 dark:bg-green-900/20"):
+                        ui.label("Project Prefix Pattern").classes("text-sm font-medium w-1/3")
+                        ui.code(f"{project_name}_{source_key}").classes("text-sm")
+                        ui.badge("✓ State key uses this pattern").props("color=green dense")
             
-            # Explanation for key mismatch
-            if state_resource_index and source_key != state_resource_index:
+            # Explanation for key differences (only show for actual mismatches)
+            if state_resource_index and not keys_match:
                 with ui.card().classes("w-full p-2 mt-2").style("background-color: rgba(245, 158, 11, 0.1);"):
-                    ui.label("Key Mismatch Explanation").classes("text-xs font-semibold text-amber-700")
-                    if source_type == "REP" and project_name == state_resource_index:
-                        ui.label(
-                            "Repository keys differ because source uses repo name but Terraform uses project name "
-                            "for project-linked repositories (for_each key)."
-                        ).classes("text-xs text-amber-600")
-                    else:
-                        ui.label(
-                            f"Source key '{source_key}' differs from state key '{state_resource_index}'. "
-                            "This may indicate the resource was renamed or indexed differently."
-                        ).classes("text-xs text-amber-600")
+                    ui.label("Key Mismatch").classes("text-xs font-semibold text-amber-700")
+                    ui.label(
+                        f"Source key '{source_key}' differs from state key '{state_resource_index}'. "
+                        "This may indicate the resource was renamed or indexed differently."
+                    ).classes("text-xs text-amber-600")
+            elif state_resource_index and keys_match and match_type == "project_prefixed":
+                # Show informational note for prefixed matches
+                with ui.card().classes("w-full p-2 mt-2").style("background-color: rgba(16, 185, 129, 0.1);"):
+                    ui.label("Project-Prefixed Key").classes("text-xs font-semibold text-green-700")
+                    ui.label(
+                        f"Keys match via project prefix pattern: Terraform state uses '{state_resource_index}' "
+                        f"which equals '{project_name}_{source_key}' (project_name + source_key)."
+                    ).classes("text-xs text-green-600")
         
         # Section 3: Lookup Diagnostics
         with ui.card().classes("w-full p-4"):
@@ -1705,6 +1777,11 @@ def _build_llm_diagnostic(
     """
     lines = []
     
+    # Check key matching using helper that accounts for project prefixes
+    keys_match, match_type = _keys_match_with_project_prefix(
+        source_key, state_resource_index, project_name, source_type
+    )
+    
     # Header
     lines.append("# Match Debug Diagnostic Report")
     lines.append("")
@@ -1720,7 +1797,8 @@ def _build_llm_diagnostic(
         issues.append(f"ID mismatch: state has ID {state_id}, target has ID {target_id}")
     if confidence == "none" and not target_id:
         issues.append("No target match found by any lookup method")
-    if source_key and state_resource_index and source_key != state_resource_index:
+    # Only report key mismatch if keys don't match (accounting for project prefix pattern)
+    if source_key and state_resource_index and not keys_match:
         issues.append(f"Key mismatch: source_key '{source_key}' != state resource_index '{state_resource_index}'")
     
     if issues:
@@ -1758,24 +1836,35 @@ def _build_llm_diagnostic(
     
     # Key matching analysis
     lines.append("## Key Matching Analysis")
+    lines.append(f"- Source key: `{source_key}`")
+    lines.append(f"- State resource_index: `{state_resource_index or 'N/A'}`")
+    lines.append(f"- Project name: `{project_name or 'N/A'}`")
+    lines.append(f"- Match type: **{match_type}**")
+    lines.append("")
+    
     if source_type == "REP":
         lines.append("Repository resources are keyed by **project name** in Terraform (for_each), not by repository name.")
-        lines.append(f"- Source key (repo name): `{source_key}`")
-        lines.append(f"- Expected TF key (project name): `{project_name}`")
-        lines.append(f"- Actual state resource_index: `{state_resource_index or 'N/A'}`")
-        if project_name and state_resource_index:
-            if project_name == state_resource_index:
-                lines.append("- ✅ Project name matches state resource_index")
-            else:
-                lines.append(f"- ❌ Project name '{project_name}' does NOT match state resource_index '{state_resource_index}'")
+        if keys_match and match_type == "project_key":
+            lines.append(f"- ✅ Keys match via project key: state uses `{state_resource_index}` which equals project name")
+        elif keys_match:
+            lines.append(f"- ✅ Keys match ({match_type})")
+        else:
+            lines.append(f"- ❌ Keys do NOT match")
+    elif keys_match:
+        if match_type == "exact":
+            lines.append("- ✅ Keys match exactly")
+        elif match_type == "project_prefixed":
+            lines.append(f"- ✅ Keys match via project prefix pattern: `{project_name}_{source_key}` = `{state_resource_index}`")
+            lines.append("  (Project-scoped resources like ENV, JOB use `{{project_name}}_{{source_key}}` as the Terraform for_each key)")
+        else:
+            lines.append(f"- ✅ Keys match ({match_type})")
     else:
-        lines.append(f"- Source key: `{source_key}`")
-        lines.append(f"- State resource_index: `{state_resource_index or 'N/A'}`")
-        if source_key and state_resource_index:
-            if source_key == state_resource_index:
-                lines.append("- ✅ Keys match")
-            else:
-                lines.append("- ❌ Keys do NOT match")
+        lines.append("- ❌ Keys do NOT match")
+        if project_name and state_resource_index:
+            expected_prefixed = f"{project_name}_{source_key}"
+            lines.append(f"  Expected patterns checked:")
+            lines.append(f"  - Exact: `{source_key}` != `{state_resource_index}`")
+            lines.append(f"  - Project-prefixed: `{expected_prefixed}` != `{state_resource_index}`")
     lines.append("")
     
     # Lookup attempts
