@@ -60,7 +60,8 @@ def _keys_match_with_project_prefix(
         - "project_prefixed": State key is {project_name}_{source_key}
         - "project_prefixed_dedup": State key is {project_name}_{source_key}_N (deduplication suffix)
         - "name_keyed": Resource type is matched by name (key comparison N/A)
-        - "none": No match found
+        - "no_state": No state tracking - key comparison not applicable
+        - "none": Keys don't match
     """
     import re
     
@@ -69,7 +70,12 @@ def _keys_match_with_project_prefix(
     if source_type in NAME_KEYED_TYPES:
         return True, "name_keyed"
     
-    if not source_key or not state_resource_index:
+    # No state tracking - key comparison not applicable
+    # (this is different from keys not matching - there's nothing to compare against)
+    if not state_resource_index:
+        return True, "no_state"
+    
+    if not source_key:
         return False, "none"
     
     # Exact match
@@ -1580,6 +1586,40 @@ def _render_match_debug_tab(
                         ui.label("Matched by Name").classes("text-sm font-medium w-1/3")
                         ui.code(source_name).classes("text-sm")
                         ui.badge("✓ Used for matching").props("color=indigo dense")
+            elif match_type == "no_state":
+                # No state tracking - matched via other means (name lookup, env_match, etc.)
+                with ui.card().classes("w-full p-2").style("background-color: rgba(100, 116, 139, 0.1);"):
+                    ui.label("No State Tracking").classes("text-xs font-semibold text-slate-700")
+                    ui.label(
+                        "This resource has no Terraform state tracking. Key comparison is not applicable "
+                        "as there's no state resource_index to compare against."
+                    ).classes("text-xs text-slate-600")
+                
+                with ui.element("div").classes("w-full border rounded mt-2"):
+                    # Source key row (informational only)
+                    with ui.row().classes("w-full items-center border-b py-2 px-3 bg-slate-50 dark:bg-slate-900/20"):
+                        ui.label("Source Key").classes("text-sm font-medium w-1/3")
+                        ui.code(source_key or "(none)").classes("text-sm text-slate-500")
+                        ui.badge("N/A - no state").props("color=slate dense")
+                    
+                    # State resource_index row
+                    with ui.row().classes("w-full items-center py-2 px-3 bg-slate-50 dark:bg-slate-900/20"):
+                        ui.label("State resource_index").classes("text-sm font-medium w-1/3")
+                        ui.label("(not tracked in state)").classes("text-sm text-slate-400 italic")
+                    
+                    # Match confidence row (show how it was matched)
+                    confidence = grid_row.get("confidence", "unknown")
+                    confidence_display = {
+                        "env_match": "Matched via environment",
+                        "exact_match": "Matched by name",
+                        "state_id_match": "Matched by state ID",
+                        "url_match": "Matched by URL",
+                        "github_match": "Matched by GitHub settings",
+                    }.get(confidence, f"Matched ({confidence})")
+                    with ui.row().classes("w-full items-center py-2 px-3 bg-green-50 dark:bg-green-900/20"):
+                        ui.label("Match Method").classes("text-sm font-medium w-1/3")
+                        ui.label(confidence_display).classes("text-sm")
+                        ui.badge("✓ Used for matching").props("color=green dense")
             else:
                 with ui.element("div").classes("w-full border rounded"):
                     # Source key row
@@ -1928,6 +1968,19 @@ def _build_llm_diagnostic(
         lines.append(f"- ✅ Matched by name: `{source_name}`")
         lines.append(f"- ℹ️ Key comparison does not apply to {source_type} resources")
         lines.append("- Name-keyed resources (VAR, JEVO) use composite keys like project_id:name internally")
+    elif match_type == "no_state":
+        confidence = grid_row.get("confidence", "unknown")
+        confidence_display = {
+            "env_match": "environment matching",
+            "exact_match": "name lookup",
+            "state_id_match": "state ID lookup",
+            "url_match": "URL matching",
+            "github_match": "GitHub settings matching",
+        }.get(confidence, confidence)
+        lines.append("**No Terraform state tracking** - key comparison is not applicable.")
+        lines.append(f"- ℹ️ This resource has no state_resource_index to compare against")
+        lines.append(f"- ✅ Matched via: {confidence_display}")
+        lines.append("- This is normal for resources that haven't been imported into Terraform yet")
     elif source_type == "REP":
         lines.append("Repository resources are keyed by **project name** in Terraform (for_each), not by repository name.")
         if keys_match and match_type == "project_key":
