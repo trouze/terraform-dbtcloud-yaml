@@ -278,6 +278,8 @@ def _create_resource_table(
     save_state: Callable[[], None],
 ) -> None:
     """Create the self-contained Destroy Resources AG Grid with filters and action buttons."""
+    # Note: AG Grid dark mode CSS is now applied globally in app.py setup_page()
+    
     resources = _load_state_resources(state, destroy_state)
     
     # Filter out data sources (mode="data") - they can't be tainted/destroyed
@@ -306,8 +308,22 @@ def _create_resource_table(
         display_name = t.replace("dbtcloud_", "").replace("_", " ").title()
         type_options[t] = f"{display_name} ({type_counts[t]})"
 
+    # Add _selected column to row data for checkbox state
+    for row in managed_resources:
+        row["_selected"] = False
+    
     # AG Grid column definitions with explicit colId (per standards)
     column_defs = [
+        {
+            "field": "_selected",
+            "colId": "_selected",
+            "headerName": "✓",
+            "width": 50,
+            "pinned": "left",
+            "cellRenderer": "agCheckboxCellRenderer",
+            "editable": True,
+            "cellStyle": {"textAlign": "center"},
+        },
         {
             "field": "protected",
             "colId": "protected",
@@ -356,15 +372,6 @@ def _create_resource_table(
                 count = len(destroy_state.get("selected", set()))
                 label.set_text(f"Selected: {count}")
         
-        # Handle selection changes from AG Grid
-        async def handle_destroy_selection_changed():
-            grid = destroy_state.get("grid")
-            if not grid:
-                return
-            selected_rows = await grid.get_selected_rows()
-            destroy_state["selected"] = {row.get("address") for row in selected_rows if row.get("address")}
-            _update_selection_label()
-        
         # Helper to update the grid with quick filter (type filter requires row data update)
         def update_destroy_grid_filter():
             grid = destroy_state.get("grid")
@@ -393,17 +400,33 @@ def _create_resource_table(
                     visible_count = len([r for r in managed_resources if r.get("type") == filter_state["type"]]) if filter_state["type"] != "all" else len(managed_resources)
                     badge.set_text(f"{visible_count} shown / {len(managed_resources)} total")
         
-        # Select all visible rows
-        async def select_all_destroy():
+        # Select all visible rows (checkbox pattern)
+        def select_all_destroy():
             grid = destroy_state.get("grid")
-            if grid:
-                await grid.run_grid_method("selectAll")
+            if not grid:
+                return
+            # Update all rows to selected
+            for row in managed_resources:
+                row["_selected"] = True
+                addr = row.get("address")
+                if addr:
+                    destroy_state["selected"].add(addr)
+            grid.options["rowData"] = managed_resources
+            grid.update()
+            _update_selection_label()
         
-        # Clear all selections
-        async def clear_destroy_selection():
+        # Clear all selections (checkbox pattern)
+        def clear_destroy_selection():
             grid = destroy_state.get("grid")
-            if grid:
-                await grid.run_grid_method("deselectAll")
+            if not grid:
+                return
+            # Update all rows to unselected
+            for row in managed_resources:
+                row["_selected"] = False
+            destroy_state["selected"] = set()
+            grid.options["rowData"] = managed_resources
+            grid.update()
+            _update_selection_label()
         
         # Export CSV handler
         def export_destroy_csv():
@@ -427,13 +450,13 @@ def _create_resource_table(
             ui.button(
                 "Select All",
                 icon="select_all",
-                on_click=lambda: select_all_destroy(),
+                on_click=select_all_destroy,
             ).props("outline size=sm padding='4px 12px'")
             
             ui.button(
                 "Clear",
                 icon="close",
-                on_click=lambda: clear_destroy_selection(),
+                on_click=clear_destroy_selection,
             ).props("outline size=sm padding='4px 12px'")
             
             ui.separator().props("vertical").classes("mx-1")
@@ -503,16 +526,10 @@ def _create_resource_table(
             )
             destroy_state["selection_label"] = selection_label
 
-        # AG Grid with v32+ rowSelection API
+        # AG Grid with checkbox column for selection
         grid = ui.aggrid({
             "columnDefs": column_defs,
             "rowData": managed_resources,
-            "rowSelection": {
-                "mode": "multiRow",
-                "headerCheckbox": True,
-                "checkboxes": True,
-            },
-            "suppressRowClickSelection": True,
             "defaultColDef": {
                 "sortable": True,
                 "filter": True,
@@ -523,16 +540,43 @@ def _create_resource_table(
             "pagination": True,
             "paginationPageSize": 50,
             "paginationPageSizeSelector": [25, 50, 100, 200],
-        }, theme="quartz").classes("w-full").style("height: 400px;")
+        }, theme="quartz").classes("w-full ag-theme-quartz-auto-dark").style("height: 400px;")
         
         destroy_state["grid"] = grid
         
-        # Handle selection changes
-        grid.on("selectionChanged", lambda: handle_destroy_selection_changed())
+        # Handle checkbox toggle (cellValueChanged event)
+        def on_cell_value_changed(e):
+            """Handle when a checkbox is toggled."""
+            try:
+                if e.args and e.args.get("colId") == "_selected":
+                    row_data = e.args.get("data", {})
+                    address = row_data.get("address")
+                    new_value = e.args.get("newValue", False)
+                    
+                    if address:
+                        # Update the row data in managed_resources
+                        for row in managed_resources:
+                            if row.get("address") == address:
+                                row["_selected"] = new_value
+                                break
+                        
+                        # Update selection set
+                        if new_value:
+                            destroy_state["selected"].add(address)
+                        else:
+                            destroy_state["selected"].discard(address)
+                        
+                        _update_selection_label()
+            except Exception as ex:
+                print(f"Cell value change error: {ex}")
         
-        # Handle cell click for showing details
+        grid.on("cellValueChanged", on_cell_value_changed)
+        
+        # Handle cell click for showing details (but not for checkbox column)
         def on_cell_clicked(e):
             """Show resource details when a cell is clicked."""
+            if e.args and e.args.get("colId") == "_selected":
+                return  # Don't show popup when clicking checkbox
             if e.args and "data" in e.args:
                 row = e.args["data"]
                 address = row.get("address", "")
@@ -873,7 +917,7 @@ def _create_destroy_protection_panel(
         "CON": "dbtcloud_connection",
     }
     
-    # Build rows for the grid (no _selected column - using AG Grid row selection API)
+    # Build rows for the grid with _selected column for checkbox state
     protected_rows = []
     for res in protected_resources:
         type_label = type_labels.get(res.resource_type, res.resource_type)
@@ -885,6 +929,7 @@ def _create_destroy_protection_panel(
             "name": res.name,
             "id": getattr(res, "resource_id", ""),
             "tf_address": f"{tf_type}.protected_{res.name}",
+            "_selected": False,  # Checkbox state
         })
     
     # Pre-sort data by name (per AG Grid standards - no default sort via AG Grid)
@@ -932,13 +977,13 @@ def _create_destroy_protection_panel(
             "These resources have lifecycle.prevent_destroy = true and will be preserved during destroy operations."
         ).classes("text-xs text-slate-500 mb-3")
         
-        # Helper to get selected keys from panel state
+        # Helper to get selected keys from row data
         def get_selected_keys():
-            return panel_state.get("selected_keys", set())
+            return {r["key"] for r in all_protected_rows if r.get("_selected", False)}
         
         # Helper to get selected count
         def get_selected_count():
-            return len(panel_state.get("selected_keys", set()))
+            return sum(1 for r in all_protected_rows if r.get("_selected", False))
         
         # Helper to update the grid with AG Grid quick filter (not local filtering)
         def update_grid_filter():
@@ -969,17 +1014,32 @@ def _create_destroy_protection_panel(
                     visible_count = len([r for r in all_protected_rows if r.get("type_code") == panel_state["type"]]) if panel_state["type"] != "all" else len(all_protected_rows)
                     badge.set_text(f"{visible_count} shown / {len(all_protected_rows)} total")
         
-        # Helper to select all visible rows
-        async def select_all_protected():
+        # Helper to select all visible rows (checkbox pattern)
+        def select_all_protected():
             grid = panel_state.get("grid")
-            if grid:
-                await grid.run_grid_method("selectAll")
+            if not grid:
+                return
+            filtered_keys = {r["key"] for r in (
+                [r for r in all_protected_rows if r.get("type_code") == panel_state["type"]]
+                if panel_state["type"] != "all" else all_protected_rows
+            )}
+            for row in all_protected_rows:
+                if row["key"] in filtered_keys:
+                    row["_selected"] = True
+            grid.options["rowData"] = all_protected_rows if panel_state["type"] == "all" else [r for r in all_protected_rows if r.get("type_code") == panel_state["type"]]
+            grid.update()
+            _update_selection_label()
         
-        # Helper to clear selection
-        async def clear_protected_selection():
+        # Helper to clear selection (checkbox pattern)
+        def clear_protected_selection():
             grid = panel_state.get("grid")
-            if grid:
-                await grid.run_grid_method("deselectAll")
+            if not grid:
+                return
+            for row in all_protected_rows:
+                row["_selected"] = False
+            grid.options["rowData"] = all_protected_rows if panel_state["type"] == "all" else [r for r in all_protected_rows if r.get("type_code") == panel_state["type"]]
+            grid.update()
+            _update_selection_label()
         
         # Helper to update selection label
         def _update_selection_label():
@@ -996,15 +1056,6 @@ def _create_destroy_protection_panel(
                 else:
                     btn.disable()
         
-        # Handle selection changes from AG Grid
-        async def handle_selection_changed():
-            grid = panel_state.get("grid")
-            if not grid:
-                return
-            selected_rows = await grid.get_selected_rows()
-            panel_state["selected_keys"] = {row.get("key") for row in selected_rows if row.get("key")}
-            _update_selection_label()
-        
         # Export CSV handler
         def export_protected_csv():
             grid = panel_state.get("grid")
@@ -1015,8 +1066,8 @@ def _create_destroy_protection_panel(
                 })
         
         # Unprotect selected handler
-        async def on_unprotect_selected():
-            # Get selected keys from panel state (updated by selectionChanged event)
+        def on_unprotect_selected():
+            # Get selected keys from row data (authoritative source)
             selected_keys = get_selected_keys()
             
             if not selected_keys:
@@ -1052,13 +1103,13 @@ def _create_destroy_protection_panel(
             ui.button(
                 "Select All",
                 icon="select_all",
-                on_click=lambda: select_all_protected(),
+                on_click=select_all_protected,
             ).props("outline size=sm padding='4px 12px'")
             
             ui.button(
                 "Clear",
                 icon="close",
-                on_click=lambda: clear_protected_selection(),
+                on_click=clear_protected_selection,
             ).props("outline size=sm padding='4px 12px'")
             
             ui.separator().props("vertical").classes("mx-1")
@@ -1067,7 +1118,7 @@ def _create_destroy_protection_panel(
             unprotect_selected_btn = ui.button(
                 "Unprotect Selected (0)",
                 icon="lock_open",
-                on_click=lambda: on_unprotect_selected(),
+                on_click=on_unprotect_selected,
             ).props("color=amber size=sm padding='4px 12px'").style("color: black !important;")
             unprotect_selected_btn.disable()
             panel_state["unprotect_selected_btn"] = unprotect_selected_btn
@@ -1121,6 +1172,16 @@ def _create_destroy_protection_panel(
         # AG Grid column definitions with explicit colId (per standards)
         column_defs = [
             {
+                "field": "_selected",
+                "colId": "_selected",
+                "headerName": "✓",
+                "width": 50,
+                "pinned": "left",
+                "cellRenderer": "agCheckboxCellRenderer",
+                "editable": True,
+                "cellStyle": {"textAlign": "center"},
+            },
+            {
                 "field": "type",
                 "colId": "type",
                 "headerName": "Type",
@@ -1145,16 +1206,10 @@ def _create_destroy_protection_panel(
             },
         ]
         
-        # AG Grid with v32+ rowSelection API (replaces deprecated checkbox column)
+        # AG Grid with checkbox column for selection
         protected_grid = ui.aggrid({
             "columnDefs": column_defs,
             "rowData": protected_rows,
-            "rowSelection": {
-                "mode": "multiRow",
-                "headerCheckbox": True,
-                "checkboxes": True,
-            },
-            "suppressRowClickSelection": True,
             "pagination": False,
             "headerHeight": 36,
             "defaultColDef": {
@@ -1164,16 +1219,37 @@ def _create_destroy_protection_panel(
             },
             "stopEditingWhenCellsLoseFocus": True,
             "animateRows": False,
-        }, theme="quartz").classes("w-full").style("height: 200px;")
+        }, theme="quartz").classes("w-full ag-theme-quartz-auto-dark").style("height: 200px;")
         
         panel_state["grid"] = protected_grid
         
-        # Handle selection changes with AG Grid v32+ selectionChanged event
-        protected_grid.on("selectionChanged", lambda: handle_selection_changed())
+        # Handle checkbox toggle (cellValueChanged event)
+        def on_cell_value_changed(e):
+            """Handle when a checkbox is toggled."""
+            try:
+                if e.args and e.args.get("colId") == "_selected":
+                    row_data = e.args.get("data", {})
+                    row_key = row_data.get("key")
+                    new_value = e.args.get("newValue", False)
+                    
+                    if row_key:
+                        # Update the authoritative row data in all_protected_rows
+                        for row in all_protected_rows:
+                            if row["key"] == row_key:
+                                row["_selected"] = new_value
+                                break
+                        
+                        _update_selection_label()
+            except Exception as ex:
+                print(f"Cell value change error: {ex}")
         
-        # Row click shows protected resource detail popup
+        protected_grid.on("cellValueChanged", on_cell_value_changed)
+        
+        # Row click shows protected resource detail popup (but not for checkbox column)
         def on_cell_clicked(e):
-            """Handle cell click - show details (checkbox clicks are handled by selectionChanged)."""
+            """Handle cell click - show details unless clicking checkbox."""
+            if e.args and e.args.get("colId") == "_selected":
+                return  # Don't show popup when clicking checkbox
             if e.args and "data" in e.args:
                 row = e.args["data"]
                 _show_protected_resource_dialog(row)

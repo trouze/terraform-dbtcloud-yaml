@@ -905,7 +905,7 @@ def create_entity_table(
                     "wrapText": True,
                     "autoHeight": True,
                 },
-            }, theme="quartz").classes("w-full h-full").style("overflow-x: auto;")
+            }, theme="quartz").classes("w-full h-full ag-theme-quartz-auto-dark").style("overflow-x: auto;")
             
             grid_ref["grid"] = grid
             grid.on("cellClicked", show_entity_detail)

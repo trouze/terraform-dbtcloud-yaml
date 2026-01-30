@@ -167,7 +167,7 @@ def create_job_grid(
         "domLayout": "autoHeight",
     }
     
-    grid = ui.aggrid(grid_options, theme="quartz").classes("w-full")
+    grid = ui.aggrid(grid_options, theme="quartz").classes("w-full ag-theme-quartz-auto-dark")
     
     # Handle selection changes
     async def handle_selection():

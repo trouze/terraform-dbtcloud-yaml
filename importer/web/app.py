@@ -206,6 +206,46 @@ def setup_page(state: AppState) -> None:
     else:
         ui.dark_mode().disable()
 
+    # Add global CSS for AG Grid dark mode support
+    # NiceGUI uses .dark class on body, but AG Grid's quartz-auto-dark only responds to
+    # prefers-color-scheme media query. These CSS overrides bridge the gap.
+    ui.add_css("""
+        /* AG Grid dark mode overrides for NiceGUI */
+        .dark .ag-theme-quartz, .body--dark .ag-theme-quartz,
+        .dark .ag-theme-quartz-auto-dark, .body--dark .ag-theme-quartz-auto-dark {
+            --ag-background-color: #1e1e1e !important;
+            --ag-header-background-color: #2d2d2d !important;
+            --ag-odd-row-background-color: #262626 !important;
+            --ag-row-hover-color: #3d3d3d !important;
+            --ag-selected-row-background-color: #3d5a80 !important;
+            --ag-foreground-color: #e0e0e0 !important;
+            --ag-header-foreground-color: #e0e0e0 !important;
+            --ag-secondary-foreground-color: #a0a0a0 !important;
+            --ag-border-color: #404040 !important;
+            --ag-input-border-color: #505050 !important;
+        }
+        .dark .ag-theme-quartz .ag-root-wrapper, .body--dark .ag-theme-quartz .ag-root-wrapper,
+        .dark .ag-theme-quartz-auto-dark .ag-root-wrapper, .body--dark .ag-theme-quartz-auto-dark .ag-root-wrapper {
+            background-color: #1e1e1e !important;
+        }
+        .dark .ag-theme-quartz .ag-header, .body--dark .ag-theme-quartz .ag-header,
+        .dark .ag-theme-quartz-auto-dark .ag-header, .body--dark .ag-theme-quartz-auto-dark .ag-header {
+            background-color: #2d2d2d !important;
+        }
+        .dark .ag-theme-quartz .ag-row, .body--dark .ag-theme-quartz .ag-row,
+        .dark .ag-theme-quartz-auto-dark .ag-row, .body--dark .ag-theme-quartz-auto-dark .ag-row {
+            background-color: #1e1e1e !important;
+        }
+        .dark .ag-theme-quartz .ag-row-odd, .body--dark .ag-theme-quartz .ag-row-odd,
+        .dark .ag-theme-quartz-auto-dark .ag-row-odd, .body--dark .ag-theme-quartz-auto-dark .ag-row-odd {
+            background-color: #262626 !important;
+        }
+        .dark .ag-theme-quartz .ag-cell, .body--dark .ag-theme-quartz .ag-cell,
+        .dark .ag-theme-quartz-auto-dark .ag-cell, .body--dark .ag-theme-quartz-auto-dark .ag-cell {
+            color: #e0e0e0 !important;
+        }
+    """)
+
     # Create navigation drawer with callbacks
     create_nav_drawer(
         state,

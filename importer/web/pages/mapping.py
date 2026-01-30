@@ -648,7 +648,7 @@ def _create_selection_grid(
         },
         "stopEditingWhenCellsLoseFocus": True,
         "animateRows": False,  # Stability - per ag-grid-standards.mdc
-    }, theme="quartz").classes("w-full h-full")
+    }, theme="quartz").classes("w-full h-full ag-theme-quartz-auto-dark")
     
     grid_ref["grid"] = grid
     

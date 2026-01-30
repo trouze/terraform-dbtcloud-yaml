@@ -447,7 +447,7 @@ def create_jac_jobs_page(
                 "minWidth": 80,
             },
             "stopEditingWhenCellsLoseFocus": True,  # Important for editable cells (pattern 4.2)
-        }, theme="quartz").classes("w-full").style("height: 400px;")
+        }, theme="quartz").classes("w-full ag-theme-quartz-auto-dark").style("height: 400px;")
         
         # Pre-select rows based on saved state
         if all_selected:

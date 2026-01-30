@@ -15,7 +15,7 @@ All data grids in PRDs and the web UI MUST use AG Grid (`ui.aggrid()`) as the st
 ### MUST DO
 
 1. **Always set explicit `colId`** on every column definition
-2. **Use `theme="quartz"`** for automatic dark/light mode support
+2. **Use `theme="quartz"` AND `ag-theme-quartz-auto-dark` class** - BOTH are required for automatic dark/light mode support
 3. **Use `run_grid_method("setGridOption", ...)`** for runtime column updates
 4. **Convert Observable types to plain dicts**: `[dict(j) for j in data]`
 5. **Use `stopEditingWhenCellsLoseFocus: True`** when cells are editable
@@ -44,7 +44,7 @@ All data grids in PRDs and the web UI MUST use AG Grid (`ui.aggrid()`) as the st
 
 Every AG Grid implementation MUST include:
 
-1. **Theme**: `theme="quartz"` for automatic dark/light mode support
+1. **Theme**: `theme="quartz"` AND `.classes("... ag-theme-quartz-auto-dark")` for automatic dark/light mode support
 2. **Column Filtering**: `defaultColDef.filter: True`
 3. **Column Sorting**: `defaultColDef.sortable: True`
 4. **Column Resizing**: `defaultColDef.resizable: True`
@@ -144,7 +144,7 @@ grid_options = {
     "animateRows": False,  # Stability
 }
 
-grid = ui.aggrid(grid_options, theme="quartz").classes("w-full h-full")
+grid = ui.aggrid(grid_options, theme="quartz").classes("w-full h-full ag-theme-quartz-auto-dark")
 ```
 
 ---
@@ -175,7 +175,7 @@ with ui.element("div").style(
     )
     
     with grid_container:
-        grid = ui.aggrid({...}, theme="quartz").classes("w-full h-full")
+        grid = ui.aggrid({...}, theme="quartz").classes("w-full h-full ag-theme-quartz-auto-dark")
 ```
 
 ### Grid Container Rebuild Pattern
@@ -194,7 +194,7 @@ def build_grid_in_container():
         "columnDefs": column_defs,
         "rowData": row_data,
         ...
-    }, theme="quartz").classes("w-full h-full")
+    }, theme="quartz").classes("w-full h-full ag-theme-quartz-auto-dark")
     
     grid_ref["grid"] = grid
     grid.on("cellClicked", handle_cell_click)
@@ -725,8 +725,8 @@ def create_entity_grid(
         "animateRows": False,
     }
     
-    # Create grid with quartz theme
-    grid = ui.aggrid(grid_options, theme="quartz").classes("w-full h-full")
+    # Create grid with quartz theme and auto-dark mode class
+    grid = ui.aggrid(grid_options, theme="quartz").classes("w-full h-full ag-theme-quartz-auto-dark")
     
     # Pre-select rows
     if pre_selected_ids:

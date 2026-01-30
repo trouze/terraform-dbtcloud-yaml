@@ -1209,7 +1209,7 @@ def create_match_grid(
     
     # Create the grid - use quartz theme for automatic dark/light mode support
     # Use flex-grow to fill available space, with min-height for smaller viewports
-    grid = ui.aggrid(grid_options, theme="quartz").classes("w-full flex-grow").style("height: 100%; min-height: 300px;")
+    grid = ui.aggrid(grid_options, theme="quartz").classes("w-full flex-grow ag-theme-quartz-auto-dark").style("height: 100%; min-height: 300px;")
     
     # Handle cell value changes
     def on_cell_changed(e):
