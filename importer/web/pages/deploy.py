@@ -1342,13 +1342,26 @@ async def _run_generate(
         # reconcile_adopt_rows is populated when user clicks "Generate Import Blocks" on Match Existing tab
         adopt_rows = getattr(state.deploy, "reconcile_adopt_rows", []) or []
         terminal.info(f"Checking adoption overrides: {len(adopt_rows)} row(s) in reconcile_adopt_rows")
+        # #region agent log
+        import json as _json_deploy
+        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+            f.write(_json_deploy.dumps({"location": "deploy.py:adoption_check", "message": "Checking adoption sources", "data": {"reconcile_adopt_rows_len": len(adopt_rows), "has_confirmed_mappings": bool(state.map.confirmed_mappings), "confirmed_mappings_len": len(state.map.confirmed_mappings) if state.map.confirmed_mappings else 0, "has_mapping_file_path": bool(state.map.mapping_file_path)}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "HA"}) + "\n")
+        # #endregion
         
         # Auto-populate adopt_rows from confirmed_mappings if empty
         # This ensures adoption overrides work even after server restart (when reconcile_adopt_rows was lost)
         if not adopt_rows and state.map.confirmed_mappings:
             terminal.info("  Auto-populating adopt_rows from confirmed_mappings...")
-            confirmed_with_action = [m for m in state.map.confirmed_mappings if m.get("action") == "adopt" and m.get("target_id")]
+            # Accept "match", "adopt", or missing action (for older mappings) - all represent mapping to existing target
+            confirmed_with_action = [m for m in state.map.confirmed_mappings if m.get("target_id") and m.get("action") in ("adopt", "match", None)]
+            # #region agent log
+            with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+                sample_mappings = [{"source_key": m.get("source_key"), "action": m.get("action"), "target_id": m.get("target_id"), "resource_type": m.get("resource_type")} for m in state.map.confirmed_mappings[:5]]
+                f.write(_json_deploy.dumps({"location": "deploy.py:auto_populate", "message": "Auto-populate from confirmed_mappings", "data": {"confirmed_mappings_total": len(state.map.confirmed_mappings), "confirmed_with_action_len": len(confirmed_with_action), "sample_mappings": sample_mappings}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "HB"}) + "\n")
+            # #endregion
             if confirmed_with_action:
+                # Get protection status from state.map.protected_resources
+                protected_keys = getattr(state.map, "protected_resources", set()) or set()
                 adopt_rows = [
                     {
                         "source_key": m.get("source_key"),
@@ -1358,10 +1371,11 @@ async def _run_generate(
                         "target_name": m.get("target_name", ""),
                         "project_name": m.get("project_name", ""),
                         "drift_status": m.get("drift_status", "unknown"),
+                        "protected": m.get("source_key") in protected_keys,
                     }
                     for m in confirmed_with_action
                 ]
-                terminal.info(f"  Derived {len(adopt_rows)} adopt rows from confirmed_mappings")
+                terminal.info(f"  Derived {len(adopt_rows)} adopt rows from confirmed_mappings (protected_keys: {len(protected_keys)})")
         
         # Fallback: Load from saved mapping file if still empty and mapping_file_path exists
         if not adopt_rows and state.map.mapping_file_path:
@@ -1374,6 +1388,8 @@ async def _run_generate(
                         mapping_data = _yaml_loader.safe_load(f)
                     if mapping_data and "mappings" in mapping_data:
                         # All mappings from file have target_id and represent existing target resources to adopt
+                        # Get protection status from state.map.protected_resources
+                        protected_keys = getattr(state.map, "protected_resources", set()) or set()
                         file_mappings = [
                             {
                                 "source_key": m.get("source_key"),
@@ -1381,16 +1397,22 @@ async def _run_generate(
                                 "source_name": m.get("source_name", m.get("source_key", "")),
                                 "target_id": m.get("target_id"),
                                 "target_name": m.get("target_name", ""),
+                                "protected": m.get("source_key") in protected_keys,
                             }
                             for m in mapping_data["mappings"]
                             if m.get("target_id") and m.get("target_id") != "None"
                         ]
                         if file_mappings:
                             adopt_rows = file_mappings
-                            terminal.info(f"  Loaded {len(adopt_rows)} adopt rows from mapping file")
+                            terminal.info(f"  Loaded {len(adopt_rows)} adopt rows from mapping file (protected_keys: {len(protected_keys)})")
                 except Exception as e:
                     terminal.warning(f"  Failed to load mapping file: {e}")
         
+        # #region agent log
+        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+            adopt_summary = [{"source_key": r.get("source_key"), "source_type": r.get("source_type"), "target_id": r.get("target_id")} for r in adopt_rows[:10]] if adopt_rows else []
+            f.write(_json_deploy.dumps({"location": "deploy.py:final_adopt_rows", "message": "Final adopt_rows before apply", "data": {"adopt_rows_len": len(adopt_rows), "adopt_rows_sample": adopt_summary}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "HC"}) + "\n")
+        # #endregion
         if adopt_rows:
             terminal.info(f"Applying {len(adopt_rows)} adoption override(s) to YAML...")
             # Debug: show what we're trying to adopt
@@ -1444,6 +1466,10 @@ async def _run_generate(
                             except ValueError:
                                 terminal.warning(f"  Target lookup ({src_type}, {tgt_id}): Invalid target_id")
                     
+                    # #region agent log
+                    with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+                        f.write(_json_deploy.dumps({"location": "deploy.py:before_apply", "message": "About to call apply_adoption_overrides", "data": {"adoption_yaml": str(adoption_yaml), "adopt_rows_len": len(adopt_rows), "target_items_len": len(target_items)}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "HD"}) + "\n")
+                    # #endregion
                     yaml_file = await asyncio.to_thread(
                         apply_adoption_overrides,
                         str(adoption_yaml),

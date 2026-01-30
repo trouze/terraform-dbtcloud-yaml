@@ -1,8 +1,8 @@
 # Importer Implementation Status & Tracking
 
-**Last Updated:** 2026-01-29  
-**Current Importer Version:** 0.15.7  
-**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix + Match Diagnostics Improvements + AG Grid Standardization + Dialog Width Fix + Protection Mismatch Fix
+**Last Updated:** 2026-01-30  
+**Current Importer Version:** 0.15.8  
+**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix + Match Diagnostics Improvements + AG Grid Standardization + Dialog Width Fix + Protection Mismatch Fix + Adoption Override Data Flow Fix
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
 > 
@@ -666,6 +666,15 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2026-01-30 (v0.15.8)
+- **Version:** Incremented to 0.15.8 (patch release - Adoption Override Data Flow Fix)
+- **Critical Bug Fix**: Fixed adoption overrides not being applied during Generate step
+  - `confirmed_mappings` in match.py was not storing the `action` field
+  - deploy.py's filter for `action == "adopt"` always failed because action was never stored
+- **Match Mapping Updates**: Fixed `auto_match_all()` and `on_accept()` to store `action` field in mappings
+- **Action Filter Fix**: Updated deploy.py to accept "match", "adopt", or `None` for backward compatibility
+- **Repository Adoption**: Repository `remote_url` and `git_clone_strategy` now correctly inherit target account values
 
 ### 2026-01-29 (v0.15.7)
 - **Version:** Incremented to 0.15.7 (patch release - Protection Mismatch Fix)

@@ -1156,10 +1156,9 @@ def create_match_grid(
             "headerTooltip": "Protect from destroy - Terraform will refuse to delete protected resources",
             "width": 55,
             "maxWidth": 55,
-            "editable": True,
-            "cellDataType": "boolean",
-            "cellStyle": {"textAlign": "center"},
-            ":cellRenderer": """params => params.value ? '<span style="color: #3B82F6; font-size: 16px;" title="Protected from destroy">🛡️</span>' : '<span style="color: #D1D5DB; font-size: 14px; cursor: pointer;" title="Click to protect">○</span>'""",
+            "editable": False,  # Handle toggle via cellClicked, not built-in editor
+            "cellStyle": {"textAlign": "center", "cursor": "pointer"},
+            ":cellRenderer": """params => params.value ? '<span style="color: #3B82F6; font-size: 16px;" title="Protected from destroy - click to unprotect">🛡️</span>' : '<span style="color: #D1D5DB; font-size: 14px;" title="Click to protect">○</span>'""",
         },
         {
             "field": "target_id",
@@ -1340,14 +1339,12 @@ def create_match_grid(
                 
                 on_row_change(data)
             
-            elif col == "protected":
-                # Protection status changed - pass to callback for cascade handling
-                data["protected"] = new_val
-                on_row_change(data)
+            # Note: protected column is handled via cellClicked for immediate response
     
     grid.on("cellValueChanged", on_cell_changed)
     
     # Handle cell click - trigger details when clicking the details button column
+    # Also handle protection toggle immediately (don't wait for blur)
     def on_cell_clicked(e):
         if e.args:
             col = e.args.get("colId", "")
@@ -1356,6 +1353,15 @@ def create_match_grid(
                 source_key = data.get("source_key", "")
                 if source_key and on_view_details:
                     on_view_details(source_key)
+            elif col == "protected":
+                # Toggle protection immediately on click (don't wait for blur)
+                data = e.args.get("data", {})
+                if data:
+                    # Toggle the protection value
+                    new_protected = not data.get("protected", False)
+                    data["protected"] = new_protected
+                    # Trigger the row change handler immediately
+                    on_row_change(data)
     
     grid.on("cellClicked", on_cell_clicked)
     

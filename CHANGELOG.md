@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.8] - 2026-01-30
+
+### Fixed
+- **Adoption Override Data Flow**: Fixed critical bug where adoption overrides were not being applied during Generate
+  - `confirmed_mappings` in match.py was not storing the `action` field, causing deploy.py's filter for `action == "adopt"` to always fail
+  - Fixed `auto_match_all()` and `on_accept()` to include the `action` field in mappings
+  - Fixed both functions to include rows with action "match" AND "adopt" (both represent mapping to existing target resources)
+  - Updated deploy.py to accept `action` of "match", "adopt", or `None` for backward compatibility
+- **Repository Adoption**: Repository `remote_url` and `git_clone_strategy` now correctly inherit target account values during adoption
+  - Previously, adopted repositories would show plan changes to replace with source values
+  - Now adoption overrides correctly update YAML with target values, resulting in no-change plans
+
 ## [0.15.7] - 2026-01-29
 
 ### Fixed

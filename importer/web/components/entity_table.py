@@ -1262,6 +1262,13 @@ def show_match_detail_dialog(
         on_target_selected: Callback when user selects a target from dropdown
         on_adopt: Callback when user clicks "Set to Adopt" button
     """
+    # region agent log
+    try:
+        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+            import json as _json
+            f.write(_json.dumps({"location": "entity_table.py:show_match_detail_dialog", "message": "ENTER show_match_detail_dialog", "data": {"source_name": source_data.get("name"), "source_key": source_data.get("key"), "grid_row_source_key": grid_row.get("source_key")}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H5"}) + "\n")
+    except: pass
+    # endregion
     type_code = source_data.get("element_type_code", "UNK")
     type_info = RESOURCE_TYPES.get(type_code, {"name": type_code, "code": type_code, "icon": "info", "color": "#6B7280"})
     
@@ -1522,6 +1529,13 @@ def show_match_detail_dialog(
                         has_state_loaded=has_state_loaded,
                     )
     
+    # region agent log
+    try:
+        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+            import json as _json
+            f.write(_json.dumps({"location": "entity_table.py:show_match_detail_dialog", "message": "Calling dialog.open()", "data": {"dialog_exists": dialog is not None}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H5"}) + "\n")
+    except: pass
+    # endregion
     dialog.open()
 
 

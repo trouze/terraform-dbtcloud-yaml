@@ -31,6 +31,11 @@ def apply_adoption_overrides(
     Returns:
         Path to the updated YAML file
     """
+    # #region agent log
+    import json as _json
+    with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+        f.write(_json.dumps({"location": "adoption_yaml_updater.py:entry", "message": "apply_adoption_overrides called", "data": {"adopt_data_type": str(type(adopt_data)), "adopt_data_len": len(adopt_data) if adopt_data else 0, "target_items_len": len(target_report_items) if target_report_items else 0}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H0"}) + "\n")
+    # #endregion
     if not adopt_data:
         logger.info("No adoption data to apply")
         return yaml_file
@@ -49,6 +54,12 @@ def apply_adoption_overrides(
             row for row in adopt_data
             if row.get("target_id")
         ]
+    
+    # #region agent log
+    with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+        adopt_summary = [{"source_key": r.get("source_key"), "source_type": r.get("source_type"), "target_id": r.get("target_id")} for r in adopt_rows]
+        f.write(_json.dumps({"location": "adoption_yaml_updater.py:after_normalize", "message": "adopt_rows after normalization", "data": {"adopt_rows_count": len(adopt_rows), "adopt_rows": adopt_summary}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H0b"}) + "\n")
+    # #endregion
     
     if not adopt_rows:
         logger.info("No adoption mappings to apply")
@@ -120,6 +131,13 @@ def apply_adoption_overrides(
         
         # Apply updates based on resource type
         if resource_type == "REP":
+            # region agent log
+            try:
+                with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+                    import json as _json
+                    f.write(_json.dumps({"location": "adoption_yaml_updater.py:apply_adoption_overrides:REP", "message": "Processing REP adoption", "data": {"source_key": source_key, "target_id": target_id, "protected": protected, "target_remote_url": target_data.get("remote_url"), "target_git_clone_strategy": target_data.get("git_clone_strategy")}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
+            except: pass
+            # endregion
             changes_made += _update_repository(config, source_key, target_data, project_name, protected)
         elif resource_type == "ENV":
             changes_made += _update_environment(config, source_key, target_data, protected)
@@ -224,19 +242,53 @@ def _update_repository(config: dict, source_key: str, target_data: dict, project
     # Format could be "repo_key" or "project_key_repo_key"
     repo_key = source_key
     
+    # Build a list of keys to try matching
+    # This handles the case where source_key is the project key but the
+    # repository has a different key (e.g., project_key="sse_dm_fin_fido" 
+    # but repo_key="dbt_ep_sse_dm_fin_fido")
+    keys_to_try = [repo_key]
+    
+    # Check if source_key matches a project key, and if so, get the project's repository reference
+    for project in config.get("projects", []):
+        if project.get("key") == source_key or project.get("name") == source_key:
+            # This project matches the source_key - get its repository reference
+            project_repo_ref = project.get("repository")
+            if project_repo_ref and project_repo_ref not in keys_to_try:
+                keys_to_try.append(project_repo_ref)
+                logger.info(f"  Found project '{source_key}' references repository '{project_repo_ref}'")
+            break
+    
+    logger.info(f"  Trying to find repository with keys: {keys_to_try}")
+    
+    # region agent log
+    try:
+        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+            import json as _json
+            globals_repo_keys = [r.get("key") for r in config.get("globals", {}).get("repositories", [])]
+            f.write(_json.dumps({"location": "adoption_yaml_updater.py:_update_repository:lookup", "message": "Looking for repository", "data": {"keys_to_try": keys_to_try, "globals_repo_keys_sample": globals_repo_keys[:10] if globals_repo_keys else []}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H2"}) + "\n")
+    except: pass
+    # endregion
+    
     # First check top-level repositories
     for repo in config.get("repositories", []):
-        if repo.get("key") == repo_key:
+        if repo.get("key") in keys_to_try:
             if apply_updates(repo):
-                logger.info(f"Updated top-level repository {repo_key} with target values")
+                logger.info(f"Updated top-level repository {repo.get('key')} with target values")
                 return 1
     
     # Check globals.repositories (v2 schema)
     globals_section = config.get("globals", {})
     for repo in globals_section.get("repositories", []):
-        if repo.get("key") == repo_key:
+        if repo.get("key") in keys_to_try:
+            # region agent log
+            try:
+                with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+                    import json as _json
+                    f.write(_json.dumps({"location": "adoption_yaml_updater.py:_update_repository:found_match", "message": "Found matching repository in globals", "data": {"repo_key": repo.get("key"), "old_remote_url": repo.get("remote_url"), "target_remote_url": target_data.get("remote_url")}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H3"}) + "\n")
+            except: pass
+            # endregion
             if apply_updates(repo):
-                logger.info(f"Updated globals.repositories {repo_key} with target values")
+                logger.info(f"Updated globals.repositories {repo.get('key')} with target values")
                 return 1
     
     # Then check project-level repositories
@@ -248,12 +300,12 @@ def _update_repository(config: dict, source_key: str, target_data: dict, project
         for repo in project.get("repositories", []):
             # Check if key matches directly or with project prefix
             project_key = project.get("key", "")
-            if repo.get("key") == repo_key or f"{project_key}_{repo.get('key')}" == repo_key:
+            if repo.get("key") in keys_to_try or f"{project_key}_{repo.get('key')}" in keys_to_try:
                 if apply_updates(repo):
-                    logger.info(f"Updated project repository {repo_key} (project: {project.get('name')}) with target values")
+                    logger.info(f"Updated project repository {repo.get('key')} (project: {project.get('name')}) with target values")
                     return 1
     
-    logger.warning(f"Repository {repo_key} not found in YAML (checked: repositories, globals.repositories, projects.*.repositories)")
+    logger.warning(f"Repository not found in YAML for keys: {keys_to_try} (checked: repositories, globals.repositories, projects.*.repositories)")
     return 0
 
 

@@ -316,6 +316,7 @@ def _create_matching_content(
         rejected_keys,
         clone_configs,
         state_result=state_ref["state_result"],
+        protected_resources=state.map.protected_resources,
     )
     
     # Stats from grid data - separate primary resources from derived resources
@@ -426,7 +427,8 @@ def _create_matching_content(
             "exact_match", "state_id_match", "url_match", "github_match", "env_match"
         }
         for row in grid_data_ref["data"]:
-            if row.get("status") == "pending" and row.get("action") == "match" and row.get("target_id"):
+            # Include both "match" and "adopt" actions - both represent mapping to existing target resources
+            if row.get("status") == "pending" and row.get("action") in ("match", "adopt") and row.get("target_id"):
                 confidence = row.get("confidence", "manual")
                 state.map.confirmed_mappings.append({
                     "resource_type": row.get("source_type"),
@@ -434,6 +436,8 @@ def _create_matching_content(
                     "source_key": row.get("source_key"),
                     "target_id": row.get("target_id"),
                     "target_name": row.get("target_name"),
+                    # Store the action for deploy.py to filter on
+                    "action": row.get("action"),
                     # Preserve the actual confidence type for better diagnostics
                     "match_type": confidence if confidence in auto_match_types else "manual",
                 })
@@ -584,6 +588,30 @@ def _create_matching_content(
         new_protected = row_data.get("protected", False)
         row_data.get("status")
         
+        # region agent log
+        try:
+            with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+                import json as _json
+                f.write(_json.dumps({"location": "match.py:on_row_change:entry", "message": "Row change received", "data": {"source_key": source_key, "action": action, "new_protected": new_protected, "in_protected_resources": source_key in state.map.protected_resources}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
+        except: pass
+        # endregion
+        
+        # IMPORTANT: Always update grid_data_ref immediately so dialogs see current state
+        # This must happen BEFORE any early returns for cascade dialogs
+        # Also update yaml_protected to stay consistent with the user's intent
+        row_data["yaml_protected"] = new_protected
+        for i, row in enumerate(grid_data_ref["data"]):
+            if row.get("source_key") == source_key:
+                grid_data_ref["data"][i] = row_data
+                # region agent log
+                try:
+                    with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+                        import json as _json
+                        f.write(_json.dumps({"location": "match.py:on_row_change:grid_update", "message": "Updated grid_data_ref", "data": {"source_key": source_key, "new_protected": new_protected, "yaml_protected": row_data.get("yaml_protected"), "row_protected_after": grid_data_ref["data"][i].get("protected")}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
+                except: pass
+                # endregion
+                break
+        
         # Check if protection status changed
         old_protected = source_key in state.map.protected_resources
         
@@ -605,7 +633,11 @@ def _create_matching_content(
             else:
                 # No parents to protect, just protect this one
                 state.map.protected_resources.add(source_key)
+                save_state()
                 ui.notify(f"Protected: {target_resource.name}", type="positive")
+                # Reload to refresh protection mismatch panel
+                ui.navigate.reload()
+                return
         
         elif not new_protected and old_protected:
             # User is removing protection - check for protected children
@@ -626,13 +658,14 @@ def _create_matching_content(
             else:
                 # No protected children, just unprotect
                 state.map.protected_resources.discard(source_key)
+                save_state()
                 ui.notify(f"Unprotected: {target_resource.name}", type="info")
+                # Reload to refresh protection mismatch panel
+                ui.navigate.reload()
+                return
         
-        # Update grid data ref
-        for i, row in enumerate(grid_data_ref["data"]):
-            if row.get("source_key") == source_key:
-                grid_data_ref["data"][i] = row_data
-                break
+        # Note: grid_data_ref update now happens at the start of this function
+        # to ensure dialogs always see the current state
         
         # If action is match and has valid target, it can be confirmed
         # If action is skip or create_new, remove from confirmed if present
@@ -655,6 +688,7 @@ def _create_matching_content(
                         "source_key": source_key,
                         "target_id": row.get("target_id"),
                         "target_name": row.get("target_name"),
+                        "action": row.get("action", "adopt"),  # Include action for deploy.py
                         "match_type": "manual",
                     })
                     row["status"] = "confirmed"
@@ -674,11 +708,33 @@ def _create_matching_content(
     
     def find_source_item(source_key: str) -> Optional[dict]:
         """Find source item by key, checking both 'key' and 'element_mapping_id'."""
+        # region agent log
+        try:
+            with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+                import json as _json
+                f.write(_json.dumps({"location": "match.py:find_source_item", "message": "Looking for source_key", "data": {"source_key": source_key, "source_items_count": len(source_items)}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
+        except: pass
+        # endregion
         # Items with key=null use element_mapping_id as their key
         for s in source_items:
             item_key = s.get("key") or s.get("element_mapping_id", "")
             if item_key == source_key:
+                # region agent log
+                try:
+                    with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+                        import json as _json
+                        f.write(_json.dumps({"location": "match.py:find_source_item", "message": "FOUND source_item", "data": {"source_key": source_key, "item_type": s.get("element_type_code"), "item_name": s.get("name")}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
+                except: pass
+                # endregion
                 return s
+        # region agent log
+        try:
+            sample_keys = [s.get("key") or s.get("element_mapping_id", "") for s in source_items[:10]]
+            with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+                import json as _json
+                f.write(_json.dumps({"location": "match.py:find_source_item", "message": "NOT FOUND - source_key not in source_items", "data": {"source_key": source_key, "sample_keys": sample_keys}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
+        except: pass
+        # endregion
         return None
     
     def on_view_details(source_key: str):
@@ -789,6 +845,13 @@ def _create_matching_content(
         
         # Regular resource - use enhanced match detail dialog with drift info
         source_item = find_source_item(source_key)
+        # region agent log
+        try:
+            with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+                import json as _json
+                f.write(_json.dumps({"location": "match.py:on_view_details", "message": "After find_source_item", "data": {"source_key": source_key, "source_item_found": source_item is not None, "source_item_type": source_item.get("element_type_code") if source_item else None}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H2"}) + "\n")
+        except: pass
+        # endregion
         if source_item:
             from importer.web.components.entity_table import show_match_detail_dialog
             
@@ -798,6 +861,14 @@ def _create_matching_content(
                 if row.get("source_key") == source_key:
                     grid_row = row
                     break
+            
+            # region agent log
+            try:
+                with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+                    import json as _json
+                    f.write(_json.dumps({"location": "match.py:on_view_details:grid_row_lookup", "message": "Found grid row for dialog", "data": {"source_key": source_key, "grid_row_found": grid_row is not None, "grid_row_protected": grid_row.get("protected") if grid_row else None, "in_protected_resources": source_key in state.map.protected_resources}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H3"}) + "\n")
+            except: pass
+            # endregion
             
             if not grid_row:
                 grid_row = {"source_key": source_key, "drift_status": "no_state"}
@@ -966,6 +1037,13 @@ def _create_matching_content(
                 ui.notify(f"Set {source_item.get('name', source_key)} to adopt{protection_msg}", type="positive")
                 ui.navigate.reload()
             
+            # region agent log
+            try:
+                with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+                    import json as _json
+                    f.write(_json.dumps({"location": "match.py:on_view_details", "message": "Calling show_match_detail_dialog", "data": {"source_key": source_key, "has_target": target_data is not None, "has_state_resource": state_resource is not None}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H5"}) + "\n")
+            except: pass
+            # endregion
             show_match_detail_dialog(
                 source_data=source_item,
                 grid_row=grid_row,
@@ -977,6 +1055,15 @@ def _create_matching_content(
                 on_target_selected=handle_target_selected,
                 on_adopt=handle_adopt,
             )
+        else:
+            # region agent log
+            try:
+                with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+                    import json as _json
+                    f.write(_json.dumps({"location": "match.py:on_view_details", "message": "source_item is None - dialog NOT opened", "data": {"source_key": source_key}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
+            except: pass
+            # endregion
+            ui.notify(f"Source resource not found: {source_key}", type="warning")
     
     def on_configure_clone(source_key: str):
         """Configure clone for a resource set to Create New."""
@@ -1898,7 +1985,7 @@ def _create_matching_content(
                     # Use persistent state for fix tracking (survives page re-renders)
                     # state.map.protection_fix_pending, protection_fix_file_path, protection_fix_previous_content
                     
-                    def undo_all_protection_fixes(fix_btn, undo_btn, status_container):
+                    def undo_all_protection_fixes(protect_btn, unprotect_btn, undo_btn, status_container):
                         """Restore the previous protection_moves.tf content."""
                         if not state.map.protection_fix_pending:
                             ui.notify("No pending fix to undo", type="warning")
@@ -1920,6 +2007,7 @@ def _create_matching_content(
                             state.map.protection_fix_pending = False
                             state.map.protection_fix_file_path = ""
                             state.map.protection_fix_previous_content = ""
+                            state.map.protection_fix_action = ""
                             
                             # Restore protection sets from backup
                             if state.map.protection_fix_backup_protected:
@@ -1931,11 +2019,17 @@ def _create_matching_content(
                             
                             save_state()
                             
-                            # Reset button states - remove disabled and reset color
-                            fix_btn.props(remove="disabled")
-                            fix_btn.props("color=warning")
-                            fix_btn.set_text(f"Fix All ({len(protection_mismatches)})")
-                            fix_btn.set_icon("build")
+                            # Reset button states - enable both, reset colors and text
+                            protect_btn.props(remove="disabled")
+                            protect_btn.props("color=positive")
+                            protect_btn.set_text(f"Protect All ({len(protection_mismatches)})")
+                            protect_btn.set_icon("shield")
+                            
+                            unprotect_btn.props(remove="disabled")
+                            unprotect_btn.props("color=warning")
+                            unprotect_btn.set_text(f"Unprotect All ({len(protection_mismatches)})")
+                            unprotect_btn.set_icon("shield_outlined")
+                            
                             undo_btn.set_visibility(False)
                             
                             # Clear status container
@@ -1944,8 +2038,12 @@ def _create_matching_content(
                         except Exception as e:
                             ui.notify(f"Error undoing fix: {e}", type="negative")
                     
-                    def fix_all_protection_mismatches(fix_btn, undo_btn, status_container):
-                        """Generate moved blocks for all protection mismatches"""
+                    def apply_protection_fix(action: str, protect_btn, unprotect_btn, undo_btn, status_container):
+                        """Generate moved blocks for protection changes.
+                        
+                        Args:
+                            action: Either 'protect' or 'unprotect'
+                        """
                         from datetime import datetime
                         
                         # Resolve terraform directory
@@ -1968,31 +2066,53 @@ def _create_matching_content(
                             previous_content = moves_file.read_text()
                         state.map.protection_fix_previous_content = previous_content
                         
-                        # Group mismatches by project to generate all moves together
+                        # Filter mismatches based on action
+                        # protect: resources that need moved blocks TO protected (state=unprotected)
+                        # unprotect: resources that need moved blocks FROM protected (state=protected)
+                        if action == "protect":
+                            # For "protect": move unprotected → protected, or keep already-protected
+                            # Only need moved blocks for resources currently NOT protected in state
+                            target_mismatches = [m for m in protection_mismatches if not m["state_protected"]]
+                            # Also handle resources that ARE protected in state but YAML says not protected
+                            # These just need YAML updated, no moved blocks
+                            yaml_only_updates = [m for m in protection_mismatches if m["state_protected"] and not m["yaml_protected"]]
+                        else:  # unprotect
+                            # For "unprotect": move protected → unprotected, or keep already-unprotected
+                            # Only need moved blocks for resources currently protected in state
+                            target_mismatches = [m for m in protection_mismatches if m["state_protected"]]
+                            # Also handle resources that are NOT protected in state but YAML says protected
+                            # These just need YAML updated, no moved blocks
+                            yaml_only_updates = [m for m in protection_mismatches if not m["state_protected"] and m["yaml_protected"]]
+                        
+                        # Group mismatches by project
                         by_project: dict[str, list] = {}
-                        for m in protection_mismatches:
+                        for m in target_mismatches:
                             pkey = m.get("project_name") or m.get("key")
                             if pkey not in by_project:
                                 by_project[pkey] = []
                             by_project[pkey].append(m)
                         
                         # Generate moved blocks
-                        # Track which types we've generated for each key to avoid duplicates
-                        generated_moves: set[tuple[str, str]] = set()  # (type, key)
+                        generated_moves: set[tuple[str, str]] = set()
                         blocks = []
                         block_count = 0
                         
                         for project_key, items in sorted(by_project.items()):
-                            blocks.append(f"# Protection moves for {project_key}")
+                            blocks.append(f"# {action.upper()} moves for {project_key}")
                             for m in items:
                                 rtype = m["type"]
                                 rkey = m["key"]
-                                state_protected = m["state_protected"]
                                 
                                 if rtype in EXTENDED_RESOURCE_TYPE_MAP and (rtype, rkey) not in generated_moves:
                                     tf_type, unprotected, protected = EXTENDED_RESOURCE_TYPE_MAP[rtype]
-                                    from_block = protected if state_protected else unprotected
-                                    to_block = unprotected if state_protected else protected
+                                    
+                                    if action == "protect":
+                                        from_block = unprotected
+                                        to_block = protected
+                                    else:
+                                        from_block = protected
+                                        to_block = unprotected
+                                    
                                     blocks.append(f'''moved {{
   from = {module_prefix}.{tf_type}.{from_block}["{rkey}"]
   to   = {module_prefix}.{tf_type}.{to_block}["{rkey}"]
@@ -2000,24 +2120,26 @@ def _create_matching_content(
                                     block_count += 1
                                     generated_moves.add((rtype, rkey))
                                     
-                                    # REP and PREP are linked - if REP moves, PREP must also move
-                                    # Add PREP moved block automatically when REP is detected
+                                    # REP and PREP are linked
                                     if rtype == "REP" and ("PREP", rkey) not in generated_moves:
                                         prep_tf_type, prep_unprotected, prep_protected = EXTENDED_RESOURCE_TYPE_MAP["PREP"]
-                                        prep_from = prep_protected if state_protected else prep_unprotected
-                                        prep_to = prep_unprotected if state_protected else prep_protected
+                                        if action == "protect":
+                                            prep_from, prep_to = prep_unprotected, prep_protected
+                                        else:
+                                            prep_from, prep_to = prep_protected, prep_unprotected
                                         blocks.append(f'''moved {{
   from = {module_prefix}.{prep_tf_type}.{prep_from}["{rkey}"]
   to   = {module_prefix}.{prep_tf_type}.{prep_to}["{rkey}"]
 }}''')
                                         block_count += 1
                                         generated_moves.add(("PREP", rkey))
-                            blocks.append("")  # Empty line between projects
+                            blocks.append("")
                         
-                        content = f'''# Generated moved blocks for protection status changes
-# Reconciles state protection status with YAML configuration
+                        action_label = "PROTECT" if action == "protect" else "UNPROTECT"
+                        content = f'''# Generated moved blocks to {action_label} resources
+# Action: {action_label}
 # Generated: {datetime.now().isoformat()}
-# Projects: {', '.join(sorted(by_project.keys()))}
+# Projects: {', '.join(sorted(by_project.keys())) if by_project else 'None (YAML-only updates)'}
 
 ''' + "\n".join(blocks)
                         
@@ -2027,96 +2149,208 @@ def _create_matching_content(
                             # Update persistent state
                             state.map.protection_fix_pending = True
                             state.map.protection_fix_file_path = str(moves_file)
+                            state.map.protection_fix_action = action  # Track which action was taken
                             
                             # Backup current protection state for undo
                             state.map.protection_fix_backup_protected = set(state.map.protected_resources)
                             state.map.protection_fix_backup_unprotected = set(state.map.unprotected_keys)
                             
-                            # CRITICAL: Also update protected_resources to reflect the new protection status
-                            # This ensures that when "Generate Files" is re-run, the YAML is updated
+                            # Update YAML protection sets based on action
                             for m in protection_mismatches:
                                 rkey = m["key"]
-                                if m["state_protected"] and not m.get("yaml_protected", False):
-                                    # Moving from protected to unprotected - remove from set
-                                    state.map.protected_resources.discard(rkey)
-                                    state.map.unprotected_keys.add(rkey)
-                                elif not m["state_protected"] and m.get("yaml_protected", True):
-                                    # Moving from unprotected to protected - add to set
+                                if action == "protect":
+                                    # Add ALL mismatched resources to protected set
                                     state.map.protected_resources.add(rkey)
                                     state.map.unprotected_keys.discard(rkey)
+                                else:  # unprotect
+                                    # Remove ALL mismatched resources from protected set
+                                    state.map.protected_resources.discard(rkey)
+                                    state.map.unprotected_keys.add(rkey)
                             
                             save_state()
                             
-                            # Update button to show success
-                            fix_btn.props("color=positive disabled")
-                            fix_btn.set_text("Fix Queued")
-                            fix_btn.set_icon("check_circle")
+                            # Update buttons to show success
+                            protect_btn.props("disabled")
+                            unprotect_btn.props("disabled")
+                            if action == "protect":
+                                protect_btn.props("color=positive")
+                                protect_btn.set_text("Protection Queued")
+                                protect_btn.set_icon("shield")
+                            else:
+                                unprotect_btn.props("color=positive")
+                                unprotect_btn.set_text("Unprotection Queued")
+                                unprotect_btn.set_icon("shield_outlined")
                             
                             # Show undo button
                             undo_btn.set_visibility(True)
                             
-                            # Show pending status in container
+                            # Show pending status
                             with status_container:
                                 status_container.clear()
-                                with ui.card().classes("w-full p-3 mt-3").style("background: #ECFDF5; border: 1px solid #10B981;"):
-                                    with ui.row().classes("items-center justify-between"):
-                                        with ui.row().classes("items-center gap-2"):
-                                            ui.icon("hourglass_empty", size="sm").classes("text-green-600")
-                                            ui.label("PENDING FIX").classes("font-bold text-green-700")
-                                    ui.label(f"Wrote {block_count} moved blocks to: {moves_file.name}").classes("text-sm text-green-700 mt-1")
-                                    ui.label("Run 'terraform plan' then 'terraform apply' to complete the fix").classes("text-xs text-green-600")
+                                color = "#ECFDF5" if action == "protect" else "#FEF3C7"
+                                border_color = "#10B981" if action == "protect" else "#F59E0B"
+                                text_color = "green" if action == "protect" else "amber"
+                                icon_name = "shield" if action == "protect" else "shield_outlined"
+                                
+                                with ui.card().classes("w-full p-3 mt-3").style(f"background: {color}; border: 1px solid {border_color};"):
+                                    with ui.row().classes("items-center gap-2"):
+                                        ui.icon(icon_name, size="sm").classes(f"text-{text_color}-600")
+                                        ui.label(f"PENDING {action_label}").classes(f"font-bold text-{text_color}-700")
+                                    if block_count > 0:
+                                        ui.label(f"Wrote {block_count} moved blocks to: {moves_file.name}").classes(f"text-sm text-{text_color}-700 mt-1")
+                                    if yaml_only_updates:
+                                        ui.label(f"Plus {len(yaml_only_updates)} YAML-only updates (no state change needed)").classes(f"text-sm text-{text_color}-700")
+                                    ui.label("Run 'Generate Files' then 'terraform plan/apply' to complete").classes(f"text-xs text-{text_color}-600")
                             
-                            # Clear confirmation notifications
-                            ui.notify(
-                                f"SUCCESS: Generated {block_count} moved blocks for {len(unique_projects_with_mismatches)} project(s)",
-                                type="positive",
-                                timeout=5000,
-                            )
-                            ui.notify(
-                                "Next: Go to Generate tab and run 'terraform plan' to verify",
-                                type="info", 
-                                timeout=8000,
-                            )
+                            ui.notify(f"SUCCESS: {action_label} queued for {len(protection_mismatches)} resource(s)", type="positive")
                         except Exception as e:
                             ui.notify(f"Error writing file: {e}", type="negative")
                     
+                    def show_protect_confirmation():
+                        """Show confirmation dialog before protecting resources."""
+                        # Categorize what will happen
+                        need_moved = [m for m in protection_mismatches if not m["state_protected"]]
+                        need_yaml_only = [m for m in protection_mismatches if m["state_protected"] and not m["yaml_protected"]]
+                        
+                        with ui.dialog() as confirm_dialog, ui.card().style("width: 600px; max-width: 90vw;"):
+                            ui.label("Confirm: PROTECT Resources").classes("text-xl font-bold text-green-700")
+                            ui.separator()
+                            
+                            ui.markdown(f"""
+This will **PROTECT** all {len(protection_mismatches)} mismatched resource(s):
+
+- Resources will be in the **protected_*** Terraform collections
+- YAML will have **`protected: true`** for these resources
+- Protected resources cannot be destroyed without explicit unprotection
+""").classes("text-sm")
+                            
+                            if need_moved:
+                                ui.label(f"State Changes ({len(need_moved)} resources):").classes("font-semibold mt-3")
+                                with ui.scroll_area().classes("max-h-32 w-full border rounded p-2"):
+                                    for m in need_moved:
+                                        tf_type, unprotected, protected = EXTENDED_RESOURCE_TYPE_MAP.get(m["type"], ("?", "?", "?"))
+                                        ui.label(f"• {m['type']}:{m['key']} → {unprotected} → {protected}").classes("text-xs font-mono")
+                            
+                            if need_yaml_only:
+                                ui.label(f"YAML-Only Updates ({len(need_yaml_only)} resources):").classes("font-semibold mt-3")
+                                with ui.scroll_area().classes("max-h-32 w-full border rounded p-2"):
+                                    for m in need_yaml_only:
+                                        ui.label(f"• {m['type']}:{m['key']} (already protected in state, add to YAML)").classes("text-xs font-mono")
+                            
+                            ui.separator().classes("my-3")
+                            
+                            with ui.row().classes("w-full justify-end gap-2"):
+                                ui.button("Cancel", on_click=confirm_dialog.close).props("flat")
+                                ui.button(
+                                    "Yes, Protect All",
+                                    icon="shield",
+                                    on_click=lambda: (
+                                        confirm_dialog.close(),
+                                        apply_protection_fix("protect", protect_btn, unprotect_btn, undo_btn, fix_status_container),
+                                    ),
+                                ).props("color=positive")
+                        
+                        confirm_dialog.open()
+                    
+                    def show_unprotect_confirmation():
+                        """Show confirmation dialog before unprotecting resources."""
+                        need_moved = [m for m in protection_mismatches if m["state_protected"]]
+                        need_yaml_only = [m for m in protection_mismatches if not m["state_protected"] and m["yaml_protected"]]
+                        
+                        with ui.dialog() as confirm_dialog, ui.card().style("width: 600px; max-width: 90vw;"):
+                            ui.label("Confirm: UNPROTECT Resources").classes("text-xl font-bold text-amber-700")
+                            ui.separator()
+                            
+                            ui.markdown(f"""
+This will **UNPROTECT** all {len(protection_mismatches)} mismatched resource(s):
+
+- Resources will be in the **regular** Terraform collections (not protected_*)
+- YAML will **NOT** have `protected: true` for these resources  
+- ⚠️ **Warning**: Unprotected resources CAN be destroyed by Terraform
+""").classes("text-sm")
+                            
+                            if need_moved:
+                                ui.label(f"State Changes ({len(need_moved)} resources):").classes("font-semibold mt-3")
+                                with ui.scroll_area().classes("max-h-32 w-full border rounded p-2"):
+                                    for m in need_moved:
+                                        tf_type, unprotected, protected = EXTENDED_RESOURCE_TYPE_MAP.get(m["type"], ("?", "?", "?"))
+                                        ui.label(f"• {m['type']}:{m['key']} → {protected} → {unprotected}").classes("text-xs font-mono")
+                            
+                            if need_yaml_only:
+                                ui.label(f"YAML-Only Updates ({len(need_yaml_only)} resources):").classes("font-semibold mt-3")
+                                with ui.scroll_area().classes("max-h-32 w-full border rounded p-2"):
+                                    for m in need_yaml_only:
+                                        ui.label(f"• {m['type']}:{m['key']} (already unprotected in state, remove from YAML)").classes("text-xs font-mono")
+                            
+                            ui.separator().classes("my-3")
+                            
+                            with ui.row().classes("w-full justify-end gap-2"):
+                                ui.button("Cancel", on_click=confirm_dialog.close).props("flat")
+                                ui.button(
+                                    "Yes, Unprotect All",
+                                    icon="shield_outlined",
+                                    on_click=lambda: (
+                                        confirm_dialog.close(),
+                                        apply_protection_fix("unprotect", protect_btn, unprotect_btn, undo_btn, fix_status_container),
+                                    ),
+                                ).props("color=warning")
+                        
+                        confirm_dialog.open()
+                    
                     # Check if there's already a pending fix from persistent state
                     has_pending_fix = state.map.protection_fix_pending
+                    pending_action = getattr(state.map, 'protection_fix_action', None)
+                    
+                    # Count resources by current state for button labels
+                    can_protect = sum(1 for m in protection_mismatches if not m["state_protected"] or not m["yaml_protected"])
+                    can_unprotect = sum(1 for m in protection_mismatches if m["state_protected"] or m["yaml_protected"])
                     
                     if has_pending_fix:
-                        # Restore "Fix Queued" state
-                        fix_btn = ui.button(
-                            "Fix Queued",
-                            icon="check_circle",
-                        ).props("color=positive disabled")
+                        # Show which action was taken
+                        if pending_action == "protect":
+                            protect_btn = ui.button("Protection Queued", icon="shield").props("color=positive disabled")
+                            unprotect_btn = ui.button(f"Unprotect All", icon="shield_outlined").props("color=grey disabled")
+                        else:
+                            protect_btn = ui.button(f"Protect All", icon="shield").props("color=grey disabled")
+                            unprotect_btn = ui.button("Unprotection Queued", icon="shield_outlined").props("color=positive disabled")
                     else:
-                        fix_btn = ui.button(
-                            f"Fix All ({len(protection_mismatches)})",
-                            icon="build",
+                        # Show both options
+                        protect_btn = ui.button(
+                            f"Protect All ({len(protection_mismatches)})",
+                            icon="shield",
+                            on_click=show_protect_confirmation,
+                        ).props("color=positive")
+                        
+                        unprotect_btn = ui.button(
+                            f"Unprotect All ({len(protection_mismatches)})",
+                            icon="shield_outlined",
+                            on_click=show_unprotect_confirmation,
                         ).props("color=warning")
                     
                     # Undo button - shown if there's a pending fix
                     undo_btn = ui.button(
                         "Undo",
                         icon="undo",
+                        on_click=lambda: undo_all_protection_fixes(protect_btn, unprotect_btn, undo_btn, fix_status_container),
                     ).props("color=grey outline")
                     undo_btn.set_visibility(has_pending_fix)
-                    
-                    # Wire up click handlers
-                    fix_btn.on_click(lambda: fix_all_protection_mismatches(fix_btn, undo_btn, fix_status_container))
-                    undo_btn.on_click(lambda: undo_all_protection_fixes(fix_btn, undo_btn, fix_status_container))
                     
                     # Show pending status if there's already a fix queued
                     if has_pending_fix and state.map.protection_fix_file_path:
                         with fix_status_container:
-                            with ui.card().classes("w-full p-3 mt-3").style("background: #ECFDF5; border: 1px solid #10B981;"):
-                                with ui.row().classes("items-center justify-between"):
-                                    with ui.row().classes("items-center gap-2"):
-                                        ui.icon("hourglass_empty", size="sm").classes("text-green-600")
-                                        ui.label("PENDING FIX").classes("font-bold text-green-700")
+                            action_label = "PROTECT" if pending_action == "protect" else "UNPROTECT"
+                            color = "#ECFDF5" if pending_action == "protect" else "#FEF3C7"
+                            border_color = "#10B981" if pending_action == "protect" else "#F59E0B"
+                            text_color = "green" if pending_action == "protect" else "amber"
+                            icon_name = "shield" if pending_action == "protect" else "shield_outlined"
+                            
+                            with ui.card().classes("w-full p-3 mt-3").style(f"background: {color}; border: 1px solid {border_color};"):
+                                with ui.row().classes("items-center gap-2"):
+                                    ui.icon(icon_name, size="sm").classes(f"text-{text_color}-600")
+                                    ui.label(f"PENDING {action_label}").classes(f"font-bold text-{text_color}-700")
                                 moves_file_name = Path(state.map.protection_fix_file_path).name
-                                ui.label(f"Moved blocks written to: {moves_file_name}").classes("text-sm text-green-700 mt-1")
-                                ui.label("Run 'terraform plan' then 'terraform apply' to complete the fix").classes("text-xs text-green-600")
+                                ui.label(f"Moved blocks written to: {moves_file_name}").classes(f"text-sm text-{text_color}-700 mt-1")
+                                ui.label("Run 'Generate Files' then 'terraform plan/apply' to complete").classes(f"text-xs text-{text_color}-600")
     
     # Save mapping file section (show if there are any confirmed or pending matches)
     has_matches = any(r.get("action") == "match" and r.get("target_id") for r in grid_row_data)

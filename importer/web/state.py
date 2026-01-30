@@ -484,6 +484,7 @@ class MapState:
     protection_fix_pending: bool = False
     protection_fix_file_path: str = ""
     protection_fix_previous_content: str = ""
+    protection_fix_action: str = ""  # "protect" or "unprotect"
     # Backup of protection sets before fix was applied (for undo)
     protection_fix_backup_protected: set = field(default_factory=set)
     protection_fix_backup_unprotected: set = field(default_factory=set)
@@ -914,6 +915,7 @@ class AppState:
                 # Protection fix state
                 "protection_fix_pending": self.map.protection_fix_pending,
                 "protection_fix_file_path": self.map.protection_fix_file_path,
+                "protection_fix_action": self.map.protection_fix_action,
                 "protection_fix_backup_protected": list(self.map.protection_fix_backup_protected),
                 "protection_fix_backup_unprotected": list(self.map.protection_fix_backup_unprotected),
             },
@@ -1078,6 +1080,7 @@ class AppState:
             # Protection fix state
             state.map.protection_fix_pending = m.get("protection_fix_pending", False)
             state.map.protection_fix_file_path = m.get("protection_fix_file_path", "")
+            state.map.protection_fix_action = m.get("protection_fix_action", "")
             state.map.protection_fix_backup_protected = set(m.get("protection_fix_backup_protected", []))
             state.map.protection_fix_backup_unprotected = set(m.get("protection_fix_backup_unprotected", []))
 
