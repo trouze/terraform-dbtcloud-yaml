@@ -244,6 +244,12 @@ def setup_page(state: AppState) -> None:
         .dark .ag-theme-quartz-auto-dark .ag-cell, .body--dark .ag-theme-quartz-auto-dark .ag-cell {
             color: #e0e0e0 !important;
         }
+        
+        /* Global dialog/popup styling - 90% width of viewport */
+        .q-dialog__inner > .q-card {
+            width: 90vw !important;
+            max-width: 90vw !important;
+        }
     """)
 
     # Create navigation drawer with callbacks
