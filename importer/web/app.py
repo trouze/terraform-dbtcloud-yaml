@@ -245,6 +245,18 @@ def setup_page(state: AppState) -> None:
             color: #e0e0e0 !important;
         }
         
+        /* Global AG Grid font size standardization - matches text-xs (12px) */
+        .ag-theme-quartz .ag-cell,
+        .ag-theme-quartz-auto-dark .ag-cell,
+        .ag-theme-quartz .ag-header-cell-text,
+        .ag-theme-quartz-auto-dark .ag-header-cell-text {
+            font-size: 12px !important;
+        }
+        .ag-theme-quartz .ag-header-cell,
+        .ag-theme-quartz-auto-dark .ag-header-cell {
+            font-size: 12px !important;
+        }
+        
         /* Global dialog/popup styling - 90% width of viewport */
         .q-dialog__inner > .q-card {
             width: 90vw !important;

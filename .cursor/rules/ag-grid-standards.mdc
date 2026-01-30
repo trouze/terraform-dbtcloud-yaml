@@ -28,6 +28,7 @@ All data grids in PRDs and the web UI MUST use AG Grid (`ui.aggrid()`) as the st
 12. **Use `animateRows: False`** for stability
 13. **For dialogs**: Use `with ui.dialog() as dialog, ui.card()` pattern, call `dialog.open()` after
 14. **Always include a close button** in dialogs
+15. **Font size: 12px** - Global standard is 12px (Tailwind `text-xs`) for all grid cells and headers
 
 ### MUST NOT DO
 
