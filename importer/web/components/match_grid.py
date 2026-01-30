@@ -943,6 +943,42 @@ def build_grid_data(
         # Protected if user-set OR state indicates protection
         row["protected"] = source_key in protected_resources or is_state_protected
     
+    # Post-process: CRD drift status inheritance from parent ENV
+    # CRDs don't exist in Terraform state directly - they're embedded in environment resources.
+    # If the parent ENV is in_sync, the CRD should show as in_sync for better UX.
+    if state_result:
+        # Build lookup of ENV drift status by (project_name, env_name)
+        env_drift_by_key: dict[tuple[str, str], str] = {}
+        for row in rows:
+            if row.get("source_type") == "ENV":
+                proj = row.get("project_name", "")
+                env_name = row.get("source_name", "")
+                drift = row.get("drift_status", "")
+                if proj and env_name and drift:
+                    env_drift_by_key[(proj, env_name)] = drift
+        
+        # Now update CRD rows to inherit parent ENV drift status
+        for row in rows:
+            if row.get("source_type") == "CRD":
+                proj = row.get("project_name", "")
+                # CRD source_name is often like "Credential (snowflake, ...)" but we need env_name
+                # Look for environment_name in the source item or derive from context
+                # Since CRD is matched by (proj, env) key, we can extract env_name from source data
+                crd_drift = row.get("drift_status", "")
+                
+                # Only inherit if CRD has no meaningful drift status
+                if crd_drift in (DRIFT_NO_STATE, None, ""):
+                    # Try to find matching source item to get environment_name
+                    crd_source_key = row.get("source_key", "")
+                    for source in source_items:
+                        if source.get("key") == crd_source_key:
+                            env_name = source.get("environment_name", "")
+                            if proj and env_name:
+                                parent_drift = env_drift_by_key.get((proj, env_name))
+                                if parent_drift == DRIFT_IN_SYNC:
+                                    row["drift_status"] = DRIFT_IN_SYNC
+                            break
+    
     return rows
 
 
@@ -1196,6 +1232,7 @@ def create_match_grid(
             "filter": True,
         },
         "rowClassRules": {
+            "row-matched": "data.action === 'match' && data.target_id && data.target_id.length > 0",
             "row-confirmed": "data.status === 'confirmed'",
             "row-error": "data.status === 'error'",
             "row-skipped": "data.status === 'skipped' || data.action === 'skip'",
@@ -1304,9 +1341,35 @@ def create_match_grid(
     
     # Custom CSS for cell class rules and row classes - with dark mode support
     ui.add_css("""
-        /* Row background colors based on status */
+        /* Row background colors based on match/status - high specificity to override AG Grid defaults */
+        .ag-theme-quartz .ag-row.row-matched,
+        .ag-theme-quartz-auto-dark .ag-row.row-matched {
+            background-color: rgba(16, 185, 129, 0.12) !important;
+        }
+        .ag-theme-quartz .ag-row.row-confirmed,
+        .ag-theme-quartz-auto-dark .ag-row.row-confirmed {
+            background-color: rgba(16, 185, 129, 0.20) !important;
+        }
+        .ag-theme-quartz .ag-row.row-error,
+        .ag-theme-quartz-auto-dark .ag-row.row-error {
+            background-color: rgba(239, 68, 68, 0.15) !important;
+        }
+        .ag-theme-quartz .ag-row.row-skipped,
+        .ag-theme-quartz-auto-dark .ag-row.row-skipped {
+            background-color: rgba(156, 163, 175, 0.15) !important;
+        }
+        .ag-theme-quartz .ag-row.row-protected,
+        .ag-theme-quartz-auto-dark .ag-row.row-protected {
+            background-color: rgba(59, 130, 246, 0.08) !important;
+            border-left: 3px solid #3B82F6 !important;
+        }
+        
+        /* Legacy selectors for backwards compatibility */
+        .row-matched {
+            background-color: rgba(16, 185, 129, 0.12) !important;
+        }
         .row-confirmed {
-            background-color: rgba(16, 185, 129, 0.15) !important;
+            background-color: rgba(16, 185, 129, 0.20) !important;
         }
         .row-error {
             background-color: rgba(239, 68, 68, 0.15) !important;
@@ -1354,21 +1417,52 @@ def create_match_grid(
         .drift-state-only { color: #3B82F6 !important; font-weight: 600; background-color: rgba(59, 130, 246, 0.15) !important; }
         .drift-none { color: #9CA3AF !important; }
         
-        /* Dark mode overrides */
-        .dark .row-confirmed,
-        .body--dark .row-confirmed {
-            background-color: rgba(16, 185, 129, 0.25) !important;
+        /* Dark mode overrides - high specificity to override AG Grid defaults */
+        .dark .ag-theme-quartz .ag-row.row-matched,
+        .body--dark .ag-theme-quartz .ag-row.row-matched,
+        .dark .ag-theme-quartz-auto-dark .ag-row.row-matched,
+        .body--dark .ag-theme-quartz-auto-dark .ag-row.row-matched {
+            background-color: rgba(16, 185, 129, 0.20) !important;
         }
-        .dark .row-error,
-        .body--dark .row-error {
+        .dark .ag-theme-quartz .ag-row.row-confirmed,
+        .body--dark .ag-theme-quartz .ag-row.row-confirmed,
+        .dark .ag-theme-quartz-auto-dark .ag-row.row-confirmed,
+        .body--dark .ag-theme-quartz-auto-dark .ag-row.row-confirmed {
+            background-color: rgba(16, 185, 129, 0.30) !important;
+        }
+        .dark .ag-theme-quartz .ag-row.row-error,
+        .body--dark .ag-theme-quartz .ag-row.row-error,
+        .dark .ag-theme-quartz-auto-dark .ag-row.row-error,
+        .body--dark .ag-theme-quartz-auto-dark .ag-row.row-error {
             background-color: rgba(239, 68, 68, 0.25) !important;
         }
-        .dark .row-skipped,
-        .body--dark .row-skipped {
+        .dark .ag-theme-quartz .ag-row.row-skipped,
+        .body--dark .ag-theme-quartz .ag-row.row-skipped,
+        .dark .ag-theme-quartz-auto-dark .ag-row.row-skipped,
+        .body--dark .ag-theme-quartz-auto-dark .ag-row.row-skipped {
             background-color: rgba(156, 163, 175, 0.25) !important;
         }
-        .dark .row-protected,
-        .body--dark .row-protected {
+        .dark .ag-theme-quartz .ag-row.row-protected,
+        .body--dark .ag-theme-quartz .ag-row.row-protected,
+        .dark .ag-theme-quartz-auto-dark .ag-row.row-protected,
+        .body--dark .ag-theme-quartz-auto-dark .ag-row.row-protected {
+            background-color: rgba(59, 130, 246, 0.20) !important;
+        }
+        
+        /* Legacy dark mode selectors */
+        .dark .row-matched, .body--dark .row-matched {
+            background-color: rgba(16, 185, 129, 0.20) !important;
+        }
+        .dark .row-confirmed, .body--dark .row-confirmed {
+            background-color: rgba(16, 185, 129, 0.30) !important;
+        }
+        .dark .row-error, .body--dark .row-error {
+            background-color: rgba(239, 68, 68, 0.25) !important;
+        }
+        .dark .row-skipped, .body--dark .row-skipped {
+            background-color: rgba(156, 163, 175, 0.25) !important;
+        }
+        .dark .row-protected, .body--dark .row-protected {
             background-color: rgba(59, 130, 246, 0.20) !important;
         }
         
