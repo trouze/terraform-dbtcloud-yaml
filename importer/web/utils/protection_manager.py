@@ -5,6 +5,9 @@ This module provides utilities for:
 - Detecting changes in protection status between YAML versions
 - Generating Terraform moved blocks when protection status changes
 - Parsing Terraform plans to identify protected resource destruction
+
+IMPORTANT: Debug instrumentation in this module MUST NOT be removed.
+See tasks/prd-web-ui-12-debug-logging-standards.md for guidelines.
 """
 
 import json
@@ -16,6 +19,8 @@ from typing import Optional, Union
 
 import yaml
 
+from importer.web.utils.ui_logger import traced
+
 logger = logging.getLogger(__name__)
 
 
@@ -25,6 +30,7 @@ RESOURCE_TYPE_MAP = {
     "ENV": ("dbtcloud_environment", "environments", "protected_environments"),
     "JOB": ("dbtcloud_job", "jobs", "protected_jobs"),
     "REP": ("dbtcloud_repository", "repositories", "protected_repositories"),
+    "PREP": ("dbtcloud_project_repository", "project_repositories", "protected_project_repositories"),
 }
 
 
@@ -75,6 +81,7 @@ def get_resource_address(
     key: str,
     protected: bool,
     module_name: str = "dbt_cloud",
+    sub_module: str = "module.projects_v2[0]",
 ) -> str:
     """Get Terraform resource address based on protection status.
     
@@ -83,6 +90,7 @@ def get_resource_address(
         key: Resource key (e.g., "my_project" or "proj_myjob")
         protected: Whether the resource is protected
         module_name: Name of the Terraform module
+        sub_module: Sub-module path (default: "module.projects_v2[0]")
         
     Returns:
         Full Terraform resource address
@@ -93,7 +101,11 @@ def get_resource_address(
     tf_type, unprotected_name, protected_name = RESOURCE_TYPE_MAP[resource_type]
     resource_name = protected_name if protected else unprotected_name
     
-    return f'module.{module_name}.{tf_type}.{resource_name}["{key}"]'
+    # Build the full module path
+    if sub_module:
+        return f'module.{module_name}.{sub_module}.{tf_type}.{resource_name}["{key}"]'
+    else:
+        return f'module.{module_name}.{tf_type}.{resource_name}["{key}"]'
 
 
 def extract_protected_resources(yaml_config: dict) -> list[ProtectedResource]:
@@ -286,6 +298,164 @@ def generate_moved_blocks(
     return "\n".join(lines)
 
 
+@traced(log_result=True)
+def generate_moved_blocks_from_state(
+    yaml_config: dict,
+    state_file: str,
+) -> list[ProtectionChange]:
+    """Generate protection changes by comparing YAML config with Terraform state.
+    
+    This is used when there's no previous YAML to compare against, such as after
+    terraform apply when the user changes protection status.
+    
+    Args:
+        yaml_config: Current YAML configuration (with protection flags)
+        state_file: Path to terraform.tfstate file
+        
+    Returns:
+        List of ProtectionChange objects for resources that need to be moved
+    """
+    import json
+    
+    changes = []
+    
+    try:
+        with open(state_file, "r") as f:
+            state = json.load(f)
+    except Exception as e:
+        logger.warning(f"Failed to read state file {state_file}: {e}")
+        return changes
+    
+    # Build map of YAML protection status
+    yaml_protection: dict[tuple[str, str], bool] = {}  # (type, key) -> protected
+    
+    # Track project keys for later linking with repositories
+    project_keys = set()
+    
+    # Protection model:
+    # - PRJ protection is INDEPENDENT (does NOT cascade to children)
+    # - REP protection → PREP protection (linked)
+    # - ENV protection is INDEPENDENT (explicit only, NOT inherited from PRJ)
+    # - JOB protection is INDEPENDENT (explicit only, NOT inherited from PRJ)
+    
+    for project in yaml_config.get("projects", []):
+        project_key = project.get("key", "")
+        project_protected = project.get("protected", False)
+        yaml_protection[("PRJ", project_key)] = project_protected
+        project_keys.add(project_key)
+        
+        # Environments - only protected if EXPLICITLY marked, NOT inherited from project
+        for env in project.get("environments", []):
+            env_key = env.get("key", "")
+            composite_key = f"{project_key}_{env_key}"
+            yaml_protection[("ENV", composite_key)] = env.get("protected", False)  # Default False, not project_protected
+        
+        # Jobs - only protected if EXPLICITLY marked, NOT inherited from project
+        for job in project.get("jobs", []):
+            job_key = job.get("key", "")
+            composite_key = f"{project_key}_{job_key}"
+            yaml_protection[("JOB", composite_key)] = job.get("protected", False)  # Default False, not project_protected
+    
+    # Process repositories - PREP inherits protection from REP
+    # NOTE: YAML repo keys are like "dbt_ep_bt_data_ops_db" but Terraform uses "bt_data_ops_db"
+    # So we need to store protection under BOTH keys for proper lookup
+    prep_mappings = []  # For debug logging
+    for repo in yaml_config.get("globals", {}).get("repositories", []):
+        repo_key = repo.get("key", "")
+        repo_protected = repo.get("protected", False)
+        yaml_protection[("REP", repo_key)] = repo_protected
+        
+        # PREP (project_repository) protection follows REP, not PRJ
+        # The PREP Terraform key matches the project key, but we need to find which project
+        # corresponds to this repository. The repo key often has a prefix like "dbt_ep_"
+        # and the project key is embedded in it (e.g., "dbt_ep_bt_data_ops_db" -> "bt_data_ops_db")
+        for project_key in project_keys:
+            # Check if repo key contains the project key (common pattern: dbt_ep_{project_key})
+            if project_key in repo_key or repo_key.endswith(project_key):
+                # Store REP protection under project_key as well (for Terraform state lookup)
+                yaml_protection[("REP", project_key)] = repo_protected
+                yaml_protection[("PREP", project_key)] = repo_protected
+                prep_mappings.append({"repo_key": repo_key, "project_key": project_key, "protected": repo_protected})
+                break
+    
+    # #region agent log - PREP protection mapping
+    with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+        import time as _time_pm
+        f.write(json.dumps({
+            "location": "protection_manager.py:generate_moved_blocks_from_state",
+            "message": "PREP protection mapping",
+            "data": {
+                "prep_mappings": prep_mappings,
+                "prj_protection": {k[1]: v for k, v in yaml_protection.items() if k[0] == "PRJ"},
+                "rep_protection": {k[1]: v for k, v in yaml_protection.items() if k[0] == "REP"},
+                "prep_protection": {k[1]: v for k, v in yaml_protection.items() if k[0] == "PREP"},
+            },
+            "timestamp": _time_pm.time() * 1000,
+            "sessionId": "debug-session",
+            "hypothesisId": "HI",
+        }) + "\n")
+    # #endregion
+    
+    # Parse Terraform state to find current resource locations
+    resources = state.get("resources", [])
+    
+    # Map resource types to their unprotected/protected block names
+    type_map = {
+        "dbtcloud_project": ("PRJ", "projects", "protected_projects"),
+        "dbtcloud_environment": ("ENV", "environments", "protected_environments"),
+        "dbtcloud_job": ("JOB", "jobs", "protected_jobs"),
+        "dbtcloud_repository": ("REP", "repositories", "protected_repositories"),
+        "dbtcloud_project_repository": ("PREP", "project_repositories", "protected_project_repositories"),
+    }
+    
+    for resource in resources:
+        resource_type = resource.get("type", "")
+        resource_name = resource.get("name", "")
+        
+        if resource_type not in type_map:
+            continue
+        
+        type_code, unprotected_name, protected_name = type_map[resource_type]
+        
+        # Determine if resource is currently in protected or unprotected block
+        state_protected = (resource_name == protected_name)
+        
+        # Process each instance
+        for instance in resource.get("instances", []):
+            index_key = instance.get("index_key", "")
+            if not index_key:
+                continue
+            
+            # Check YAML protection status
+            yaml_protected = yaml_protection.get((type_code, index_key), False)
+            
+            # If mismatch, generate a change
+            if yaml_protected and not state_protected:
+                # YAML says protected, but state has it in unprotected block
+                changes.append(ProtectionChange(
+                    resource_key=index_key,
+                    resource_type=type_code,
+                    name=index_key,
+                    direction="protect",
+                    from_address=get_resource_address(type_code, index_key, protected=False),
+                    to_address=get_resource_address(type_code, index_key, protected=True),
+                ))
+            elif not yaml_protected and state_protected:
+                # YAML says unprotected, but state has it in protected block
+                changes.append(ProtectionChange(
+                    resource_key=index_key,
+                    resource_type=type_code,
+                    name=index_key,
+                    direction="unprotect",
+                    from_address=get_resource_address(type_code, index_key, protected=True),
+                    to_address=get_resource_address(type_code, index_key, protected=False),
+                ))
+    
+    logger.info(f"State-based protection detection found {len(changes)} change(s)")
+    return changes
+
+
+@traced(log_result=True)
 def write_moved_blocks_file(
     changes: list[ProtectionChange],
     output_dir: Union[str, Path],
@@ -814,6 +984,7 @@ def check_single_resource_protection(
     )
 
 
+@traced(log_result=True)
 def detect_protection_mismatches(
     yaml_config: dict,
     terraform_state: dict,

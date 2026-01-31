@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.9] - 2026-01-30
+
+### Added
+- **Debug and Logging Standards PRD**: Created comprehensive `tasks/prd-web-ui-12-debug-logging-standards.md` documenting:
+  - Permanent instrumentation policy - debug logging must NOT be removed
+  - Structured logging patterns for UI actions, state changes, and errors
+  - Function call tracing standards using `@traced` decorator
+  - Log file locations and schema definitions
+
+- **Debug Instrumentation Rule**: Created `.cursor/rules/debug-instrumentation.mdc` enforcing:
+  - Preservation of all debug instrumentation
+  - Structured logging via `ui_logger` utilities
+  - Hypothesis markers (`[HA]`, `[HB]`, etc.) for debugging
+
+- **Function Call Tracing**: Enhanced `importer/web/utils/ui_logger.py` with:
+  - `@traced` decorator for automatic function entry/exit logging
+  - `@traced_async` decorator for async functions
+  - Argument and return value logging options
+  - Error tracking with duration measurement
+  - Safe serialization for non-JSON-serializable types
+
+- **Protection Manager Tracing**: Added `@traced` decorator to key functions:
+  - `generate_moved_blocks_from_state()`
+  - `detect_protection_mismatches()`
+  - `write_moved_blocks_file()`
+
 ## [0.15.8] - 2026-01-30
 
 ### Fixed

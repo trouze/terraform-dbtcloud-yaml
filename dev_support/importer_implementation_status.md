@@ -1,8 +1,8 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2026-01-30  
-**Current Importer Version:** 0.15.8  
-**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix + Match Diagnostics Improvements + AG Grid Standardization + Dialog Width Fix + Protection Mismatch Fix + Adoption Override Data Flow Fix
+**Current Importer Version:** 0.15.9  
+**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix + Match Diagnostics Improvements + AG Grid Standardization + Dialog Width Fix + Protection Mismatch Fix + Adoption Override Data Flow Fix + Debug Logging Standards
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
 > 
@@ -666,6 +666,23 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2026-01-30 (v0.15.9)
+- **Version:** Incremented to 0.15.9 (patch release - Debug Logging Standards)
+- **Debug and Logging Standards PRD**: Created comprehensive `tasks/prd-web-ui-12-debug-logging-standards.md`
+  - Permanent instrumentation policy - debug logging must NOT be removed
+  - Structured logging patterns for UI actions, state changes, and errors
+  - Function call tracing standards using `@traced` decorator
+  - Log file locations and schema definitions
+- **Debug Instrumentation Rule**: Created `.cursor/rules/debug-instrumentation.mdc` enforcing preservation of all debug code
+- **Function Call Tracing**: Enhanced `importer/web/utils/ui_logger.py` with:
+  - `@traced` decorator for automatic function entry/exit logging
+  - `@traced_async` decorator for async functions
+  - Safe serialization for non-JSON-serializable types
+- **Protection Manager Tracing**: Added `@traced` decorator to key functions:
+  - `generate_moved_blocks_from_state()`
+  - `detect_protection_mismatches()`
+  - `write_moved_blocks_file()`
 
 ### 2026-01-30 (v0.15.8)
 - **Version:** Incremented to 0.15.8 (patch release - Adoption Override Data Flow Fix)

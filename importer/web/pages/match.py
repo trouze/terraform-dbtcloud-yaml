@@ -567,16 +567,66 @@ def _create_matching_content(
     
     def apply_protection(keys_to_protect: list[str]) -> None:
         """Apply protection to multiple resources."""
+        from importer.web.utils.ui_logger import log_action, log_state_change
+        before = set(state.map.protected_resources) if state.map.protected_resources else set()
+        before_fix_pending = state.map.protection_fix_pending
+        
         for key in keys_to_protect:
             state.map.protected_resources.add(key)
+        
+        # Reset any stale protection fix state - user has taken a new action
+        fix_state_reset = False
+        if state.map.protection_fix_pending:
+            fix_state_reset = True
+            state.map.protection_fix_pending = False
+            state.map.protection_fix_file_path = ""
+            state.map.protection_fix_action = ""
+            state.map.protection_fix_previous_content = ""
+            state.map.protection_fix_backup_protected = set()
+            state.map.protection_fix_backup_unprotected = set()
+        
+        log_action("apply_protection", "executed", {
+            "keys": keys_to_protect,
+            "count": len(keys_to_protect),
+            "fix_state_reset": fix_state_reset,
+        })
+        log_state_change("protected_resources", "add", {"keys": keys_to_protect}, before=before, after=state.map.protected_resources)
+        if fix_state_reset:
+            log_state_change("protection_fix_pending", "reset", {"reason": "user_protect_action"}, before=before_fix_pending, after=False)
+        
         save_state()
         ui.notify(f"Protected {len(keys_to_protect)} resource(s)", type="positive")
         ui.navigate.reload()
     
     def remove_protection(keys_to_unprotect: list[str]) -> None:
         """Remove protection from multiple resources."""
+        from importer.web.utils.ui_logger import log_action, log_state_change
+        before = set(state.map.protected_resources) if state.map.protected_resources else set()
+        before_fix_pending = state.map.protection_fix_pending
+        
         for key in keys_to_unprotect:
             state.map.protected_resources.discard(key)
+        
+        # Reset any stale protection fix state - user has taken a new action
+        fix_state_reset = False
+        if state.map.protection_fix_pending:
+            fix_state_reset = True
+            state.map.protection_fix_pending = False
+            state.map.protection_fix_file_path = ""
+            state.map.protection_fix_action = ""
+            state.map.protection_fix_previous_content = ""
+            state.map.protection_fix_backup_protected = set()
+            state.map.protection_fix_backup_unprotected = set()
+        
+        log_action("remove_protection", "executed", {
+            "keys": keys_to_unprotect,
+            "count": len(keys_to_unprotect),
+            "fix_state_reset": fix_state_reset,
+        })
+        log_state_change("protected_resources", "remove", {"keys": keys_to_unprotect}, before=before, after=state.map.protected_resources)
+        if fix_state_reset:
+            log_state_change("protection_fix_pending", "reset", {"reason": "user_unprotect_action"}, before=before_fix_pending, after=False)
+        
         save_state()
         ui.notify(f"Unprotected {len(keys_to_unprotect)} resource(s)", type="info")
         ui.navigate.reload()
@@ -588,14 +638,6 @@ def _create_matching_content(
         new_protected = row_data.get("protected", False)
         row_data.get("status")
         
-        # region agent log
-        try:
-            with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
-                import json as _json
-                f.write(_json.dumps({"location": "match.py:on_row_change:entry", "message": "Row change received", "data": {"source_key": source_key, "action": action, "new_protected": new_protected, "in_protected_resources": source_key in state.map.protected_resources}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
-        except: pass
-        # endregion
-        
         # IMPORTANT: Always update grid_data_ref immediately so dialogs see current state
         # This must happen BEFORE any early returns for cascade dialogs
         # Also update yaml_protected to stay consistent with the user's intent
@@ -603,13 +645,6 @@ def _create_matching_content(
         for i, row in enumerate(grid_data_ref["data"]):
             if row.get("source_key") == source_key:
                 grid_data_ref["data"][i] = row_data
-                # region agent log
-                try:
-                    with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
-                        import json as _json
-                        f.write(_json.dumps({"location": "match.py:on_row_change:grid_update", "message": "Updated grid_data_ref", "data": {"source_key": source_key, "new_protected": new_protected, "yaml_protected": row_data.get("yaml_protected"), "row_protected_after": grid_data_ref["data"][i].get("protected")}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
-                except: pass
-                # endregion
                 break
         
         # Check if protection status changed
@@ -708,33 +743,11 @@ def _create_matching_content(
     
     def find_source_item(source_key: str) -> Optional[dict]:
         """Find source item by key, checking both 'key' and 'element_mapping_id'."""
-        # region agent log
-        try:
-            with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
-                import json as _json
-                f.write(_json.dumps({"location": "match.py:find_source_item", "message": "Looking for source_key", "data": {"source_key": source_key, "source_items_count": len(source_items)}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
-        except: pass
-        # endregion
         # Items with key=null use element_mapping_id as their key
         for s in source_items:
             item_key = s.get("key") or s.get("element_mapping_id", "")
             if item_key == source_key:
-                # region agent log
-                try:
-                    with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
-                        import json as _json
-                        f.write(_json.dumps({"location": "match.py:find_source_item", "message": "FOUND source_item", "data": {"source_key": source_key, "item_type": s.get("element_type_code"), "item_name": s.get("name")}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
-                except: pass
-                # endregion
                 return s
-        # region agent log
-        try:
-            sample_keys = [s.get("key") or s.get("element_mapping_id", "") for s in source_items[:10]]
-            with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
-                import json as _json
-                f.write(_json.dumps({"location": "match.py:find_source_item", "message": "NOT FOUND - source_key not in source_items", "data": {"source_key": source_key, "sample_keys": sample_keys}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
-        except: pass
-        # endregion
         return None
     
     def on_view_details(source_key: str):
@@ -845,13 +858,6 @@ def _create_matching_content(
         
         # Regular resource - use enhanced match detail dialog with drift info
         source_item = find_source_item(source_key)
-        # region agent log
-        try:
-            with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
-                import json as _json
-                f.write(_json.dumps({"location": "match.py:on_view_details", "message": "After find_source_item", "data": {"source_key": source_key, "source_item_found": source_item is not None, "source_item_type": source_item.get("element_type_code") if source_item else None}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H2"}) + "\n")
-        except: pass
-        # endregion
         if source_item:
             from importer.web.components.entity_table import show_match_detail_dialog
             
@@ -861,14 +867,6 @@ def _create_matching_content(
                 if row.get("source_key") == source_key:
                     grid_row = row
                     break
-            
-            # region agent log
-            try:
-                with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
-                    import json as _json
-                    f.write(_json.dumps({"location": "match.py:on_view_details:grid_row_lookup", "message": "Found grid row for dialog", "data": {"source_key": source_key, "grid_row_found": grid_row is not None, "grid_row_protected": grid_row.get("protected") if grid_row else None, "in_protected_resources": source_key in state.map.protected_resources}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H3"}) + "\n")
-            except: pass
-            # endregion
             
             if not grid_row:
                 grid_row = {"source_key": source_key, "drift_status": "no_state"}
@@ -911,27 +909,6 @@ def _create_matching_content(
                 source_type = source_item.get("element_type_code", "")
                 target_id = selected_target.get("dbt_id")
                 target_name = selected_target.get("name", "")
-                # region agent log
-                try:
-                    with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as log_file:
-                        log_file.write(json.dumps({
-                            "sessionId": "debug-session",
-                            "runId": "run1",
-                            "hypothesisId": "H4",
-                            "location": "match.py:646",
-                            "message": "handle_target_selected input",
-                            "data": {
-                                "source_key": source_key,
-                                "source_type": source_type,
-                                "target_id": target_id,
-                                "target_id_type": str(type(target_id)),
-                                "target_name": target_name,
-                            },
-                            "timestamp": int(time.time() * 1000),
-                        }) + "\n")
-                except Exception:
-                    pass
-                # endregion
                 
                 # Check if target is in TF state to determine action
                 action = "match"
@@ -989,28 +966,6 @@ def _create_matching_content(
                 source_type = source_item.get("element_type_code", "")
                 target_id = grid_row.get("target_id")
                 target_name = grid_row.get("target_name", "")
-                # region agent log
-                try:
-                    with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as log_file:
-                        log_file.write(json.dumps({
-                            "sessionId": "debug-session",
-                            "runId": "run1",
-                            "hypothesisId": "H5",
-                            "location": "match.py:709",
-                            "message": "handle_adopt input",
-                            "data": {
-                                "source_key": source_key,
-                                "source_type": source_type,
-                                "target_id": target_id,
-                                "target_id_type": str(type(target_id)),
-                                "target_name": target_name,
-                                "protected": protected,
-                            },
-                            "timestamp": int(time.time() * 1000),
-                        }) + "\n")
-                except Exception:
-                    pass
-                # endregion
                 
                 # Add/update confirmed mapping with adopt action
                 if not hasattr(state.map, "confirmed_mappings"):
@@ -1037,13 +992,6 @@ def _create_matching_content(
                 ui.notify(f"Set {source_item.get('name', source_key)} to adopt{protection_msg}", type="positive")
                 ui.navigate.reload()
             
-            # region agent log
-            try:
-                with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
-                    import json as _json
-                    f.write(_json.dumps({"location": "match.py:on_view_details", "message": "Calling show_match_detail_dialog", "data": {"source_key": source_key, "has_target": target_data is not None, "has_state_resource": state_resource is not None}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H5"}) + "\n")
-            except: pass
-            # endregion
             show_match_detail_dialog(
                 source_data=source_item,
                 grid_row=grid_row,
@@ -1056,13 +1004,6 @@ def _create_matching_content(
                 on_adopt=handle_adopt,
             )
         else:
-            # region agent log
-            try:
-                with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
-                    import json as _json
-                    f.write(_json.dumps({"location": "match.py:on_view_details", "message": "source_item is None - dialog NOT opened", "data": {"source_key": source_key}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
-            except: pass
-            # endregion
             ui.notify(f"Source resource not found: {source_key}", type="warning")
     
     def on_configure_clone(source_key: str):
@@ -1283,79 +1224,16 @@ def _create_matching_content(
                         )
                 
                 def generate_adopt_imports():
-                    # region agent log
-                    try:
-                        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as log_file:
-                            log_file.write(json.dumps({
-                                "sessionId": "debug-session",
-                                "runId": "run1",
-                                "hypothesisId": "H8",
-                                "location": "match.py:925",
-                                "message": "generate_adopt_imports clicked",
-                                "data": {
-                                    "state_loaded": bool(state_ref.get("state_result")),
-                                    "grid_ref_count": len(grid_data_ref.get("data", [])),
-                                },
-                                "timestamp": int(time.time() * 1000),
-                            }) + "\n")
-                    except Exception:
-                        pass
-                    # endregion
                     # Get terraform directory
                     tf_dir = state.deploy.terraform_dir or "deployments/migration"
                     tf_path = Path(tf_dir)
                     if not tf_path.is_absolute():
                         project_root = Path(state.fetch.output_dir).parent.parent if state.fetch.output_dir else Path.cwd()
                         tf_path = project_root / tf_dir
-                    # region agent log
-                    try:
-                        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as log_file:
-                            log_file.write(json.dumps({
-                                "sessionId": "debug-session",
-                                "runId": "run1",
-                                "hypothesisId": "H12",
-                                "location": "match.py:930",
-                                "message": "terraform path resolved",
-                                "data": {
-                                    "tf_dir": tf_dir,
-                                    "tf_path": str(tf_path),
-                                },
-                                "timestamp": int(time.time() * 1000),
-                            }) + "\n")
-                    except Exception:
-                        pass
-                    # endregion
                     
                     # Get ALL grid rows - function will filter internally but needs PRJ rows for lookup
                     all_rows = grid_data_ref["data"]
                     adopt_rows = [r for r in all_rows if r.get("action") == "adopt" and r.get("target_id")]
-                    # region agent log
-                    try:
-                        sample = []
-                        for r in adopt_rows[:5]:
-                            sample.append({
-                                "source_key": r.get("source_key"),
-                                "source_type": r.get("source_type"),
-                                "source_name": r.get("source_name"),
-                                "project_name": r.get("project_name"),
-                                "target_id": r.get("target_id"),
-                            })
-                        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as log_file:
-                            log_file.write(json.dumps({
-                                "sessionId": "debug-session",
-                                "runId": "run1",
-                                "hypothesisId": "H9",
-                                "location": "match.py:933",
-                                "message": "adopt_rows selected",
-                                "data": {
-                                    "adopt_count": len(adopt_rows),
-                                    "sample": sample,
-                                },
-                                "timestamp": int(time.time() * 1000),
-                            }) + "\n")
-                    except Exception:
-                        pass
-                    # endregion
                     
                     if not adopt_rows:
                         # Log the attempt
@@ -1378,24 +1256,6 @@ def _create_matching_content(
                         tf_path,
                         filename="adopt_imports.tf",
                     )
-                    # region agent log
-                    try:
-                        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as log_file:
-                            log_file.write(json.dumps({
-                                "sessionId": "debug-session",
-                                "runId": "run1",
-                                "hypothesisId": "H10",
-                                "location": "match.py:941",
-                                "message": "write_adopt_imports_file returned",
-                                "data": {
-                                    "output_path": str(output_path) if output_path else None,
-                                    "error": error,
-                                },
-                                "timestamp": int(time.time() * 1000),
-                            }) + "\n")
-                    except Exception:
-                        pass
-                    # endregion
                     
                     if error:
                         # Log the failure
@@ -1433,27 +1293,6 @@ def _create_matching_content(
                     state.deploy.reconcile_imports_generated = True
                     
                     # Save adopt rows for use in Generate Files (adoption YAML overrides)
-                    # Debug: log all REP rows and their actions
-                    rep_rows = [r for r in all_rows if r.get("source_type") == "REP"]
-                    # region agent log
-                    try:
-                        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as log_file:
-                            log_file.write(json.dumps({
-                                "sessionId": "debug-session",
-                                "runId": "run1",
-                                "hypothesisId": "H20",
-                                "location": "match.py:adopt_rows",
-                                "message": "REP rows before filtering",
-                                "data": {
-                                    "rep_count": len(rep_rows),
-                                    "samples": [{"source_key": r.get("source_key"), "action": r.get("action"), "target_id": r.get("target_id"), "drift_status": r.get("drift_status")} for r in rep_rows[:5]],
-                                },
-                                "timestamp": int(time.time() * 1000),
-                            }) + "\n")
-                    except Exception:
-                        pass
-                    # endregion
-                    
                     adopt_rows = [
                         {
                             "source_key": r.get("source_key"),
@@ -1468,25 +1307,6 @@ def _create_matching_content(
                         for r in all_rows
                         if r.get("action") == "adopt" and r.get("target_id")
                     ]
-                    
-                    # region agent log
-                    try:
-                        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as log_file:
-                            log_file.write(json.dumps({
-                                "sessionId": "debug-session",
-                                "runId": "run1",
-                                "hypothesisId": "H21",
-                                "location": "match.py:adopt_rows",
-                                "message": "adopt_rows after filtering",
-                                "data": {
-                                    "adopt_count": len(adopt_rows),
-                                    "samples": adopt_rows[:5] if adopt_rows else [],
-                                },
-                                "timestamp": int(time.time() * 1000),
-                            }) + "\n")
-                    except Exception:
-                        pass
-                    # endregion
                     
                     state.deploy.reconcile_adopt_rows = adopt_rows
                     
@@ -2350,7 +2170,728 @@ This will **UNPROTECT** all {len(protection_mismatches)} mismatched resource(s):
                                     ui.label(f"PENDING {action_label}").classes(f"font-bold text-{text_color}-700")
                                 moves_file_name = Path(state.map.protection_fix_file_path).name
                                 ui.label(f"Moved blocks written to: {moves_file_name}").classes(f"text-sm text-{text_color}-700 mt-1")
-                                ui.label("Run 'Generate Files' then 'terraform plan/apply' to complete").classes(f"text-xs text-{text_color}-600")
+                                ui.label("Use the Terraform buttons below to apply the moves").classes(f"text-xs text-{text_color}-600")
+            
+            # Terraform operations section - only for protection moves
+            ui.separator().classes("my-3")
+            with ui.row().classes("w-full items-center justify-between mb-2"):
+                ui.label("Apply Protection Changes").classes("text-sm font-semibold text-slate-600")
+                # Credential status indicator
+                if state.target_credentials.api_token and state.target_credentials.account_id:
+                    with ui.row().classes("items-center gap-1"):
+                        ui.icon("check_circle", size="xs").classes("text-green-500")
+                        ui.label("Credentials loaded").classes("text-xs text-green-600")
+                else:
+                    with ui.row().classes("items-center gap-1"):
+                        ui.icon("warning", size="xs").classes("text-amber-500")
+                        ui.label("Load .env from Fetch Target first").classes("text-xs text-amber-600")
+            
+            # Get terraform directory
+            tf_dir = state.deploy.terraform_dir or "deployments/migration"
+            tf_path = Path(tf_dir)
+            if not tf_path.is_absolute():
+                project_root = Path(state.fetch.output_dir).parent.parent if state.fetch.output_dir else Path.cwd()
+                tf_path = project_root / tf_dir
+            # Always resolve to absolute path
+            tf_path = tf_path.resolve()
+            # #region agent log H13
+            import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H13", "location": "match.py:protection_section:tf_path_resolved", "message": "tf_path resolved", "data": {"tf_path": str(tf_path), "tf_path_exists": tf_path.exists(), "tf_path_is_absolute": tf_path.is_absolute(), "fetch_output_dir": state.fetch.output_dir, "deploy_terraform_dir": state.deploy.terraform_dir}, "timestamp": __import__("time").time()}) + "\n")
+            # #endregion
+            
+            # Create a simple terminal output area for this section
+            match_terminal_output = ui.element("div").classes("w-full")
+            
+            # Store output logs for each step
+            tf_outputs = {"generate": "", "init": "", "validate": "", "plan": "", "apply": ""}
+            # Track running state for plan
+            plan_running = {"active": False}
+            
+            def show_output_dialog(step_name: str, title: str):
+                """Show a dialog with the stored output for a step."""
+                # #region agent log H1,H3,H4
+                import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H1,H3", "location": "match.py:show_output_dialog", "message": "show_output_dialog called", "data": {"step_name": step_name, "title": title, "tf_outputs_keys": list(tf_outputs.keys()), "tf_outputs_lengths": {k: len(v) for k, v in tf_outputs.items()}, "plan_running": plan_running["active"]}, "timestamp": __import__("time").time()}) + "\n")
+                # #endregion
+                output = tf_outputs.get(step_name, "")
+                
+                # Handle plan specially - might be running with partial output
+                if step_name == "plan" and not output and plan_running["active"]:
+                    ui.notify("Plan is still running in background. Output will be available when complete.", type="info")
+                    return
+                
+                if not output:
+                    # #region agent log H1
+                    import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H1", "location": "match.py:show_output_dialog:no_output", "message": "No output found", "data": {"step_name": step_name, "output_empty": True}, "timestamp": __import__("time").time()}) + "\n")
+                    # #endregion
+                    ui.notify(f"No {step_name} output available. Run {step_name} first.", type="warning")
+                    return
+                
+                # If plan is running, show partial output with a note
+                display_title = title
+                if step_name == "plan" and plan_running["active"]:
+                    display_title = f"{title} (In Progress - Partial Output)"
+                    ui.notify("Showing partial output - plan still running", type="info")
+                
+                # #region agent log H4
+                import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H4", "location": "match.py:show_output_dialog:creating_dialog", "message": "Creating dialog", "data": {"step_name": step_name, "output_len": len(output), "plan_running": plan_running["active"]}, "timestamp": __import__("time").time()}) + "\n")
+                # #endregion
+                from importer.web.utils.yaml_viewer import create_plan_viewer_dialog
+                dialog = create_plan_viewer_dialog(output, display_title)
+                # #region agent log H4,H5
+                import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H4,H5", "location": "match.py:show_output_dialog:opening_dialog", "message": "Opening dialog", "data": {"dialog_type": str(type(dialog)), "dialog_id": id(dialog)}, "timestamp": __import__("time").time()}) + "\n")
+                # #endregion
+                dialog.open()
+            
+            with ui.row().classes("w-full items-center gap-2"):
+                def run_generate_moved_blocks():
+                    """Generate or regenerate the moved blocks file based on current mismatches."""
+                    from datetime import datetime
+                    
+                    moves_file = tf_path / "protection_moves.tf"
+                    module_prefix = "module.dbt_cloud.module.projects_v2[0]"
+                    
+                    # Determine direction based on majority of mismatches
+                    protect_count = sum(1 for m in protection_mismatches if not m["state_protected"])
+                    unprotect_count = sum(1 for m in protection_mismatches if m["state_protected"])
+                    
+                    # Generate moved blocks for all mismatches
+                    generated_moves: set[tuple[str, str]] = set()
+                    blocks = []
+                    block_count = 0
+                    
+                    for m in protection_mismatches:
+                        rtype = m["type"]
+                        rkey = m["key"]
+                        
+                        if rtype in EXTENDED_RESOURCE_TYPE_MAP and (rtype, rkey) not in generated_moves:
+                            tf_type, unprotected, protected = EXTENDED_RESOURCE_TYPE_MAP[rtype]
+                            
+                            # Direction based on current state
+                            if m["state_protected"]:
+                                # Move from protected to unprotected
+                                from_block = protected
+                                to_block = unprotected
+                                direction = "unprotect"
+                            else:
+                                # Move from unprotected to protected
+                                from_block = unprotected
+                                to_block = protected
+                                direction = "protect"
+                            
+                            blocks.append(f'''# {direction} {rkey}
+moved {{
+  from = {module_prefix}.{tf_type}.{from_block}["{rkey}"]
+  to   = {module_prefix}.{tf_type}.{to_block}["{rkey}"]
+}}''')
+                            block_count += 1
+                            generated_moves.add((rtype, rkey))
+                    
+                    content = f'''# Generated moved blocks for protection status changes
+# Generated: {datetime.now().isoformat()}
+# Mismatches: {len(protection_mismatches)}
+
+''' + "\n\n".join(blocks)
+                    
+                    try:
+                        moves_file.write_text(content)
+                        tf_outputs["generate"] = content
+                        # #region agent log H1
+                        import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H1", "location": "match.py:run_generate_moved_blocks:stored", "message": "Stored generate output", "data": {"content_len": len(content), "tf_outputs_id": id(tf_outputs), "tf_outputs_generate_len": len(tf_outputs.get("generate", ""))}, "timestamp": __import__("time").time()}) + "\n")
+                        # #endregion
+                        
+                        with match_terminal_output:
+                            match_terminal_output.clear()
+                            ui.label(f"✅ Generated {block_count} moved blocks").classes("text-xs text-green-600 font-semibold")
+                        
+                        ui.notify(f"Generated {block_count} moved blocks to protection_moves.tf", type="positive")
+                    except Exception as e:
+                        with match_terminal_output:
+                            match_terminal_output.clear()
+                            ui.label(f"❌ Failed to generate: {e}").classes("text-xs text-red-600 font-semibold")
+                        ui.notify(f"Error: {e}", type="negative")
+                
+                ui.button("Generate", icon="build", on_click=run_generate_moved_blocks).props("color=amber").style("min-width: 100px; color: black !important;")
+                
+                def check_credentials() -> bool:
+                    """Check if credentials are loaded. Returns True if valid."""
+                    if not state.target_credentials.api_token:
+                        ui.notify("Missing API token - load .env from Fetch Target screen first", type="negative")
+                        return False
+                    if not state.target_credentials.account_id:
+                        ui.notify("Missing Account ID - load .env from Fetch Target screen first", type="negative")
+                        return False
+                    return True
+                
+                async def run_match_init():
+                    """Run terraform init for protection moves."""
+                    import asyncio
+                    import subprocess
+                    import os
+                    
+                    if not check_credentials():
+                        return
+                    
+                    with match_terminal_output:
+                        match_terminal_output.clear()
+                        ui.label("Running terraform init...").classes("text-xs text-slate-500")
+                    
+                    env = os.environ.copy()
+                    if state.target_credentials.api_token:
+                        env["DBT_CLOUD_TOKEN"] = state.target_credentials.api_token
+                    if state.target_credentials.host_url:
+                        env["DBT_CLOUD_HOST_URL"] = state.target_credentials.host_url
+                    if state.target_credentials.account_id:
+                        env["DBT_CLOUD_ACCOUNT_ID"] = str(state.target_credentials.account_id)
+                        env["TF_VAR_dbt_account_id"] = str(state.target_credentials.account_id)
+                    
+                    result = await asyncio.to_thread(
+                        subprocess.run,
+                        ["terraform", "init", "-no-color", "-input=false"],
+                        cwd=str(tf_path),
+                        capture_output=True,
+                        text=True,
+                        env=env,
+                    )
+                    
+                    # Store output for later viewing
+                    tf_outputs["init"] = result.stdout + result.stderr
+                    
+                    with match_terminal_output:
+                        match_terminal_output.clear()
+                        if result.returncode == 0:
+                            ui.label("✅ Init completed").classes("text-xs text-green-600 font-semibold")
+                        else:
+                            ui.label("❌ Init failed").classes("text-xs text-red-600 font-semibold")
+                            ui.label(result.stderr[:200] if result.stderr else "Unknown error").classes("text-xs text-red-500")
+                    
+                    if result.returncode == 0:
+                        ui.notify("Terraform initialized!", type="positive")
+                    else:
+                        ui.notify("Init failed - see output", type="negative")
+                
+                ui.button("Init", icon="downloading", on_click=run_match_init).props("outline").style("min-width: 100px;")
+                
+                async def run_match_validate():
+                    """Run terraform validate for protection moves."""
+                    import asyncio
+                    import subprocess
+                    import os
+                    
+                    if not check_credentials():
+                        return
+                    
+                    with match_terminal_output:
+                        match_terminal_output.clear()
+                        ui.label("Running terraform validate...").classes("text-xs text-slate-500")
+                    
+                    env = os.environ.copy()
+                    if state.target_credentials.api_token:
+                        env["DBT_CLOUD_TOKEN"] = state.target_credentials.api_token
+                    if state.target_credentials.host_url:
+                        env["DBT_CLOUD_HOST_URL"] = state.target_credentials.host_url
+                    if state.target_credentials.account_id:
+                        env["DBT_CLOUD_ACCOUNT_ID"] = str(state.target_credentials.account_id)
+                        env["TF_VAR_dbt_account_id"] = str(state.target_credentials.account_id)
+                        env["TF_VAR_dbt_account_id"] = str(state.target_credentials.account_id)
+                    
+                    result = await asyncio.to_thread(
+                        subprocess.run,
+                        ["terraform", "validate", "-no-color"],
+                        cwd=str(tf_path),
+                        capture_output=True,
+                        text=True,
+                        env=env,
+                    )
+                    
+                    # Store output for later viewing
+                    tf_outputs["validate"] = result.stdout + result.stderr
+                    
+                    with match_terminal_output:
+                        match_terminal_output.clear()
+                        if result.returncode == 0:
+                            ui.label("✅ Validation passed").classes("text-xs text-green-600 font-semibold")
+                        else:
+                            ui.label("❌ Validation failed").classes("text-xs text-red-600 font-semibold")
+                            ui.label(result.stderr[:200] if result.stderr else "Unknown error").classes("text-xs text-red-500")
+                    
+                    if result.returncode == 0:
+                        ui.notify("Validation passed!", type="positive")
+                    else:
+                        ui.notify("Validation failed - see output", type="warning")
+                
+                ui.button("Validate", icon="check_circle", on_click=run_match_validate).props("outline").style("min-width: 100px;")
+                
+                async def run_match_plan():
+                    """Run terraform plan with live streaming output."""
+                    import asyncio
+                    import os
+                    import html as html_module
+                    
+                    if not check_credentials():
+                        return
+                    
+                    # Mark plan as running and clear any previous output
+                    plan_running["active"] = True
+                    tf_outputs["plan"] = ""
+                    
+                    env = os.environ.copy()
+                    if state.target_credentials.api_token:
+                        env["DBT_CLOUD_TOKEN"] = state.target_credentials.api_token
+                    if state.target_credentials.host_url:
+                        env["DBT_CLOUD_HOST_URL"] = state.target_credentials.host_url
+                    if state.target_credentials.account_id:
+                        env["DBT_CLOUD_ACCOUNT_ID"] = str(state.target_credentials.account_id)
+                        # Also set TF_VAR for terraform auto-loading
+                        env["TF_VAR_dbt_account_id"] = str(state.target_credentials.account_id)
+                    
+                    # Create streaming log viewer dialog with timestamps, levels, search
+                    from datetime import datetime
+                    output_lines = []  # Raw lines for copy
+                    formatted_lines = []  # Lines with timestamps for display
+                    process_ref = {"process": None, "cancelled": False}
+                    search_state = {"term": "", "count": 0}
+                    
+                    def get_log_level(line: str) -> tuple[str, str]:
+                        """Determine log level and color from line content."""
+                        line_lower = line.lower()
+                        if "error" in line_lower or "failed" in line_lower:
+                            return "ERROR", "text-red-400"
+                        elif "warning" in line_lower or "warn" in line_lower:
+                            return "WARN", "text-amber-400"
+                        elif line.startswith("#") or "will be" in line_lower:
+                            return "INFO", "text-blue-400"
+                        elif line.startswith("+"):
+                            return "ADD", "text-green-400"
+                        elif line.startswith("-"):
+                            return "DEL", "text-red-400"
+                        elif line.startswith("~"):
+                            return "CHG", "text-amber-400"
+                        else:
+                            return "INFO", "text-slate-400"
+                    
+                    def format_log_line(line: str) -> str:
+                        """Format a line with timestamp and level."""
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        level, color = get_log_level(line)
+                        escaped_line = html_module.escape(line)
+                        return f'<span class="text-slate-500">[{timestamp}]</span> <span class="{color}">[{level:5}]</span> {escaped_line}'
+                    
+                    with ui.dialog() as stream_dialog, ui.card().classes("w-full h-full").style("width: 90vw; max-width: 90vw; height: 80vh; display: flex; flex-direction: column;"):
+                        with ui.row().classes("w-full items-center justify-between mb-2"):
+                            with ui.row().classes("items-center gap-3"):
+                                stream_spinner = ui.spinner("dots", size="md").classes("text-primary")
+                                stream_title = ui.label("Running terraform plan...").classes("text-xl font-bold")
+                            ui.button(icon="close", on_click=stream_dialog.close).props("flat round")
+                        
+                        ui.label(f"Directory: {tf_path}").classes("text-xs text-slate-500 font-mono mb-2")
+                        
+                        # Search bar
+                        with ui.row().classes("w-full items-center gap-2 mb-2"):
+                            search_input = ui.input(placeholder="Search in output...").props("outlined dense clearable").classes("flex-1")
+                            search_count_label = ui.label("").classes("text-xs text-slate-400 min-w-[80px]")
+                        
+                        with ui.scroll_area().classes("w-full flex-grow stream-scroll-area"):
+                            stream_log = ui.html('<pre class="text-xs font-mono whitespace-pre-wrap p-2 bg-slate-900 text-slate-100 rounded stream-log-content" style="min-height: 200px;">[Starting terraform plan...]\n</pre>')
+                        
+                        # Search handler
+                        async def on_search(e):
+                            term = e.args if e.args else ""
+                            search_state["term"] = term
+                            if not term:
+                                search_count_label.set_text("")
+                                return
+                            
+                            # Count matches in raw output
+                            full_output = "\n".join(output_lines)
+                            count = full_output.lower().count(term.lower())
+                            search_state["count"] = count
+                            search_count_label.set_text(f"{count} matches" if count else "No matches")
+                            
+                            # Highlight in viewer
+                            if count > 0:
+                                escaped_term = term.replace("'", "\\'").replace('"', '\\"')
+                                await ui.run_javascript(f'''
+                                    const pre = document.querySelector('.stream-log-content');
+                                    if (pre) {{
+                                        const html = pre.innerHTML;
+                                        const regex = new RegExp('({escaped_term})', 'gi');
+                                        pre.innerHTML = html.replace(regex, '<mark class="bg-yellow-500 text-black px-0.5">$1</mark>');
+                                        const mark = document.querySelector('.stream-log-content mark');
+                                        if (mark) mark.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                                    }}
+                                ''')
+                        
+                        search_input.on("update:model-value", on_search)
+                        
+                        with ui.row().classes("w-full justify-between mt-2"):
+                            def cancel_plan():
+                                if process_ref["process"] and process_ref["process"].returncode is None:
+                                    process_ref["cancelled"] = True
+                                    process_ref["process"].kill()
+                                    cancel_line = "⚠️ CANCELLED: Plan was cancelled by user"
+                                    output_lines.append(cancel_line)
+                                    formatted_lines.append(format_log_line(cancel_line))
+                                    ui.notify("Plan cancelled", type="warning")
+                            
+                            cancel_btn = ui.button("Cancel", icon="cancel", on_click=cancel_plan).props("outline color=negative")
+                            
+                            with ui.row().classes("gap-2"):
+                                def copy_stream_output():
+                                    content = "\n".join(output_lines)
+                                    ui.run_javascript(f'navigator.clipboard.writeText({repr(content)})')
+                                    ui.notify("Copied to clipboard", type="positive")
+                                ui.button("Copy", icon="content_copy", on_click=copy_stream_output).props("outline")
+                                ui.button("Close", on_click=stream_dialog.close)
+                    
+                    stream_dialog.props("maximized")
+                    stream_dialog.open()
+                    
+                    with match_terminal_output:
+                        match_terminal_output.clear()
+                        ui.label("Running terraform plan...").classes("text-xs text-slate-500")
+                    
+                    # Run terraform plan with streaming output
+                    try:
+                        process = await asyncio.create_subprocess_exec(
+                            "terraform", "plan", "-no-color", "-input=false",
+                            cwd=str(tf_path),
+                            env=env,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.STDOUT,
+                        )
+                        process_ref["process"] = process
+                        
+                        # Stream output line by line
+                        while True:
+                            try:
+                                line = await asyncio.wait_for(process.stdout.readline(), timeout=300)
+                            except asyncio.TimeoutError:
+                                timeout_line = "⚠️ TIMEOUT: Plan exceeded 5 minute limit"
+                                output_lines.append(timeout_line)
+                                formatted_lines.append(format_log_line(timeout_line))
+                                process.kill()
+                                break
+                            
+                            if not line:
+                                break
+                            
+                            decoded_line = line.decode('utf-8', errors='replace').rstrip()
+                            output_lines.append(decoded_line)
+                            formatted_lines.append(format_log_line(decoded_line))
+                            
+                            # Save output incrementally so it's available if dialog is closed early
+                            tf_outputs["plan"] = "\n".join(output_lines)
+                            
+                            # Update the viewer with formatted output (timestamps + levels)
+                            formatted_output = "\n".join(formatted_lines)
+                            stream_log.content = f'<pre class="text-xs font-mono whitespace-pre-wrap p-2 bg-slate-900 text-slate-100 rounded stream-log-content" style="min-height: 200px;">{formatted_output}</pre>'
+                            stream_log.update()
+                        
+                        await process.wait()
+                        returncode = process.returncode
+                        
+                    except Exception as e:
+                        error_line = f"❌ ERROR: {e}"
+                        output_lines.append(error_line)
+                        formatted_lines.append(format_log_line(error_line))
+                        returncode = 1
+                    
+                    # Hide cancel button when done
+                    cancel_btn.set_visibility(False)
+                    
+                    plan_output = "\n".join(output_lines)
+                    tf_outputs["plan"] = plan_output
+                    
+                    # Update dialog title and hide spinner
+                    stream_spinner.set_visibility(False)
+                    if process_ref["cancelled"]:
+                        stream_title.set_text("⚠️ Plan Cancelled")
+                        ui.notify("Plan was cancelled", type="warning")
+                    elif returncode == 0:
+                        if "0 to add, 0 to change, 0 to destroy" in plan_output:
+                            stream_title.set_text("✅ Plan Complete: Only moves, no real changes")
+                        else:
+                            stream_title.set_text("⚠️ Plan Complete: Has changes - review carefully")
+                        ui.notify("Plan completed", type="positive")
+                    else:
+                        stream_title.set_text("❌ Plan Failed")
+                        ui.notify("Plan failed - see output for details", type="warning")
+                    
+                    # Update status in the match terminal area
+                    with match_terminal_output:
+                        match_terminal_output.clear()
+                        if process_ref["cancelled"]:
+                            ui.label("⚠️ Plan cancelled").classes("text-xs text-amber-600 font-semibold")
+                        elif returncode == 0:
+                            if "0 to add, 0 to change, 0 to destroy" in plan_output:
+                                ui.label("✅ Plan: Only moves, no real changes").classes("text-xs text-green-600 font-semibold")
+                            else:
+                                ui.label("⚠️ Plan has changes - review carefully").classes("text-xs text-amber-600 font-semibold")
+                        else:
+                            ui.label("❌ Plan failed").classes("text-xs text-red-600 font-semibold")
+                    
+                    # Mark plan as complete
+                    plan_running["active"] = False
+                
+                ui.button("Plan", icon="preview", on_click=run_match_plan).props("outline color=primary").style("min-width: 100px;")
+                
+                async def run_match_apply():
+                    """Run terraform apply for protection moves only."""
+                    import asyncio
+                    import subprocess
+                    import os
+                    
+                    if not check_credentials():
+                        return
+                    
+                    # Confirmation dialog
+                    with ui.dialog() as confirm_dialog, ui.card().style("width: 450px;"):
+                        ui.label("Confirm Apply").classes("text-xl font-bold mb-3")
+                        ui.label(
+                            "This will apply the protection moves to Terraform state. "
+                            "Make sure you've reviewed the plan first."
+                        ).classes("text-sm text-slate-600 mb-4")
+                        
+                        with ui.row().classes("w-full justify-end gap-2"):
+                            ui.button("Cancel", on_click=confirm_dialog.close).props("flat")
+                            
+                            async def do_apply():
+                                confirm_dialog.close()
+                                
+                                with match_terminal_output:
+                                    match_terminal_output.clear()
+                                    ui.label("Running terraform apply...").classes("text-xs text-slate-500")
+                                
+                                env = os.environ.copy()
+                                if state.target_credentials.api_token:
+                                    env["DBT_CLOUD_TOKEN"] = state.target_credentials.api_token
+                                if state.target_credentials.host_url:
+                                    env["DBT_CLOUD_HOST_URL"] = state.target_credentials.host_url
+                                if state.target_credentials.account_id:
+                                    env["DBT_CLOUD_ACCOUNT_ID"] = str(state.target_credentials.account_id)
+                                
+                                result = await asyncio.to_thread(
+                                    subprocess.run,
+                                    ["terraform", "apply", "-auto-approve", "-no-color", "-input=false"],
+                                    cwd=str(tf_path),
+                                    capture_output=True,
+                                    text=True,
+                                    env=env,
+                                )
+                                
+                                # Store output for later viewing
+                                tf_outputs["apply"] = result.stdout + result.stderr
+                                
+                                with match_terminal_output:
+                                    match_terminal_output.clear()
+                                    if result.returncode == 0:
+                                        ui.label("✅ Apply completed! Protection moves applied.").classes("text-xs text-green-600 font-semibold")
+                                    else:
+                                        ui.label("❌ Apply failed").classes("text-xs text-red-600 font-semibold")
+                                        ui.label(result.stderr[:200] if result.stderr else "Unknown error").classes("text-xs text-red-500")
+                                
+                                if result.returncode == 0:
+                                    ui.notify("Apply completed! Protection moves applied.", type="positive", timeout=5000)
+                                    # Clear the pending state
+                                    state.map.protection_fix_pending = False
+                                    state.map.protection_fix_file_path = ""
+                                    state.map.protection_fix_action = ""
+                                    save_state()
+                                    # Reload after short delay
+                                    await asyncio.sleep(1)
+                                    ui.navigate.reload()
+                                else:
+                                    ui.notify("Apply failed - see output", type="negative")
+                            
+                            ui.button("Apply", icon="rocket_launch", on_click=do_apply).props("color=primary")
+                    
+                    confirm_dialog.open()
+                
+                ui.button("Apply", icon="rocket_launch", on_click=run_match_apply).props("color=positive").style("min-width: 100px;")
+                
+                # Spacer
+                ui.space()
+                
+                def show_match_ai_debug():
+                    """Show AI debugging summary for protection mismatches."""
+                    lines = [
+                        "# Protection Mismatch Debug Report (Match Page)",
+                        "",
+                        f"**Generated**: {__import__('datetime').datetime.now().isoformat()}",
+                        f"**Terraform Dir**: `{tf_path}`",
+                        "",
+                        "## Summary",
+                        f"- **Total Mismatches**: {len(protection_mismatches)}",
+                        f"- **Unique Projects**: {len(unique_projects_with_mismatches)}",
+                        "",
+                        "## Mismatches by Project",
+                        "",
+                    ]
+                    
+                    by_project: dict[str, list] = {}
+                    for m in protection_mismatches:
+                        pkey = m.get("project_name") or m.get("key")
+                        if pkey not in by_project:
+                            by_project[pkey] = []
+                        by_project[pkey].append(m)
+                    
+                    for project_key, items in sorted(by_project.items()):
+                        direction = "unprotect" if items[0]["state_protected"] else "protect"
+                        lines.append(f"### `{project_key}` ({direction})")
+                        lines.append("")
+                        
+                        for m in items:
+                            state_status = "protected" if m["state_protected"] else "unprotected"
+                            yaml_status = "protected" if m["yaml_protected"] else "unprotected"
+                            lines.append(f"- **{m['type']}** (`{m['key']}`)")
+                            lines.append(f"  - State: {state_status}")
+                            lines.append(f"  - YAML: {yaml_status}")
+                            lines.append(f"  - Action: Move to {direction}ed collection")
+                        lines.append("")
+                    
+                    lines.extend([
+                        "## Resolution Steps",
+                        "",
+                        "1. Click **Protect All** or **Unprotect All** to generate moved blocks",
+                        "2. Click **Init** to initialize Terraform",
+                        "3. Click **Plan** to preview changes (should show 0 add, 0 destroy)",
+                        "4. Click **Apply** to execute the state moves",
+                        "",
+                        "## Raw Mismatch Data",
+                        "",
+                        "```python",
+                    ])
+                    
+                    for m in protection_mismatches:
+                        lines.append(f"{{")
+                        lines.append(f"    'key': '{m['key']}',")
+                        lines.append(f"    'type': '{m['type']}',")
+                        lines.append(f"    'state_protected': {m['state_protected']},")
+                        lines.append(f"    'yaml_protected': {m['yaml_protected']},")
+                        lines.append(f"}},")
+                    lines.append("```")
+                    
+                    report = "\n".join(lines)
+                    
+                    with ui.dialog() as debug_dialog, ui.card().classes("w-full max-h-[90vh] p-6").style("width: 90vw; max-width: 90vw;"):
+                        with ui.row().classes("w-full items-center justify-between mb-3"):
+                            with ui.row().classes("items-center gap-2"):
+                                ui.icon("bug_report", size="md").classes("text-purple-500")
+                                ui.label("AI Debug Report").classes("text-xl font-bold")
+                            ui.button(icon="close", on_click=debug_dialog.close).props("flat round size=sm")
+                        
+                        ui.separator()
+                        
+                        with ui.scroll_area().classes("w-full").style("max-height: 60vh;"):
+                            ui.markdown(report).classes("text-sm")
+                        
+                        ui.separator()
+                        
+                        with ui.row().classes("w-full justify-end gap-2 mt-2"):
+                            def copy_report():
+                                ui.run_javascript(f'navigator.clipboard.writeText({repr(report)})')
+                                ui.notify("Copied to clipboard!", type="positive")
+                            
+                            ui.button("Copy to Clipboard", icon="content_copy", on_click=copy_report).props("outline")
+                            ui.button("Close", on_click=debug_dialog.close).props("flat")
+                    
+                    debug_dialog.open()
+                
+                ui.button("AI Debug", icon="bug_report", on_click=show_match_ai_debug).props("flat color=purple")
+                
+                # Pre-create a reusable viewer dialog at page level
+                viewer_state = {"content": "", "title": ""}
+                viewer_dialog = ui.dialog().props("maximized")
+                with viewer_dialog:
+                    with ui.card().classes("w-full h-full").style("display: flex; flex-direction: column;"):
+                        with ui.row().classes("w-full items-center justify-between mb-2"):
+                            with ui.row().classes("items-center gap-3"):
+                                ui.icon("assignment", size="lg").classes("text-orange-500")
+                                viewer_title_label = ui.label("Output Viewer").classes("text-xl font-bold")
+                            ui.button(icon="close", on_click=viewer_dialog.close).props("flat round")
+                        
+                        with ui.scroll_area().classes("w-full").style("flex: 1; min-height: 0;"):
+                            viewer_code = ui.code("", language="text").classes("w-full text-sm")
+                        
+                        with ui.row().classes("w-full justify-end gap-2 mt-4"):
+                            def copy_viewer_content():
+                                ui.run_javascript(f'navigator.clipboard.writeText({repr(viewer_state["content"])})')
+                                ui.notify("Copied to clipboard", type="positive")
+                            ui.button("Copy to Clipboard", icon="content_copy", on_click=copy_viewer_content).props("outline")
+                            ui.button("Close", on_click=viewer_dialog.close)
+                
+                def show_view_output_menu():
+                    """Show a menu to select which output to view."""
+                    # #region agent log H2
+                    import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H2", "location": "match.py:show_view_output_menu", "message": "Menu opened", "data": {"tf_outputs_id": id(tf_outputs), "tf_outputs_keys": list(tf_outputs.keys())}, "timestamp": __import__("time").time()}) + "\n")
+                    # #endregion
+                    
+                    with ui.dialog() as menu_dialog, ui.card().style("width: 300px;"):
+                        ui.label("View Terraform Output").classes("text-lg font-bold mb-3")
+                        
+                        with ui.column().classes("w-full gap-2"):
+                            def view_and_close(step, title):
+                                # #region agent log H7
+                                import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H7", "location": "match.py:view_and_close", "message": "view_and_close called", "data": {"step": step, "title": title, "tf_outputs_id": id(tf_outputs), "output_len": len(tf_outputs.get(step, ""))}, "timestamp": __import__("time").time()}) + "\n")
+                                # #endregion
+                                output = tf_outputs.get(step, "")
+                                if not output:
+                                    ui.notify(f"No {step} output available. Run {step} first.", type="warning")
+                                    menu_dialog.close()
+                                    return
+                                
+                                # Update the pre-created viewer dialog
+                                viewer_state["content"] = output
+                                viewer_state["title"] = title
+                                viewer_title_label.set_text(title)
+                                viewer_code.content = output
+                                viewer_code.update()
+                                
+                                # #region agent log H8
+                                import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H8", "location": "match.py:view_and_close:opening", "message": "Opening pre-created viewer", "data": {"title": title, "content_len": len(output)}, "timestamp": __import__("time").time()}) + "\n")
+                                # #endregion
+                                
+                                menu_dialog.close()
+                                viewer_dialog.open()
+                            
+                            ui.button(
+                                "Generated Moved Blocks",
+                                icon="build",
+                                on_click=lambda: view_and_close("generate", "Generated Moved Blocks"),
+                            ).props("outline color=amber").classes("w-full justify-start")
+                            
+                            ui.button(
+                                "Init Output",
+                                icon="downloading",
+                                on_click=lambda: view_and_close("init", "Terraform Init Output"),
+                            ).props("outline").classes("w-full justify-start")
+                            
+                            ui.button(
+                                "Validate Output",
+                                icon="check_circle",
+                                on_click=lambda: view_and_close("validate", "Terraform Validate Output"),
+                            ).props("outline").classes("w-full justify-start")
+                            
+                            ui.button(
+                                "Plan Output",
+                                icon="preview",
+                                on_click=lambda: view_and_close("plan", "Terraform Plan Output"),
+                            ).props("outline color=primary").classes("w-full justify-start")
+                            
+                            ui.button(
+                                "Apply Output",
+                                icon="rocket_launch",
+                                on_click=lambda: view_and_close("apply", "Terraform Apply Output"),
+                            ).props("outline color=positive").classes("w-full justify-start")
+                        
+                        ui.button("Close", on_click=menu_dialog.close).props("flat").classes("mt-3")
+                    
+                    menu_dialog.open()
+                
+                ui.button("View Output", icon="visibility", on_click=show_view_output_menu).props("flat")
+            
+            # Output area
+            with match_terminal_output:
+                ui.label("Click Generate → Init → Plan → Apply to process protection moves").classes("text-xs text-slate-400")
     
     # Save mapping file section (show if there are any confirmed or pending matches)
     has_matches = any(r.get("action") == "match" and r.get("target_id") for r in grid_row_data)

@@ -28,6 +28,7 @@ from importer.web.utils.protection_manager import (
     ProtectionRepairResult,
 )
 from importer.web.utils.yaml_viewer import create_state_viewer_dialog
+from importer.web.utils.ui_logger import log_action, log_state_change
 
 
 # dbt brand colors
@@ -1094,18 +1095,194 @@ def _create_destroy_protection_panel(
                 ui.notify("No matching protected resources found", type="warning")
                 return
             
+            # Log the state before changes
+            before_protected = set(state.map.protected_resources) if state.map.protected_resources else set()
+            before_unprotected = set(state.map.unprotected_keys) if state.map.unprotected_keys else set()
+            before_fix_pending = state.map.protection_fix_pending
+            before_fix_action = state.map.protection_fix_action
+            
             # Add to state.map.unprotected_keys so they'll be filtered out on reload
             if state.map.unprotected_keys is None:
                 state.map.unprotected_keys = set()
             state.map.unprotected_keys.update(keys_to_unprotect)
             
-            save_state()
-            ui.notify(
-                f"Unprotected {len(keys_to_unprotect)} resource(s). Regenerate Terraform to apply.",
-                type="warning",
-                timeout=6000,
+            # ALSO remove from protected_resources to sync with match page
+            # The match page uses protected_resources to determine yaml_protected status
+            if state.map.protected_resources:
+                for key in keys_to_unprotect:
+                    state.map.protected_resources.discard(key)
+            
+            # Reset any stale protection fix state - user has taken a new action
+            # This clears "pending protect" status that's now outdated
+            fix_state_reset = False
+            if state.map.protection_fix_pending:
+                fix_state_reset = True
+                state.map.protection_fix_pending = False
+                state.map.protection_fix_file_path = ""
+                state.map.protection_fix_action = ""
+                state.map.protection_fix_previous_content = ""
+                state.map.protection_fix_backup_protected = set()
+                state.map.protection_fix_backup_unprotected = set()
+            
+            # Log the action and state changes
+            log_action("on_unprotect_selected", "executed", {
+                "keys_to_unprotect": list(keys_to_unprotect),
+                "fix_state_reset": fix_state_reset,
+                "previous_fix_action": before_fix_action if fix_state_reset else None,
+            })
+            log_state_change(
+                "protected_resources",
+                "remove",
+                {"keys": list(keys_to_unprotect)},
+                before=before_protected,
+                after=state.map.protected_resources,
             )
-            ui.navigate.reload()
+            if fix_state_reset:
+                log_state_change(
+                    "protection_fix_pending",
+                    "reset",
+                    {"reason": "user_unprotect_action", "previous_action": before_fix_action},
+                    before=before_fix_pending,
+                    after=False,
+                )
+            
+            save_state()
+            
+            # Helper to generate moved blocks and navigate to deploy
+            def generate_and_go_to_deploy():
+                """Generate moved blocks for the unprotected resources and navigate to Deploy."""
+                from importer.web.utils.protection_manager import (
+                    detect_protection_mismatches,
+                    write_moved_blocks_file,
+                    ProtectionChange,
+                )
+                from pathlib import Path
+                
+                # Get terraform directory
+                tf_dir = state.deploy.terraform_dir or "deployments/migration"
+                tf_path = Path(tf_dir)
+                if not tf_path.is_absolute():
+                    project_root = Path(state.fetch.output_dir).parent.parent if state.fetch.output_dir else Path.cwd()
+                    tf_path = project_root / tf_dir
+                
+                if not tf_path.exists():
+                    ui.notify(f"Terraform directory not found: {tf_path}", type="negative")
+                    return
+                
+                # Build protection changes for the unprotected resources
+                module_prefix = "module.dbt_cloud.module.projects_v2[0]"
+                changes = []
+                
+                # Get the resource type mappings: (tf_type, unprotected_collection, protected_collection)
+                RESOURCE_TYPE_MAP = {
+                    "PRJ": ("dbtcloud_project", "projects", "protected_projects"),
+                    "REP": ("dbtcloud_repository", "repositories", "protected_repositories"),
+                    "PREP": ("dbtcloud_project_repository", "project_repositories", "protected_project_repositories"),
+                    "ENV": ("dbtcloud_environment", "environments", "protected_environments"),
+                    "JOB": ("dbtcloud_job", "jobs", "protected_jobs"),
+                    "GC": ("dbtcloud_global_connection", "global_connections", "protected_global_connections"),
+                }
+                
+                # For each unprotected key, create a moved block from protected to regular
+                for key in keys_to_unprotect:
+                    # Determine resource type from the key or look it up
+                    for res in protected_resources:
+                        if res.resource_key == key:
+                            resource_type = res.resource_type
+                            resource_name = res.name
+                            if resource_type in RESOURCE_TYPE_MAP:
+                                tf_type, unprotected, protected = RESOURCE_TYPE_MAP[resource_type]
+                                from_addr = f'{module_prefix}.{tf_type}.{protected}["{key}"]'
+                                to_addr = f'{module_prefix}.{tf_type}.{unprotected}["{key}"]'
+                                changes.append(ProtectionChange(
+                                    resource_key=key,
+                                    resource_type=resource_type,
+                                    name=resource_name,
+                                    direction="unprotect",
+                                    from_address=from_addr,
+                                    to_address=to_addr,
+                                ))
+                            break
+                
+                if not changes:
+                    ui.notify("No protection changes to generate", type="warning")
+                    return
+                
+                # Write the moved blocks file
+                output_file = write_moved_blocks_file(
+                    changes,
+                    tf_path,
+                    filename="protection_moves.tf",
+                    preserve_existing=False,
+                )
+                
+                if output_file:
+                    ui.notify(f"Generated {len(changes)} moved block(s) → {output_file.name}", type="positive")
+                    next_steps_dialog.close()
+                    ui.navigate.to("/deploy")
+                else:
+                    ui.notify("Failed to write moved blocks file", type="negative")
+            
+            # Show dialog with clear next steps
+            with ui.dialog() as next_steps_dialog, ui.card().style("width: 600px; max-width: 90vw;"):
+                with ui.row().classes("items-center gap-3 mb-4"):
+                    ui.icon("shield_outlined", size="lg").classes("text-amber-600")
+                    ui.label(f"Unprotected {len(keys_to_unprotect)} Resource(s)").classes("text-xl font-bold text-amber-700")
+                
+                ui.separator()
+                
+                ui.markdown("""
+**What happened:** The resource(s) have been marked as unprotected in your YAML configuration.
+
+**What's next:** To complete the unprotection in Terraform state:
+""").classes("text-sm")
+                
+                # Quick action option
+                with ui.card().classes("w-full p-3 my-3").style("background: #ECFDF5; border: 1px solid #10B981;"):
+                    with ui.row().classes("items-center gap-3"):
+                        ui.icon("bolt", size="sm").classes("text-green-600")
+                        ui.label("Quick Option").classes("font-bold text-green-700")
+                    ui.label(
+                        "Generate moved blocks now and go directly to Deploy to run terraform apply."
+                    ).classes("text-sm text-green-700 mt-1")
+                    ui.button(
+                        "Generate & Go to Deploy",
+                        icon="play_arrow",
+                        on_click=generate_and_go_to_deploy,
+                    ).props("color=positive").classes("mt-2")
+                
+                ui.label("— OR —").classes("text-center text-slate-400 text-xs my-2")
+                
+                # Manual steps option
+                with ui.expansion("Manual Steps", icon="list").classes("w-full"):
+                    with ui.column().classes("gap-3 py-2"):
+                        with ui.row().classes("items-start gap-3"):
+                            ui.badge("1", color="amber").classes("mt-0.5")
+                            with ui.column().classes("gap-1"):
+                                ui.label("Generate Moved Blocks").classes("font-semibold")
+                                ui.label("Go to Match Resources → Protection Mismatch panel → 'Unprotect All'").classes("text-xs text-slate-500")
+                        
+                        with ui.row().classes("items-start gap-3"):
+                            ui.badge("2", color="amber").classes("mt-0.5")
+                            with ui.column().classes("gap-1"):
+                                ui.label("Apply Changes").classes("font-semibold")
+                                ui.label("Go to Deploy → Run 'terraform plan' then 'terraform apply'").classes("text-xs text-slate-500")
+                
+                ui.markdown("""
+⚠️ **Until terraform apply completes**, the resource remains protected and **cannot be destroyed**.
+""").classes("text-sm text-amber-700 bg-amber-50 p-3 rounded mt-3")
+                
+                ui.separator().classes("my-3")
+                
+                with ui.row().classes("w-full justify-end gap-2"):
+                    ui.button("Stay Here", on_click=lambda: (next_steps_dialog.close(), ui.navigate.reload())).props("flat")
+                    ui.button(
+                        "Go to Match Resources",
+                        icon="arrow_forward",
+                        on_click=lambda: (next_steps_dialog.close(), ui.navigate.to("/match")),
+                    ).props("outline")
+            
+            next_steps_dialog.open()
         
         # Action buttons row (above filters)
         with ui.row().classes("w-full items-center gap-2 mb-3 flex-wrap"):
@@ -1428,6 +1605,47 @@ def _create_protection_repair_panel(
                 on_click=apply_repair,
             ).props("color=amber").style("color: black !important;")
             
+            async def run_init():
+                """Run terraform init to initialize the workspace."""
+                terminal.clear()
+                terminal.set_title("Output — TERRAFORM INIT")
+                terminal.info("Running terraform init...")
+                terminal.info("")
+                
+                env = _get_terraform_env(state)
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    ["terraform", "init", "-no-color"],
+                    cwd=str(terraform_dir),
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                )
+                
+                for line in (result.stdout + result.stderr).split("\n"):
+                    if line.strip():
+                        if "Error:" in line or "error:" in line.lower():
+                            terminal.error(line)
+                        elif "Warning:" in line:
+                            terminal.warning(line)
+                        elif "Terraform has been successfully initialized" in line:
+                            terminal.success(line)
+                        elif "Initializing" in line:
+                            terminal.info(line)
+                        else:
+                            terminal.info(line)
+                
+                if result.returncode == 0:
+                    ui.notify("Terraform initialized successfully!", type="positive")
+                else:
+                    ui.notify("Init failed - see output for details", type="negative")
+            
+            ui.button(
+                "Init",
+                icon="downloading",
+                on_click=run_init,
+            ).props("outline")
+            
             async def run_validate():
                 """Run terraform validate to check for other errors."""
                 terminal.clear()
@@ -1462,14 +1680,250 @@ def _create_protection_repair_panel(
                     ui.notify("Validation failed - see output for details", type="warning")
             
             ui.button(
-                "Run Validate",
+                "Validate",
                 icon="check_circle",
                 on_click=run_validate,
             ).props("outline")
             
-            ui.label(
-                "Click 'Apply Repair' to generate the correct moved blocks, then run terraform plan/apply."
-            ).classes("text-xs text-slate-500 flex-grow")
+            async def run_plan():
+                """Run terraform plan to preview the changes."""
+                from importer.web.utils.yaml_viewer import create_plan_viewer_dialog
+                
+                terminal.clear()
+                terminal.set_title("Output — TERRAFORM PLAN")
+                terminal.info("Running terraform plan...")
+                terminal.info("")
+                
+                env = _get_terraform_env(state)
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    ["terraform", "plan", "-no-color"],
+                    cwd=str(terraform_dir),
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                )
+                
+                # Store the raw plan output
+                plan_output = result.stdout + result.stderr
+                
+                # Also show in terminal for quick reference
+                for line in plan_output.split("\n"):
+                    if line.strip():
+                        if "Error:" in line or "error:" in line.lower():
+                            terminal.error(line)
+                        elif "Warning:" in line:
+                            terminal.warning(line)
+                        elif "Plan:" in line or "Changes to Outputs:" in line:
+                            terminal.success(line)
+                        elif "No changes" in line:
+                            terminal.success(line)
+                        elif "will be" in line.lower() and ("created" in line.lower() or "destroyed" in line.lower() or "changed" in line.lower()):
+                            terminal.warning(line)
+                        else:
+                            terminal.info(line)
+                
+                if result.returncode == 0:
+                    ui.notify("Plan completed - opening full-screen view", type="positive")
+                    # Open the full-screen plan viewer dialog
+                    dialog = create_plan_viewer_dialog(plan_output, "Protection Repair Plan")
+                    dialog.open()
+                else:
+                    ui.notify("Plan failed - see output for details", type="negative")
+            
+            ui.button(
+                "Plan",
+                icon="preview",
+                on_click=run_plan,
+            ).props("outline color=primary")
+            
+            async def run_apply():
+                """Run terraform apply with auto-approve."""
+                # Confirm before applying
+                with ui.dialog() as confirm_dialog, ui.card().style("width: 450px;"):
+                    ui.label("Confirm Apply").classes("text-xl font-bold mb-3")
+                    ui.label(
+                        "This will apply the protection moves to Terraform state. "
+                        "Make sure you've reviewed the plan first."
+                    ).classes("text-sm text-slate-600 mb-4")
+                    
+                    with ui.row().classes("w-full justify-end gap-2"):
+                        ui.button("Cancel", on_click=confirm_dialog.close).props("flat")
+                        
+                        async def do_apply():
+                            confirm_dialog.close()
+                            terminal.clear()
+                            terminal.set_title("Output — TERRAFORM APPLY")
+                            terminal.info("Running terraform apply -auto-approve...")
+                            terminal.info("")
+                            
+                            env = _get_terraform_env(state)
+                            result = await asyncio.to_thread(
+                                subprocess.run,
+                                ["terraform", "apply", "-auto-approve", "-no-color"],
+                                cwd=str(terraform_dir),
+                                capture_output=True,
+                                text=True,
+                                env=env,
+                            )
+                            
+                            for line in (result.stdout + result.stderr).split("\n"):
+                                if line.strip():
+                                    if "Error:" in line or "error:" in line.lower():
+                                        terminal.error(line)
+                                    elif "Warning:" in line:
+                                        terminal.warning(line)
+                                    elif "Apply complete" in line:
+                                        terminal.success(line)
+                                    elif "Resources:" in line:
+                                        terminal.success(line)
+                                    else:
+                                        terminal.info(line)
+                            
+                            if result.returncode == 0:
+                                ui.notify("Apply completed successfully! Protection moves applied.", type="positive", timeout=6000)
+                                terminal.success("")
+                                terminal.success("✅ Protection moves applied successfully!")
+                                terminal.info("The protection_moves.tf file can now be deleted if desired.")
+                                # Reload to refresh the panel (mismatch should be resolved)
+                                await asyncio.sleep(1)
+                                ui.navigate.reload()
+                            else:
+                                ui.notify("Apply failed - see output for details", type="negative")
+                        
+                        ui.button("Apply", icon="rocket_launch", on_click=do_apply).props("color=primary")
+                
+                confirm_dialog.open()
+            
+            ui.button(
+                "Apply",
+                icon="rocket_launch",
+                on_click=run_apply,
+            ).props("color=positive")
+            
+            # Spacer to push AI Debug button to far right
+            ui.space()
+            
+            def show_ai_debug():
+                """Show AI debugging summary dialog."""
+                # Build diagnostic report
+                lines = [
+                    "# Protection Mismatch Debug Report",
+                    "",
+                    f"**Generated**: {__import__('datetime').datetime.now().isoformat()}",
+                    f"**Terraform Dir**: `{terraform_dir}`",
+                    f"**YAML Config**: `{yaml_path}`",
+                    "",
+                    "## Summary",
+                    f"- **Total Mismatches**: {len(repair_result.mismatches)}",
+                    "",
+                    "## Mismatches by Project",
+                    "",
+                ]
+                
+                # Group by project key
+                by_project = {}
+                for m in repair_result.mismatches:
+                    if m.resource_key not in by_project:
+                        by_project[m.resource_key] = []
+                    by_project[m.resource_key].append(m)
+                
+                type_names = {
+                    "PRJ": "Project",
+                    "REP": "Repository", 
+                    "PREP": "Project-Repo Link",
+                }
+                
+                for project_key, mismatches in sorted(by_project.items()):
+                    yaml_status = "protected" if mismatches[0].yaml_protected else "unprotected"
+                    state_status = "protected" if mismatches[0].state_protected else "unprotected"
+                    direction = mismatches[0].move_direction
+                    
+                    lines.append(f"### `{project_key}`")
+                    lines.append("")
+                    lines.append(f"**YAML says**: {yaml_status}")
+                    lines.append(f"**State has**: {state_status}")
+                    lines.append(f"**Action needed**: Move to {direction}ed collection")
+                    lines.append("")
+                    lines.append("**Resources affected:**")
+                    
+                    for m in mismatches:
+                        type_name = type_names.get(m.resource_type, m.resource_type)
+                        lines.append(f"- **{type_name}** (`{m.resource_type}`)")
+                        lines.append(f"  - Current: `{m.state_address}`")
+                        lines.append(f"  - Expected: `{m.expected_address}`")
+                    lines.append("")
+                
+                lines.append("## Root Cause Analysis")
+                lines.append("")
+                lines.append("Protection mismatches occur when:")
+                lines.append("1. The `protected: true/false` flag in YAML config was changed")
+                lines.append("2. But the Terraform state still has resources in the old collection")
+                lines.append("3. Without `moved` blocks, Terraform sees these as different resources")
+                lines.append("")
+                lines.append("## Resolution")
+                lines.append("")
+                lines.append("1. Click **Apply Repair** to generate `protection_moves.tf`")
+                lines.append("2. Run **Init** to reinitialize Terraform")
+                lines.append("3. Run **Plan** to verify the moves (should show 0 add, 0 destroy)")
+                lines.append("4. Run **Apply** to execute the state moves")
+                lines.append("5. After successful apply, the `protection_moves.tf` file can be deleted")
+                lines.append("")
+                lines.append("## Raw Mismatch Data")
+                lines.append("")
+                lines.append("```python")
+                for m in repair_result.mismatches:
+                    lines.append(f"ProtectionMismatch(")
+                    lines.append(f"    resource_key='{m.resource_key}',")
+                    lines.append(f"    resource_type='{m.resource_type}',")
+                    lines.append(f"    yaml_protected={m.yaml_protected},")
+                    lines.append(f"    state_protected={m.state_protected},")
+                    lines.append(f"    state_address='{m.state_address}',")
+                    lines.append(f"    expected_address='{m.expected_address}',")
+                    lines.append(f")")
+                lines.append("```")
+                
+                if repair_result.moved_blocks_content:
+                    lines.append("")
+                    lines.append("## Generated Moved Blocks")
+                    lines.append("")
+                    lines.append("```hcl")
+                    lines.append(repair_result.moved_blocks_content)
+                    lines.append("```")
+                
+                report = "\n".join(lines)
+                
+                # Create dialog (same width as destroy resource detail dialog)
+                with ui.dialog() as debug_dialog, ui.card().classes("w-full max-h-[90vh] p-6").style("width: 90vw; max-width: 90vw;"):
+                    with ui.row().classes("w-full items-center justify-between mb-3"):
+                        with ui.row().classes("items-center gap-2"):
+                            ui.icon("bug_report", size="md").classes("text-purple-500")
+                            ui.label("AI Debug Report").classes("text-xl font-bold")
+                        ui.button(icon="close", on_click=debug_dialog.close).props("flat round size=sm")
+                    
+                    ui.separator()
+                    
+                    # Scrollable content area
+                    with ui.scroll_area().classes("w-full").style("max-height: 60vh;"):
+                        ui.markdown(report).classes("text-sm")
+                    
+                    ui.separator()
+                    
+                    with ui.row().classes("w-full justify-end gap-2 mt-2"):
+                        def copy_report():
+                            ui.run_javascript(f'navigator.clipboard.writeText({repr(report)})')
+                            ui.notify("Copied to clipboard!", type="positive")
+                        
+                        ui.button("Copy to Clipboard", icon="content_copy", on_click=copy_report).props("outline")
+                        ui.button("Close", on_click=debug_dialog.close).props("flat")
+                
+                debug_dialog.open()
+            
+            ui.button(
+                "AI Debug",
+                icon="bug_report", 
+                on_click=show_ai_debug,
+            ).props("flat color=purple")
 
 
 def _show_protected_resource_dialog(row: dict) -> None:

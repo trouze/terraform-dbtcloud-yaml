@@ -1,0 +1,211 @@
+---
+description: Debug instrumentation and logging standards - instrumentation must be kept and documented
+globs: ["importer/**/*.py"]
+alwaysApply: false
+---
+
+# Debug Instrumentation Standards
+
+**Reference PRD:** `tasks/prd-web-ui-12-debug-logging-standards.md`
+
+All debug instrumentation in this project MUST be preserved and documented. Never remove logging or tracing code.
+
+---
+
+## Critical Rules
+
+### MUST DO
+
+1. **Keep all debug instrumentation** - Never remove logging calls, traced decorators, or hypothesis markers
+2. **Use structured logging** - All logs must be JSON-formatted via `ui_logger` utilities
+3. **Log all UI actions** - Button clicks, form submissions, toggles, grid changes
+4. **Log all state changes** - Include before/after values when modifying state
+5. **Use `@traced` decorator** - On complex functions, protection logic, and state mutations
+6. **Include hypothesis markers** - Use `[HA]`, `[HB]` prefixes for debugging instrumentation
+7. **Log errors with context** - Include relevant state and parameters when logging errors
+
+### MUST NOT DO
+
+1. **Never remove existing instrumentation** - Even if "temporary" or "debugging"
+2. **Never skip logging in error paths** - All exceptions must be logged
+3. **Never use print() for debugging** - Use `ui_logger` or standard `logging` module
+4. **Never log sensitive data** - Redact tokens, passwords, secrets
+
+---
+
+## Quick Reference
+
+### Import Statement
+
+```python
+from importer.web.utils.ui_logger import (
+    log_action,
+    log_navigation,
+    log_state_change,
+    log_generate_step,
+    log_error,
+    traced,
+)
+```
+
+### UI Action Logging
+
+```python
+# Button click
+log_action("protect_button", "clicked", {"resource_key": key})
+
+# Form submit
+log_action("credentials_form", "submitted", {"target_id": target_id})
+
+# Toggle
+log_action("checkbox", "toggled", {"field": "protected", "value": True})
+```
+
+### State Change Logging
+
+```python
+before = set(state.map.protected_resources) if state.map.protected_resources else set()
+
+# ... modify state ...
+
+log_state_change(
+    "protected_resources",
+    "add",
+    {"keys": keys_to_protect},
+    before=before,
+    after=state.map.protected_resources
+)
+```
+
+### Function Tracing
+
+```python
+@traced
+def apply_protection(keys_to_protect: list[str]) -> None:
+    """Traced function - logs entry, exit, and errors."""
+    pass
+
+@traced(log_args=True, log_result=True)
+def detect_changes(current: dict, previous: dict) -> list[dict]:
+    """Traced with full argument and result logging."""
+    pass
+```
+
+### Generate Step Logging
+
+```python
+log_generate_step("yaml_protection_applied", {
+    "protected_count": len(protected),
+    "yaml_file": str(yaml_path)
+})
+```
+
+### Error Logging
+
+```python
+try:
+    process_data()
+except Exception as e:
+    log_error("process_data", str(e), {"input_file": str(path)})
+    raise
+```
+
+### Hypothesis Markers (Standard Logging)
+
+```python
+import logging
+logger = logging.getLogger(__name__)
+
+# Use [H<letter>] prefix for hypothesis markers
+logger.debug(f"[HA] Checking YAML content: {len(projects)} projects")
+logger.debug(f"[HB] Protection mapping: {yaml_protection}")
+```
+
+---
+
+## Log File Locations
+
+| Log Type | Path | Format |
+|----------|------|--------|
+| UI Actions | `.cursor/ui_actions.log` | JSON Lines |
+| Debug Log | `.cursor/debug.log` | Standard logging |
+
+---
+
+## Log Rotation and Retention
+
+### Rotation (Size-Based)
+
+Logs rotate based on **file size, not restarts** to preserve debugging continuity.
+
+| Log File | Max Size | Backups Kept |
+|----------|----------|--------------|
+| `ui_actions.log` | 5 MB | 3 |
+| `debug.log` | 10 MB | 5 |
+
+Rotation creates `*.log.1`, `*.log.2`, etc. Oldest backup deleted when limit exceeded.
+
+### Retention (Staleness)
+
+| Log Type | Stale After | Notes |
+|----------|-------------|-------|
+| UI actions | 7 days | User context fades quickly |
+| Debug logs | 14 days | Longer for regression analysis |
+| Error entries | 30 days | Preserve for investigation |
+
+### Cleanup Rules
+
+- **DO NOT** auto-purge on every startup
+- **DO** run cleanup manually when needed: `cleanup_stale_logs(days=7)`
+- **NEVER** purge error entries or entries with hypothesis markers (`[HA]`, `[HB]`)
+- **ALWAYS** preserve at least 1000 most recent entries
+
+### Quick Commands
+
+```bash
+# Check log sizes
+ls -lh .cursor/*.log*
+
+# Archive before cleanup
+tar -czf logs_$(date +%Y%m%d).tar.gz .cursor/*.log*
+```
+
+---
+
+## When to Add Instrumentation
+
+Add instrumentation when implementing:
+
+1. **New UI components** - Log all user interactions
+2. **State mutations** - Log before/after values
+3. **Complex business logic** - Use `@traced` decorator
+4. **Error handling** - Log all caught exceptions
+5. **Multi-step processes** - Log each step with `log_generate_step`
+
+---
+
+## Analyzing Logs
+
+```bash
+# View all logs
+cat .cursor/ui_actions.log | jq .
+
+# Filter by type
+cat .cursor/ui_actions.log | jq 'select(.type == "action")'
+
+# Filter function calls
+cat .cursor/ui_actions.log | jq 'select(.type == "function_call")'
+
+# Find errors
+cat .cursor/ui_actions.log | jq 'select(.type == "error" or .event == "error")'
+
+# Timeline of actions
+cat .cursor/ui_actions.log | jq -r '[.timestamp, .type, .component // .function // .state_key] | @tsv'
+```
+
+---
+
+## Related Documentation
+
+- **Full PRD:** `tasks/prd-web-ui-12-debug-logging-standards.md`
+- **Implementation:** `importer/web/utils/ui_logger.py`

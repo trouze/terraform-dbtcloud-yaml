@@ -106,16 +106,20 @@ def apply_adoption_overrides(
         if not source_key or not target_id:
             continue
         
+        # Skip if target_id is the string "None" (common for unmatched resources like credentials)
+        if target_id == "None" or target_id is None:
+            continue
+        
         # If we don't have resource_type, try to infer from source_key or skip
         if not resource_type:
-            logger.warning(f"No resource type for {source_key}, skipping")
+            logger.debug(f"No resource type for {source_key}, skipping")
             continue
         
         # Find the target resource data
         try:
             target_id_int = int(target_id)
         except (ValueError, TypeError):
-            logger.warning(f"Invalid target_id {target_id} for {source_key}")
+            logger.debug(f"Invalid target_id {target_id} for {source_key}")
             continue
             
         target_data = target_by_id.get((resource_type, target_id_int))

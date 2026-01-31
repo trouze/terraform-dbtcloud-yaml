@@ -1574,8 +1574,23 @@ async def _run_generate(
             terminal.info(f"Applying protection changes: {len(state.map.protected_resources)} to protect, {len(state.map.unprotected_keys)} to unprotect...")
             try:
                 from importer.web.utils.adoption_yaml_updater import apply_protection_from_set, apply_unprotection_from_set
+                from importer.web.utils.ui_logger import log_generate_step
                 
                 yaml_output_path = output_path / "dbt-cloud-config.yml"
+                
+                # CRITICAL FIX: Ensure the YAML exists in output directory before modifying
+                # If adoption overrides didn't run, the file might not be there yet
+                if not yaml_output_path.exists():
+                    shutil.copy2(yaml_file, yaml_output_path)
+                    terminal.info(f"  Copied YAML to output directory for protection updates")
+                
+                # Log protection state for debugging
+                log_generate_step("protection_changes", {
+                    "protected_resources": list(state.map.protected_resources),
+                    "unprotected_keys": list(state.map.unprotected_keys) if hasattr(state.map, 'unprotected_keys') else [],
+                    "yaml_output_path": str(yaml_output_path),
+                    "yaml_file_before": yaml_file,
+                })
                 
                 # First apply protection (set protected=True)
                 if state.map.protected_resources:
@@ -1594,6 +1609,12 @@ async def _run_generate(
                         state.map.unprotected_keys,
                     )
                     terminal.success(f"  Unprotection applied to {len(state.map.unprotected_keys)} resource(s)")
+                
+                # CRITICAL FIX: Update yaml_file to point to the modified copy
+                # This ensures the converter uses the protection-updated YAML
+                yaml_file = str(yaml_output_path)
+                terminal.info(f"  Using protection-updated YAML for Terraform generation")
+                
             except Exception as e:
                 terminal.warning(f"  Failed to apply protection changes: {e}")
                 import traceback
@@ -1601,6 +1622,7 @@ async def _run_generate(
 
         # Generate the Terraform files using the converter
         from importer.yaml_converter import YamlToTerraformConverter
+        from importer.web.utils.ui_logger import log_generate_step
         
         # Show target info (credentials are passed via TF_VAR_* env vars at runtime)
         target_host = state.target_credentials.host_url
@@ -1609,12 +1631,47 @@ async def _run_generate(
         terminal.info("Credentials will be passed via TF_VAR_* environment variables")
         terminal.info("")
         
+        # #region agent log - verify yaml_file is protection-updated
+        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+            # Read the yaml_file to check if protection is set
+            try:
+                import yaml as _yaml_check
+                with open(yaml_file, "r") as yf:
+                    _yaml_content = _yaml_check.safe_load(yf)
+                protected_projects = [p.get("key") for p in _yaml_content.get("projects", []) if p.get("protected")]
+                f.write(_json_deploy.dumps({
+                    "location": "deploy.py:before_converter",
+                    "message": "YAML file being passed to converter",
+                    "data": {
+                        "yaml_file": yaml_file,
+                        "protected_projects_in_yaml": protected_projects,
+                        "protected_resources_in_state": list(state.map.protected_resources) if state.map.protected_resources else [],
+                    },
+                    "timestamp": __import__("time").time() * 1000,
+                    "sessionId": "debug-session",
+                    "hypothesisId": "HE",
+                }) + "\n")
+            except Exception as e:
+                f.write(_json_deploy.dumps({
+                    "location": "deploy.py:before_converter",
+                    "message": "Failed to read YAML for verification",
+                    "data": {"yaml_file": yaml_file, "error": str(e)},
+                    "timestamp": __import__("time").time() * 1000,
+                    "sessionId": "debug-session",
+                    "hypothesisId": "HE",
+                }) + "\n")
+        # #endregion
+        
+        log_generate_step("converter_start", {"yaml_file": yaml_file, "output_path": str(output_path)})
+        
         converter = YamlToTerraformConverter()
         await asyncio.to_thread(
             converter.convert,
             yaml_file,
             str(output_path),
         )
+        
+        log_generate_step("converter_complete", {"yaml_file": yaml_file})
 
         # Generate backend.tf if configured
         backend_config = deploy_state.get("backend_config", {})
@@ -1628,6 +1685,23 @@ async def _run_generate(
             previous_yaml_path = state.deploy.previous_yaml_file
             current_yaml_path = str(output_path / "dbt-cloud-config.yml")
             
+            # #region agent log - debug protection change detection
+            with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+                f.write(_json_deploy.dumps({
+                    "location": "deploy.py:protection_detection",
+                    "message": "Protection change detection",
+                    "data": {
+                        "previous_yaml_path": previous_yaml_path,
+                        "previous_yaml_exists": bool(previous_yaml_path and Path(previous_yaml_path).exists()),
+                        "current_yaml_path": current_yaml_path,
+                        "protected_resources_in_state": list(state.map.protected_resources) if state.map.protected_resources else [],
+                    },
+                    "timestamp": __import__("time").time() * 1000,
+                    "sessionId": "debug-session",
+                    "hypothesisId": "HF",
+                }) + "\n")
+            # #endregion
+            
             if previous_yaml_path and Path(previous_yaml_path).exists():
                 terminal.info("")
                 terminal.info("Checking for protection status changes...")
@@ -1637,19 +1711,89 @@ async def _run_generate(
                 
                 protection_changes = detect_protection_changes(current_yaml, previous_yaml)
                 
+                # #region agent log
+                with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+                    prev_projects = [p.get("key") for p in previous_yaml.get("projects", []) if p.get("protected")]
+                    curr_projects = [p.get("key") for p in current_yaml.get("projects", []) if p.get("protected")]
+                    f.write(_json_deploy.dumps({
+                        "location": "deploy.py:protection_comparison",
+                        "message": "Comparing YAML protection",
+                        "data": {
+                            "previous_protected_projects": prev_projects,
+                            "current_protected_projects": curr_projects,
+                            "protection_changes_count": len(protection_changes),
+                        },
+                        "timestamp": __import__("time").time() * 1000,
+                        "sessionId": "debug-session",
+                        "hypothesisId": "HG",
+                    }) + "\n")
+                # #endregion
+                
                 if protection_changes:
                     terminal.info(f"  Detected {len(protection_changes)} protection change(s)")
-                    moved_file = write_moved_blocks_file(protection_changes, str(output_path))
+                    # Use preserve_existing=False to regenerate file fresh (avoid stale moved blocks)
+                    moved_file = write_moved_blocks_file(protection_changes, str(output_path), preserve_existing=False)
                     if moved_file:
                         terminal.success(f"  Generated moved blocks: {moved_file.name}")
                         terminal.info("  These will move resources between protected/unprotected blocks")
                 else:
                     terminal.info("  No protection changes detected")
+            else:
+                # CRITICAL FIX: When no previous YAML exists, we still need to generate moved blocks
+                # based on the Terraform state vs the YAML configuration
+                terminal.info("")
+                terminal.info("Checking protection status (state vs YAML)...")
+                
+                # Load current YAML and read Terraform state to compare
+                from importer.web.utils.protection_manager import generate_moved_blocks_from_state
+                
+                current_yaml = load_yaml_config(current_yaml_path)
+                terraform_dir = state.deploy.terraform_dir
+                
+                if terraform_dir and Path(terraform_dir).exists():
+                    # Read state file if it exists
+                    state_file = Path(terraform_dir) / "terraform.tfstate"
+                    if state_file.exists():
+                        protection_changes = generate_moved_blocks_from_state(
+                            current_yaml, 
+                            str(state_file),
+                        )
+                        
+                        # #region agent log
+                        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+                            f.write(_json_deploy.dumps({
+                                "location": "deploy.py:state_based_detection",
+                                "message": "State-based protection detection",
+                                "data": {
+                                    "state_file": str(state_file),
+                                    "protection_changes_count": len(protection_changes) if protection_changes else 0,
+                                },
+                                "timestamp": __import__("time").time() * 1000,
+                                "sessionId": "debug-session",
+                                "hypothesisId": "HH",
+                            }) + "\n")
+                        # #endregion
+                        
+                        if protection_changes:
+                            terminal.info(f"  Detected {len(protection_changes)} protection change(s) from state")
+                            # Use preserve_existing=False to regenerate file fresh (avoid stale moved blocks)
+                            moved_file = write_moved_blocks_file(protection_changes, str(output_path), preserve_existing=False)
+                            if moved_file:
+                                terminal.success(f"  Generated moved blocks: {moved_file.name}")
+                                terminal.info("  These will move resources between protected/unprotected blocks")
+                        else:
+                            terminal.info("  No protection mismatches between state and YAML")
+                    else:
+                        terminal.info("  No Terraform state file found - skipping protection detection")
+                else:
+                    terminal.info("  No Terraform directory configured - skipping protection detection")
             
             # Store current YAML path as previous for next generation
             state.deploy.previous_yaml_file = current_yaml_path
         except Exception as e:
             terminal.warning(f"Protection change detection skipped: {e}")
+            import traceback
+            terminal.warning(f"  {traceback.format_exc()[:300]}")
 
         terminal.success("Terraform files generated!")
         terminal.info("")
