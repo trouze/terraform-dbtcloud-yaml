@@ -2071,10 +2071,12 @@ def _build_llm_diagnostic(
     informational = []  # Non-critical observations
     
     # Protection mismatch analysis
-    # Determine YAML protection status (from source_data or grid_row)
-    yaml_protected = source_data.get("protected", False) if source_data else False
-    # Determine state protection status (from state_address)
-    state_protected = "protected_" in (state_address or "") if state_address else None
+    # IMPORTANT: Use grid_row["yaml_protected"] which is the authoritative source
+    # computed from protected_resources set. Don't use source_data["protected"]
+    # as that can be stale for resources that predate the protection system.
+    yaml_protected = grid_row.get("yaml_protected", False)
+    # Determine state protection status (from state_address or grid_row)
+    state_protected = grid_row.get("state_protected", "protected_" in (state_address or "") if state_address else False)
     # Check if project has a repository (for REP/PREP linking)
     project_has_repo = bool(source_data.get("repository")) if source_data and source_type == "PRJ" else True
     
