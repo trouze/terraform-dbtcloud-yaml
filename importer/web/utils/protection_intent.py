@@ -284,6 +284,17 @@ class ProtectionIntentManager:
         """
         return self._intent.get(key)
     
+    def has_intent(self, key: str) -> bool:
+        """Check if a resource has a recorded protection intent.
+        
+        Args:
+            key: Resource key
+            
+        Returns:
+            True if intent exists for this resource, False otherwise
+        """
+        return key in self._intent
+    
     @traced(log_result=True)
     def get_effective_protection(self, key: str, yaml_protected: bool) -> bool:
         """Get the effective protection status for a resource.
