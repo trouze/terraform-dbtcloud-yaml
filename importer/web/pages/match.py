@@ -2078,7 +2078,11 @@ def _create_matching_content(
                             "text-xs text-blue-600 cursor-pointer hover:underline"
                         ).on("click", lambda: ui.navigate.to("/utilities"))
     
-    if has_state and protection_mismatches:
+    # DISABLED: Old protection mismatches panel - replaced by Protection Intent Status panel above
+    # The new system uses ProtectionIntentManager to track user intent and generate protection changes
+    # This old panel detected drift but didn't integrate with the intent system
+    # To re-enable, change `if False and ...` back to `if has_state and ...`
+    if False and has_state and protection_mismatches:
         with ui.card().classes("w-full p-4 mt-4").style("border: 2px solid #F59E0B;"):
             # Container for pending status - placed at card level, not inside button row
             fix_status_container = ui.element("div").classes("w-full")
