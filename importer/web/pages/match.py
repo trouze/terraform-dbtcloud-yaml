@@ -1867,7 +1867,7 @@ def _create_matching_content(
                                         def make_protect_handler(rkey=resource_key):
                                             def handler():
                                                 protection_intent_manager.set_intent(
-                                                    resource_key=rkey,
+                                                    key=rkey,
                                                     protected=True,
                                                     source="clarification_panel",
                                                     reason="User clarified intent: protect",
@@ -1880,7 +1880,7 @@ def _create_matching_content(
                                         def make_unprotect_handler(rkey=resource_key):
                                             def handler():
                                                 protection_intent_manager.set_intent(
-                                                    resource_key=rkey,
+                                                    key=rkey,
                                                     protected=False,
                                                     source="clarification_panel",
                                                     reason="User clarified intent: unprotect",
@@ -1911,7 +1911,7 @@ def _create_matching_content(
                             def protect_all_mismatches():
                                 for m in _mismatches_needing_intent:
                                     protection_intent_manager.set_intent(
-                                        resource_key=m["key"],
+                                        key=m["key"],
                                         protected=True,
                                         source="clarification_bulk",
                                         reason="Bulk protect all mismatches",
@@ -1923,7 +1923,7 @@ def _create_matching_content(
                             def unprotect_all_mismatches():
                                 for m in _mismatches_needing_intent:
                                     protection_intent_manager.set_intent(
-                                        resource_key=m["key"],
+                                        key=m["key"],
                                         protected=False,
                                         source="clarification_bulk",
                                         reason="Bulk unprotect all mismatches",

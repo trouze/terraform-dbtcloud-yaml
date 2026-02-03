@@ -1877,15 +1877,15 @@ def _render_match_debug_tab(
             protection_intent = app_state.get_protection_intent_manager()
             current_intent = protection_intent.get_intent(resource_key)
             
-            with ui.card().classes("w-full p-4").style("border: 2px solid #10B981;"):
+            with ui.card().classes("w-full p-4 border-2 border-green-500"):
                 with ui.row().classes("items-center gap-2 mb-3"):
-                    ui.icon("security", size="sm").classes("text-green-600")
-                    ui.label("Set Protection Intent").classes("font-semibold text-green-700")
+                    ui.icon("security", size="sm").classes("text-green-500")
+                    ui.label("Set Protection Intent").classes("font-semibold text-green-500")
                 
                 # Show current status
-                with ui.row().classes("items-center gap-4 mb-3 p-2 rounded").style("background: #F0FDF4;"):
+                with ui.row().classes("items-center gap-4 mb-3 p-2 rounded bg-green-500 bg-opacity-10"):
                     with ui.column().classes("gap-1"):
-                        ui.label("Current State:").classes("text-xs text-slate-500 font-semibold")
+                        ui.label("Current State:").classes("text-xs font-semibold opacity-70")
                         with ui.row().classes("items-center gap-2"):
                             state_badge = "Protected" if state_protected else "Unprotected"
                             state_color = "blue" if state_protected else "grey"
@@ -1897,23 +1897,23 @@ def _render_match_debug_tab(
                     
                     if current_intent:
                         with ui.column().classes("gap-1"):
-                            ui.label("Pending Intent:").classes("text-xs text-slate-500 font-semibold")
+                            ui.label("Pending Intent:").classes("text-xs font-semibold opacity-70")
                             intent_badge = "Protect" if current_intent.protected else "Unprotect"
                             intent_color = "green" if current_intent.protected else "amber"
                             ui.badge(f"Intent: {intent_badge}").props(f"color={intent_color}")
-                            ui.label(f"Set: {current_intent.timestamp[:16]}").classes("text-xs text-slate-400")
+                            ui.label(f"Set: {current_intent.timestamp[:16]}").classes("text-xs opacity-60")
                 
                 ui.label(
                     "Choose what you want the final protection state to be. "
                     "This records your intent - use 'Generate Protection Changes' on the Match page to apply."
-                ).classes("text-xs text-slate-500 mb-3")
+                ).classes("text-xs opacity-70 mb-3")
                 
                 # Intent selection buttons
                 intent_status_container = ui.element("div").classes("w-full")
                 
                 def set_intent_protected():
                     protection_intent.set_intent(
-                        resource_key=resource_key,
+                        key=resource_key,
                         protected=True,
                         source="detail_dialog",
                         reason=f"User selected 'Protect' for {source_type}:{resource_key}",
@@ -1921,14 +1921,14 @@ def _render_match_debug_tab(
                     protection_intent.save()
                     with intent_status_container:
                         intent_status_container.clear()
-                        with ui.row().classes("items-center gap-2 p-2 rounded").style("background: #ECFDF5;"):
-                            ui.icon("check_circle", size="sm").classes("text-green-600")
-                            ui.label(f"Intent recorded: PROTECT {resource_key}").classes("text-sm text-green-700 font-medium")
+                        with ui.row().classes("items-center gap-2 p-2 rounded bg-green-500 bg-opacity-20"):
+                            ui.icon("check_circle", size="sm").classes("text-green-500")
+                            ui.label(f"Intent recorded: PROTECT {resource_key}").classes("text-sm text-green-500 font-medium")
                     ui.notify(f"Protection intent set: PROTECT {resource_key}", type="positive")
                 
                 def set_intent_unprotected():
                     protection_intent.set_intent(
-                        resource_key=resource_key,
+                        key=resource_key,
                         protected=False,
                         source="detail_dialog",
                         reason=f"User selected 'Unprotect' for {source_type}:{resource_key}",
@@ -1936,9 +1936,9 @@ def _render_match_debug_tab(
                     protection_intent.save()
                     with intent_status_container:
                         intent_status_container.clear()
-                        with ui.row().classes("items-center gap-2 p-2 rounded").style("background: #FEF3C7;"):
-                            ui.icon("check_circle", size="sm").classes("text-amber-600")
-                            ui.label(f"Intent recorded: UNPROTECT {resource_key}").classes("text-sm text-amber-700 font-medium")
+                        with ui.row().classes("items-center gap-2 p-2 rounded bg-amber-500 bg-opacity-20"):
+                            ui.icon("check_circle", size="sm").classes("text-amber-500")
+                            ui.label(f"Intent recorded: UNPROTECT {resource_key}").classes("text-sm text-amber-500 font-medium")
                     ui.notify(f"Protection intent set: UNPROTECT {resource_key}", type="info")
                 
                 def clear_intent():
@@ -1948,7 +1948,7 @@ def _render_match_debug_tab(
                         protection_intent.save()
                         with intent_status_container:
                             intent_status_container.clear()
-                            ui.label("Intent cleared").classes("text-sm text-slate-500")
+                            ui.label("Intent cleared").classes("text-sm opacity-70")
                         ui.notify(f"Cleared intent for {resource_key}", type="info")
                     else:
                         ui.notify("No intent to clear", type="warning")
