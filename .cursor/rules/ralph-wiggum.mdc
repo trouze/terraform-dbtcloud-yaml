@@ -1,0 +1,140 @@
+---
+description: Ralph Wiggum autonomous development methodology - iterative task completion with file-based state management
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# Ralph Wiggum Development Protocol
+
+You are operating under the Ralph Wiggum methodology for autonomous development.
+
+## Core Principle
+
+**State lives in FILES and GIT, not in conversation context.**
+
+Each session starts fresh. Progress persists through:
+- `RALPH_TASK.md` - Task definition with checkbox criteria
+- `.ralph/progress.md` - Session history
+- `.ralph/guardrails.md` - Lessons learned
+- Git commits - Code state
+
+## Startup Sequence (ALWAYS DO THIS FIRST)
+
+1. **Read RALPH_TASK.md** - Find unchecked `[ ]` criteria
+2. **Read .ralph/guardrails.md** - Follow ALL active guardrails
+3. **Read .ralph/progress.md** - See what's done, avoid repeating
+4. **Check git log** - Review recent commits for context
+5. **Check browser availability** - If `browser_validation: true` in frontmatter
+
+## Work Loop
+
+For each unchecked criterion:
+
+```
+1. Focus on ONE criterion only
+2. Implement the solution
+3. Run test_command from RALPH_TASK.md frontmatter
+4. If UI criterion → validate with MCP browser tools
+5. Commit: git add -A && git commit -m "ralph: [N] description"
+6. Update RALPH_TASK.md: [ ] → [x]
+7. Update .ralph/progress.md
+8. Move to next criterion
+```
+
+## Failure Protocol
+
+When something fails:
+
+1. **STOP** - Don't repeat the same approach (that's "the gutter")
+2. **Add guardrail** to `.ralph/guardrails.md`:
+   ```markdown
+   ### Sign: [Short description]
+   - **Trigger**: When this situation occurs
+   - **Instruction**: What to do instead
+   - **Evidence**: Error message or screenshot
+   - **Added after**: Iteration N - reason
+   ```
+3. **Try different approach** - Or move to next criterion
+4. **If stuck 3+ times** - Output `<ralph>GUTTER</ralph>`
+
+## Signals
+
+Output these sigils when appropriate:
+
+| Signal | When to Use |
+|--------|-------------|
+| `<ralph>COMPLETE</ralph>` | All criteria are `[x]` |
+| `<ralph>BLOCKED</ralph>` | Need human input to proceed |
+| `<ralph>GUTTER</ralph>` | Stuck repeating same failure |
+| `<ralph>BROWSER_NEEDED</ralph>` | UI validation needed but unavailable |
+
+## MCP Browser Tools Protocol
+
+When `browser_validation: true` in RALPH_TASK.md:
+
+### Workflow
+```
+1. browser_tabs (list)     → Check existing tabs
+2. browser_navigate        → Open target URL
+3. browser_lock           → Lock for interactions
+4. browser_snapshot       → Get page structure BEFORE interacting
+5. [interactions]         → click, type, fill, scroll
+6. browser_screenshot     → Capture evidence
+7. browser_unlock         → Release when done
+```
+
+### Key Rules
+- ALWAYS call `browser_snapshot` before clicking/typing
+- Use short waits (2-3s) with snapshot checks, not long waits
+- Save screenshots to `.ralph/screenshots/criterion-N.png`
+- Reference screenshots in progress.md
+
+## Git Protocol
+
+- Commit after EACH completed criterion
+- Prefix: `ralph: [criterion-number] - ` with brief description
+- Example: `ralph: [3] - Implement user authentication with JWT`
+- Push after every 3-5 commits
+- Use semantic commits when appropriate: `ralph: [5] - feat: add login endpoint`
+
+## Context Management
+
+- Don't read entire large files - search for relevant sections
+- Prefer small, focused changes
+- If context feels polluted → suggest starting fresh chat
+- Fresh context can resume seamlessly from file state
+
+## Quality Gates
+
+Before marking criterion `[x]`:
+
+1. ✅ Code compiles/runs without errors
+2. ✅ `test_command` passes
+3. ✅ Browser validation passes (if UI criterion)
+4. ✅ Committed with `ralph: ` prefix
+5. ✅ Progress updated
+
+## File Locations
+
+| File | Purpose |
+|------|---------|
+| `RALPH_TASK.md` | Task definition (project root) |
+| `.ralph/progress.md` | Session history |
+| `.ralph/guardrails.md` | Lessons learned |
+| `.ralph/screenshots/` | Browser evidence |
+
+## Important Reminders
+
+1. **Read guardrails FIRST** - They contain critical lessons
+2. **One criterion at a time** - Don't try to do everything
+3. **Commit frequently** - Each criterion = one commit
+4. **Update progress** - Future sessions need this context
+5. **Don't repeat failures** - Add guardrail and move on
+
+## Reference Documentation
+
+For detailed specifications, see:
+- `.ralph/references/task-format.md` - RALPH_TASK.md specification
+- `.ralph/references/state-files.md` - .ralph/ directory guide
+- `.ralph/references/browser-tools.md` - MCP browser integration guide
+- `.ralph/references/validation-workflow.md` - Browser validation patterns
