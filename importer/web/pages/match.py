@@ -1817,6 +1817,71 @@ def _create_matching_content(
                         # If no badges apply, show a neutral state
                         if len(_pending_yaml) == 0 and pending_tf_count == 0 and _synced_count == 0:
                             ui.label("No pending changes").classes("text-xs text-slate-500")
+                        
+                        # Copy for AI button
+                        def copy_for_ai():
+                            """Generate structured markdown summary for AI diagnostics."""
+                            from pathlib import Path
+                            
+                            tf_dir = state.deploy.terraform_dir or "deployments/migration"
+                            pending = protection_intent_manager.get_pending_yaml_updates()
+                            history = protection_intent_manager._history[-10:]
+                            
+                            lines = [
+                                "## Protection Intent Status",
+                                "",
+                                f"**Pending Changes:** {protection_intent_manager.intent_count} resources",
+                                f"**TF Path:** {tf_dir}",
+                                "",
+                            ]
+                            
+                            # Resources with Pending Generate
+                            pending_gen_resources = [(k, i) for k, i in protection_intent_manager._intent.items() if not i.applied_to_yaml]
+                            if pending_gen_resources:
+                                lines.append("### Resources with Pending Generate:")
+                                for key, intent in pending_gen_resources:
+                                    action = "protect" if intent.protected else "unprotect"
+                                    lines.append(f"- {key}: {action} (YAML: protected={intent.protected})")
+                                lines.append("")
+                            
+                            # Resources with Pending TF Apply
+                            pending_tf_resources = [(k, i) for k, i in protection_intent_manager._intent.items() if i.applied_to_yaml and not i.applied_to_tf_state]
+                            if pending_tf_resources:
+                                lines.append("### Resources with Pending TF Apply:")
+                                for key, intent in pending_tf_resources:
+                                    action = "protect" if intent.protected else "unprotect"
+                                    lines.append(f"- {key}: {action} (YAML updated, awaiting TF apply)")
+                                lines.append("")
+                            
+                            # Recent History
+                            if history:
+                                lines.append("### Recent History:")
+                                lines.append("| Timestamp | Resource | Action | Source |")
+                                lines.append("|-----------|----------|--------|--------|")
+                                for entry in reversed(history):
+                                    ts = entry.timestamp[:19].replace("T", " ") if entry.timestamp else ""
+                                    lines.append(f"| {ts} | {entry.resource_key} | {entry.action} | {entry.source} |")
+                                lines.append("")
+                            
+                            # Current YAML Protected Resources
+                            yaml_protected = state.map.protected_resources or set()
+                            if yaml_protected:
+                                lines.append(f"### Current YAML Protected Resources ({len(yaml_protected)}):")
+                                for key in sorted(list(yaml_protected)[:20]):
+                                    lines.append(f"- {key}")
+                                if len(yaml_protected) > 20:
+                                    lines.append(f"- ... and {len(yaml_protected) - 20} more")
+                                lines.append("")
+                            
+                            summary = "\n".join(lines)
+                            ui.run_javascript(f'navigator.clipboard.writeText({repr(summary)})')
+                            ui.notify("Copied AI diagnostic summary to clipboard!", type="positive")
+                        
+                        ui.button(
+                            "Copy for AI",
+                            icon="psychology",
+                            on_click=copy_for_ai,
+                        ).props("flat dense").tooltip("Copy structured summary for AI debugging")
                 
                 # Generate Protection Changes button
                 has_pending = len(_pending_yaml) > 0

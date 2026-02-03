@@ -1,135 +1,152 @@
 ---
-task: Protection Intent File System - Phase 4 (Utilities Page)
+task: Protection Intent File System - Phase 5 (Destroy Page & Completion)
 test_command: "cd importer && python -m pytest web/tests/test_protection_intent.py -v"
 browser_validation: true
 base_url: "http://localhost:8501"
 ---
 
-# Task: Utilities Page - Protection Management
+# Task: Destroy Page Integration & Final Polish
 
-Create the Utilities page with comprehensive protection intent management: status cards, AG Grid for intents, bulk actions, and audit history.
+Integrate `ProtectionIntentManager` with Destroy page, add AI diagnostic copy feature, handle migration/edge cases, and complete the system.
 
 **Plan Reference:** `.cursor/plans/protection_intent_file_e08a2a4e.plan.md`
-**Depends on:** Phase 3 (Generate Protection Changes)
+**Depends on:** Phase 4 (Utilities Page)
 
 ## Success Criteria
 
-### Page Setup
+### Destroy Page Integration
 
-1. [x] Create `importer/web/pages/utilities.py` with new Utilities page
+1. [x] Update `importer/web/pages/destroy.py` to import and use ProtectionIntentManager
 
-2. [x] Add navigation link to Utilities page in sidebar/header
+2. [x] Replace `state.map.unprotected_keys` usage with `get_effective_protection()` calls
 
-3. [x] Page title: "Utilities" with "Protection Management" section
+3. [x] Update "Unprotect Selected" button to call `set_intent()` instead of modifying state directly
 
-### Status Summary Cards
+4. [x] Update "Unprotect All" button similarly
 
-4. [x] Add three status cards at top: "Pending Generate", "Pending TF Apply", "Synced"
+5. [x] Ensure buttons call `save()` after setting intents
 
-5. [x] Cards show count of intents in each status
+6. [x] Add same pending status badges as Match page (orange/blue/green)
 
-6. [x] Card styling consistent with other dashboard cards
+7. [x] Add link "Apply protection changes on Match page" that navigates to Match page
 
-7. [x] Counts update dynamically when intents change
+8. [x] Show notification after unprotect: "Intent recorded - click 'Generate Protection Changes' on Match page to apply"
 
-### AG Grid - Current Intents
+### AI Diagnostic Copy Feature
 
-8. [x] Create AG Grid table showing all current intents
+9. [x] Add "Copy for AI" button in Match page mismatch panel
 
-9. [x] Grid uses `theme="quartz"` with `ag-theme-quartz-auto-dark` class
+10. [x] Button generates structured markdown summary when clicked
 
-10. [x] Columns with explicit `colId`: Resource Key, Type, Intent (Protect/Unprotect), Status, Set At, Actions
+11. [x] Summary includes: Pending Changes count, TF Path
 
-11. [x] "Type" column shows resource type (PRJ, ENV, JOB, etc.) extracted from key
+12. [x] Summary lists "Resources with Pending Generate" with details (key, action, TF state, YAML state)
 
-12. [x] "Status" column shows: "Pending Generate" (orange), "Pending TF Apply" (blue), "Synced" (green)
+13. [x] Summary lists "Resources with Pending TF Apply"
 
-13. [x] "Actions" column has Edit button for each row
+14. [x] Summary includes "Recent History" table (last 5-10 entries)
 
-14. [x] Enable row selection with checkboxes for bulk operations
+15. [x] Summary includes "Current YAML Protected Resources" list
 
-15. [x] Pre-sort data by Set At descending in Python before passing to grid
+16. [x] Summary includes "Current TF State Protected Resources" list
 
-### Filters and Search
+17. [x] Copy to clipboard with success notification
 
-16. [x] Add status filter dropdown: "All Status", "Pending Generate", "Pending TF Apply", "Synced"
+### TF Apply Success Integration
 
-17. [x] Add type filter dropdown: "All Types", "PRJ", "ENV", "JOB", etc.
+18. [x] Update TF Apply success handler to detect when protection moves completed
 
-18. [x] Add search input for filtering by resource key
+19. [x] After successful apply, call `mark_applied_to_tf_state()` for resources that were moved
 
-19. [x] Show "Showing: X/Y" count
+20. [x] Update UI to show "Synced" status for completed moves
 
-### Bulk Action Buttons
+21. [x] Clear `protection_moves.tf` after successful apply (or archive it)
 
-20. [x] Add "Reset All to YAML" button - clears all intents, falls back to YAML flags
+### Migration Logic
 
-21. [x] Add confirmation dialog before Reset All: "This will clear all intent history. Continue?"
+22. [x] Add migration check: if no `protection-intent.json` exists on load
 
-22. [x] Add "Sync from TF State" button - reads TF state, sets intents to match current reality
+23. [x] Migration reads current YAML `protected: true` flags
 
-23. [x] Add "Generate All Pending" button - processes all pending-generate intents at once
+24. [x] Migration reads current TF state protected resources
 
-24. [x] Add "Export JSON" button - downloads `protection-intent.json`
+25. [x] Migration creates intent file with existing state marked as `applied_to_yaml=true, applied_to_tf_state=true`
 
-### Edit Intent Dialog
+26. [x] Migration logs what was imported
 
-25. [x] Edit button opens dialog for single intent modification
+### Edge Case Handling
 
-26. [x] Dialog shows: Resource Key (readonly), current Intent (Protect/Unprotect toggle), Reason input
+27. [x] Handle corrupted intent file JSON: show error message, offer "Reset to defaults" button
 
-27. [x] Save updates intent and adds history entry
+28. [x] Handle resource deleted from YAML but intent exists: mark as orphan or clean up
 
-28. [x] Cancel closes dialog without changes
+29. [x] Handle TF state unavailable: show warning, allow manual workflow
 
-### Audit History Section
+30. [x] Handle concurrent edits (two browser tabs): last write wins, no crashes
 
-29. [x] Add "Audit History (last 20)" section below intents grid
+### Deprecate Old Fields
 
-30. [x] Table columns: Timestamp, Resource, Action, Source
+31. [x] Add deprecation warning to `state.map.protected_resources` if used
 
-31. [x] History sorted newest first
+32. [x] Add deprecation warning to `state.map.unprotected_keys` if used
 
-32. [x] Add "View All" link that expands to show full history (or opens dialog)
+33. [x] Update any remaining code that uses deprecated fields
 
-33. [x] Add "Copy History" button that copies history to clipboard
+### Final Browser Validation
 
-### Browser Validation
+34. [x] Full workflow test: Navigate to Match page with mismatches
 
-34. [x] Navigate to Utilities page, verify it loads
+35. [x] Click "Unprotect All", verify orange badge appears
 
-35. [x] Verify status cards show correct counts
+36. [x] Navigate to Destroy page, verify same resources show as "pending unprotect"
 
-36. [x] Verify AG Grid displays intents with correct columns
+37. [x] Navigate back to Match page, click "Generate Protection Changes"
 
-37. [x] Test filter by status - verify grid updates
+38. [x] Verify YAML updated, badge changes to blue
 
-38. [x] Test Edit button - verify dialog opens and saves work
+39. [x] Run TF Init, Plan, Apply
 
-39. [x] Test "Reset All to YAML" - verify confirmation and reset
+40. [x] Verify badge changes to green "Synced" or mismatch is removed
 
-40. [x] Verify audit history shows recent changes
+41. [x] Navigate to Utilities page, verify audit history shows full trail
+
+42. [x] Test "Copy for AI" button, verify clipboard contains structured summary
+
+### Documentation
+
+43. [x] Update `.cursor/plans/protection_intent_file_e08a2a4e.plan.md` todos to mark completed
+
+44. [x] Add summary to `.ralph/progress.md` documenting the complete implementation
 
 ## Context
 
-### AG Grid Column Definition Pattern
-```python
-column_defs = [
-    {"field": "resource_key", "colId": "resource_key", "headerName": "Resource Key", "flex": 2},
-    {"field": "type", "colId": "type", "headerName": "Type", "width": 80},
-    {"field": "intent", "colId": "intent", "headerName": "Intent", "width": 100},
-    {"field": "status", "colId": "status", "headerName": "Status", "width": 140},
-    {"field": "set_at", "colId": "set_at", "headerName": "Set At", "width": 160},
-    {"field": "actions", "colId": "actions", "headerName": "Actions", "width": 80},
-]
+### AI Diagnostic Format
+```markdown
+## Protection Intent Status
+
+**Pending Changes:** 3 resources
+**TF Path:** /path/to/terraform
+
+### Resources with Pending Generate:
+- sse_dm_fin_fido: unprotect (TF state: protected, YAML: protected)
+
+### Resources with Pending TF Apply:
+- analytics_prod: protect (YAML updated, awaiting TF apply)
+
+### Recent History:
+| Timestamp | Resource | Action | Source |
+|-----------|----------|--------|--------|
+| 2026-02-02 10:00 | sse_dm_fin_fido | unprotect | Unprotect All |
 ```
 
-### Files to Create/Modify
-- `importer/web/pages/utilities.py` - NEW page
-- `importer/web/app.py` or equivalent - Add navigation route
+### Files to Modify
+- `importer/web/pages/destroy.py` - Protection panel integration
+- `importer/web/pages/match.py` - AI copy, apply success handler
+- `importer/web/utils/protection_intent.py` - Migration logic
 
 ## Notes
 
-- This page provides advanced management for power users
-- Match page has simplified quick actions
-- Audit history is essential for debugging protection issues
+- This is the FINAL phase
+- After completion, output `<ralph>COMPLETE</ralph>` signal
+- The Protection Intent File system will be fully operational
+- Future enhancements can be tracked in new RALPH_TASK files

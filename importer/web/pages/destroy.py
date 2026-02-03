@@ -899,11 +899,13 @@ def _create_destroy_protection_panel(
     except Exception:
         return
     
-    # Filter out resources that the user has unprotected
-    unprotected_keys = state.map.unprotected_keys or set()
+    # Filter out resources that the user has explicitly unprotected via intent
+    # Use ProtectionIntentManager for effective protection status
+    protection_intent_manager = state.get_protection_intent_manager()
+    
     protected_resources = [
         r for r in all_protected_resources
-        if r.resource_key not in unprotected_keys
+        if protection_intent_manager.get_effective_protection(r.resource_key, yaml_protected=True)
     ]
     
     if not protected_resources:
@@ -1095,58 +1097,30 @@ def _create_destroy_protection_panel(
                 ui.notify("No matching protected resources found", type="warning")
                 return
             
-            # Log the state before changes
-            before_protected = set(state.map.protected_resources) if state.map.protected_resources else set()
-            before_unprotected = set(state.map.unprotected_keys) if state.map.unprotected_keys else set()
-            before_fix_pending = state.map.protection_fix_pending
-            before_fix_action = state.map.protection_fix_action
+            # Use ProtectionIntentManager to record unprotect intent
+            protection_intent = state.get_protection_intent_manager()
+            for key in keys_to_unprotect:
+                protection_intent.set_intent(
+                    key=key,
+                    protected=False,
+                    source="destroy_unprotect_selected",
+                    reason="Unprotected from Destroy page selection",
+                )
+            protection_intent.save()
             
-            # Add to state.map.unprotected_keys so they'll be filtered out on reload
-            if state.map.unprotected_keys is None:
-                state.map.unprotected_keys = set()
-            state.map.unprotected_keys.update(keys_to_unprotect)
-            
-            # ALSO remove from protected_resources to sync with match page
-            # The match page uses protected_resources to determine yaml_protected status
-            if state.map.protected_resources:
-                for key in keys_to_unprotect:
-                    state.map.protected_resources.discard(key)
-            
-            # Reset any stale protection fix state - user has taken a new action
-            # This clears "pending protect" status that's now outdated
-            fix_state_reset = False
-            if state.map.protection_fix_pending:
-                fix_state_reset = True
-                state.map.protection_fix_pending = False
-                state.map.protection_fix_file_path = ""
-                state.map.protection_fix_action = ""
-                state.map.protection_fix_previous_content = ""
-                state.map.protection_fix_backup_protected = set()
-                state.map.protection_fix_backup_unprotected = set()
-            
-            # Log the action and state changes
+            # Log the action
             log_action("on_unprotect_selected", "executed", {
                 "keys_to_unprotect": list(keys_to_unprotect),
-                "fix_state_reset": fix_state_reset,
-                "previous_fix_action": before_fix_action if fix_state_reset else None,
+                "source": "destroy_page",
             })
-            log_state_change(
-                "protected_resources",
-                "remove",
-                {"keys": list(keys_to_unprotect)},
-                before=before_protected,
-                after=state.map.protected_resources,
-            )
-            if fix_state_reset:
-                log_state_change(
-                    "protection_fix_pending",
-                    "reset",
-                    {"reason": "user_unprotect_action", "previous_action": before_fix_action},
-                    before=before_fix_pending,
-                    after=False,
-                )
             
             save_state()
+            
+            # Notify user to apply changes on Match page
+            ui.notify(
+                f"Intent recorded for {len(keys_to_unprotect)} resources - click 'Generate Protection Changes' on Match page to apply",
+                type="positive",
+            )
             
             # Helper to generate moved blocks and navigate to deploy
             def generate_and_go_to_deploy():
