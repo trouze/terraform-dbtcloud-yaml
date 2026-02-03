@@ -65,7 +65,7 @@ STEP_NAMES = {
     WorkflowStep.JAC_CONFIG: "Configure Jobs",
     WorkflowStep.JAC_GENERATE: "Generate YAML",
     # Utilities
-    WorkflowStep.UTILITIES: "Utilities",
+    WorkflowStep.UTILITIES: "Protection Management",
 }
 
 STEP_ICONS = {
@@ -89,7 +89,7 @@ STEP_ICONS = {
     WorkflowStep.JAC_CONFIG: "tune",
     WorkflowStep.JAC_GENERATE: "code",
     # Utilities
-    WorkflowStep.UTILITIES: "build",
+    WorkflowStep.UTILITIES: "security",
 }
 
 

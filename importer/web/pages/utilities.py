@@ -27,7 +27,7 @@ def create_utilities_page(
         # Page header
         with ui.row().classes("w-full items-center gap-3 mb-4"):
             ui.icon("build", size="lg").classes("text-slate-600")
-            ui.label("Utilities").classes("text-2xl font-bold")
+            ui.label("Protection Management").classes("text-2xl font-bold")
         
         # Protection Management Section
         _create_protection_management_section(state, save_state)
