@@ -1901,7 +1901,7 @@ def _render_match_debug_tab(
                             intent_badge = "Protect" if current_intent.protected else "Unprotect"
                             intent_color = "green" if current_intent.protected else "amber"
                             ui.badge(f"Intent: {intent_badge}").props(f"color={intent_color}")
-                            ui.label(f"Set: {current_intent.timestamp[:16]}").classes("text-xs opacity-60")
+                            ui.label(f"Set: {current_intent.set_at[:16]}").classes("text-xs opacity-60")
                 
                 ui.label(
                     "Choose what you want the final protection state to be. "

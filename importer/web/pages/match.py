@@ -1966,7 +1966,7 @@ def _create_matching_content(
                                         ui.label(f"{rkey}").classes("font-medium text-sm")
                                         with ui.row().classes("items-center gap-2"):
                                             ui.badge(f"Intent: {action_label}").props(f"color={action_color} dense")
-                                            ui.label(f"Set: {intent.timestamp[:16]}").classes("text-xs opacity-60")
+                                            ui.label(f"Set: {intent.set_at[:16]}").classes("text-xs opacity-60")
                                     
                                     # Undo button
                                     def make_undo_handler(key_to_undo=rkey):
