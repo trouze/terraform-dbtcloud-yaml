@@ -209,4 +209,9 @@ echo ""
 echo -e "${GREEN}▶ Starting $MODE mode...${NC}"
 echo ""
 
-"$SCRIPT" "${EXTRA_ARGS[@]}"
+# Handle empty EXTRA_ARGS array (set -u compatible)
+if [[ ${#EXTRA_ARGS[@]} -gt 0 ]]; then
+  "$SCRIPT" "${EXTRA_ARGS[@]}"
+else
+  "$SCRIPT"
+fi
