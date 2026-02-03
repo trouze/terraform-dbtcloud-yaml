@@ -89,21 +89,22 @@ def _create_protection_management_section(
         filter_state = {"status": "all", "type": "all", "search": ""}
         
         with ui.row().classes("w-full gap-4 mb-4 items-end"):
-            # Status filter
+            # Status filter - use dict format {value: label}
+            status_options = {
+                "all": "All Status",
+                "pending_generate": "Pending Generate",
+                "pending_tf": "Pending TF Apply",
+                "synced": "Synced",
+            }
             status_select = ui.select(
                 label="Status",
-                options=[
-                    {"label": "All Status", "value": "all"},
-                    {"label": "Pending Generate", "value": "pending_generate"},
-                    {"label": "Pending TF Apply", "value": "pending_tf"},
-                    {"label": "Synced", "value": "synced"},
-                ],
+                options=status_options,
                 value="all",
                 on_change=lambda e: _update_filter(filter_state, "status", e.value, grid_ref),
             ).props("dense outlined").classes("w-40")
             
-            # Type filter
-            type_options = [{"label": "All Types", "value": "all"}]
+            # Type filter - use dict format {value: label}
+            type_options = {"all": "All Types"}
             unique_types = set()
             for key in protection_intent._intent.keys():
                 # Extract type from key (e.g., "PRJ:myproject" -> "PRJ")
@@ -113,7 +114,7 @@ def _create_protection_management_section(
                     rtype = "UNKNOWN"
                 unique_types.add(rtype)
             for t in sorted(unique_types):
-                type_options.append({"label": t, "value": t})
+                type_options[t] = t
             
             type_select = ui.select(
                 label="Type",
