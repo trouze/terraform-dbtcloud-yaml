@@ -1874,7 +1874,7 @@ def _render_match_debug_tab(
             state_protected = grid_row.get("state_protected", False)
             
             # Get current intent if any
-            protection_intent = app_state.protection_intent
+            protection_intent = app_state.get_protection_intent_manager()
             current_intent = protection_intent.get_intent(resource_key)
             
             with ui.card().classes("w-full p-4").style("border: 2px solid #10B981;"):
