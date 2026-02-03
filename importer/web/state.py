@@ -850,6 +850,8 @@ class AppState:
             return self.env_credentials.step_complete or not self.env_credentials.has_selected_environments()
         elif step == WorkflowStep.DESTROY:
             return self.deploy.has_state_file()
+        elif step == WorkflowStep.UTILITIES:
+            return True  # Always accessible - can load state, manage protection intents, etc.
         # Jobs as Code Generator steps
         elif step == WorkflowStep.JAC_SELECT:
             return True  # Always accessible
