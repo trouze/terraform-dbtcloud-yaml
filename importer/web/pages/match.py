@@ -1817,6 +1817,175 @@ def _create_matching_content(
                         # If no badges apply, show a neutral state
                         if len(_pending_yaml) == 0 and pending_tf_count == 0 and _synced_count == 0:
                             ui.label("No pending changes").classes("text-xs text-slate-500")
+                
+                # Generate Protection Changes button
+                has_pending = len(_pending_yaml) > 0
+                
+                async def generate_protection_changes():
+                    """Generate protection changes from pending intents."""
+                    from pathlib import Path
+                    import asyncio
+                    
+                    # Create streaming dialog
+                    dialog = ui.dialog()
+                    output_lines = []
+                    cancelled = {"value": False}
+                    
+                    with dialog:
+                        with ui.card().classes("p-4").style("width: 800px; max-width: 90vw;"):
+                            with ui.row().classes("w-full items-center justify-between mb-4"):
+                                ui.label("Generating Protection Changes...").classes("text-lg font-semibold")
+                                with ui.row().classes("gap-2"):
+                                    def copy_output():
+                                        text = "\n".join(output_lines)
+                                        ui.run_javascript(f'navigator.clipboard.writeText({repr(text)})')
+                                        ui.notify("Copied to clipboard!", type="positive")
+                                    
+                                    ui.button("Copy", icon="content_copy", on_click=copy_output).props("flat dense")
+                                    
+                                    def cancel_operation():
+                                        cancelled["value"] = True
+                                        ui.notify("Operation cancelled", type="warning")
+                                    
+                                    cancel_btn = ui.button("Cancel", icon="close", on_click=cancel_operation).props("flat dense color=red")
+                            
+                            output_area = ui.column().classes("w-full").style(
+                                "max-height: 400px; overflow-y: auto; background: #1e1e1e; "
+                                "padding: 12px; border-radius: 8px; font-family: monospace; font-size: 12px;"
+                            )
+                            
+                            close_btn = ui.button("Close", on_click=dialog.close).props("flat").classes("mt-4")
+                            close_btn.set_visibility(False)  # Show when done
+                    
+                    def append_output(text: str, color: str = "#e0e0e0"):
+                        output_lines.append(text)
+                        with output_area:
+                            ui.label(text).style(f"color: {color}; white-space: pre-wrap;")
+                    
+                    dialog.open()
+                    await asyncio.sleep(0.1)  # Let dialog render
+                    
+                    try:
+                        # Step 1: Read pending intents
+                        append_output("📋 Reading pending intents...")
+                        pending = protection_intent_manager.get_pending_yaml_updates()
+                        append_output(f"   Found {len(pending)} resources with pending changes", "#10B981")
+                        await asyncio.sleep(0.2)
+                        
+                        if cancelled["value"]:
+                            append_output("\n❌ Cancelled by user", "#F59E0B")
+                            cancel_btn.set_visibility(False)
+                            close_btn.set_visibility(True)
+                            return
+                        
+                        # Step 2: Show per-resource updates
+                        for key, intent in pending.items():
+                            if cancelled["value"]:
+                                break
+                            status = "protected" if intent.protected else "unprotected"
+                            append_output(f"   - {key}: {status}")
+                        await asyncio.sleep(0.2)
+                        
+                        if cancelled["value"]:
+                            append_output("\n❌ Cancelled by user", "#F59E0B")
+                            cancel_btn.set_visibility(False)
+                            close_btn.set_visibility(True)
+                            return
+                        
+                        # Step 3: Update YAML files
+                        append_output("\n📝 Updating YAML files...")
+                        
+                        # Get terraform directory
+                        tf_dir = state.deploy.terraform_dir or "deployments/migration"
+                        tf_path = Path(tf_dir)
+                        if not tf_path.is_absolute():
+                            project_root = Path(__file__).parent.parent.parent.resolve()
+                            tf_path = project_root / tf_dir
+                        
+                        yaml_file = tf_path / "dbt-cloud-config.yml"
+                        if not yaml_file.exists():
+                            append_output(f"   ⚠️ YAML file not found: {yaml_file}", "#F59E0B")
+                        else:
+                            from importer.web.utils.adoption_yaml_updater import apply_protection_from_set, apply_unprotection_from_set
+                            
+                            # Separate keys by protection status
+                            keys_to_protect = {k for k, i in pending.items() if i.protected}
+                            keys_to_unprotect = {k for k, i in pending.items() if not i.protected}
+                            
+                            if keys_to_protect:
+                                apply_protection_from_set(str(yaml_file), keys_to_protect)
+                                append_output(f"   ✓ Applied protection to {len(keys_to_protect)} resources", "#10B981")
+                            
+                            if keys_to_unprotect:
+                                apply_unprotection_from_set(str(yaml_file), keys_to_unprotect)
+                                append_output(f"   ✓ Removed protection from {len(keys_to_unprotect)} resources", "#10B981")
+                            
+                            append_output(f"   Updated {yaml_file.name}")
+                        
+                        await asyncio.sleep(0.2)
+                        
+                        if cancelled["value"]:
+                            append_output("\n❌ Cancelled by user", "#F59E0B")
+                            cancel_btn.set_visibility(False)
+                            close_btn.set_visibility(True)
+                            return
+                        
+                        # Step 4: Generate protection_moves.tf
+                        append_output("\n🔄 Generating protection_moves.tf...")
+                        
+                        from importer.web.utils.protection_manager import generate_repair_moved_blocks
+                        
+                        # Build mismatch-like data from pending intents
+                        moves_data = []
+                        for key, intent in pending.items():
+                            # Determine the direction of the move
+                            # If intent.protected=True, moving TO protected (state was unprotected)
+                            # If intent.protected=False, moving FROM protected (state was protected)
+                            moves_data.append({
+                                "type": "PRJ",  # Will be determined by key pattern
+                                "key": key,
+                                "yaml_protected": intent.protected,
+                                "state_protected": not intent.protected,  # Opposite of intent
+                            })
+                        
+                        moves_file = tf_path / "protection_moves.tf"
+                        moved_blocks = generate_repair_moved_blocks(moves_data, "module.dbt_cloud.module.projects_v2[0]")
+                        
+                        if moved_blocks:
+                            moves_file.write_text(moved_blocks)
+                            append_output(f"   ✓ Generated {len(moves_data)} moved blocks", "#10B981")
+                            append_output(f"   Written to {moves_file.name}")
+                        else:
+                            append_output("   No moved blocks needed", "#6B7280")
+                        
+                        await asyncio.sleep(0.2)
+                        
+                        # Step 5: Mark as applied to YAML
+                        append_output("\n✅ Marking intents as applied...")
+                        protection_intent_manager.mark_applied_to_yaml(set(pending.keys()))
+                        protection_intent_manager.save()
+                        append_output(f"   Updated {len(pending)} intent records")
+                        
+                        # Final summary
+                        append_output(f"\n{'='*50}", "#6B7280")
+                        append_output("✅ Done!", "#10B981")
+                        append_output(f"   - Updated YAML with protection flags", "#10B981")
+                        if moved_blocks:
+                            append_output(f"   - Generated protection_moves.tf", "#10B981")
+                        append_output(f"   - Next: Run terraform init/plan/apply", "#60A5FA")
+                        
+                    except Exception as e:
+                        append_output(f"\n❌ Error: {e}", "#EF4444")
+                    finally:
+                        cancel_btn.set_visibility(False)
+                        close_btn.set_visibility(True)
+                
+                generate_btn = ui.button(
+                    f"Generate Protection Changes ({len(_pending_yaml)})" if has_pending else "Generate Protection Changes",
+                    icon="auto_fix_high",
+                    on_click=lambda: asyncio.create_task(generate_protection_changes()),
+                ).props("color=green")
+                generate_btn.set_enabled(has_pending)
             
             # Recent Changes Section
             if _history:

@@ -1,96 +1,119 @@
 ---
-task: Protection Intent File System - Phase 2 (Match Page Integration)
+task: Protection Intent File System - Phase 3 (Generate Protection Changes)
 test_command: "cd importer && python -m pytest web/tests/test_protection_intent.py -v"
 browser_validation: true
 base_url: "http://localhost:8501"
 ---
 
-# Task: Match Page Integration
+# Task: Generate Protection Changes Button
 
-Integrate `ProtectionIntentManager` with the Match page - button handlers record intent, mismatch detection uses effective protection, and UI shows pending status badges.
+Add the "Generate Protection Changes" button that processes pending intents - updates YAML `protected:` flags and generates `protection_moves.tf` with moved blocks.
 
 **Plan Reference:** `.cursor/plans/protection_intent_file_e08a2a4e.plan.md`
-**Depends on:** Phase 1 (Core Foundation) - `importer/web/utils/protection_intent.py` must exist
+**Depends on:** Phase 2 (Match Page Integration)
 
 ## Success Criteria
 
-### State Integration
+### New Button
 
-1. [x] Add `protection_intent: ProtectionIntentManager` to `importer/web/state.py` AppState or MapState class
+1. [x] Add "Generate Protection Changes" button in mismatch panel, below Protect/Unprotect buttons
 
-2. [x] Initialize ProtectionIntentManager in state initialization, using deployment directory path for intent file
+2. [x] Button styling: `icon="auto_fix_high"`, `props("color=green")`
 
-3. [x] Load intent file when state is loaded, save when state is saved
+3. [x] Button disabled when no pending intents (`get_pending_yaml_updates()` returns empty)
 
-### Button Handler Updates (match.py)
+4. [x] Button shows count: "Generate Protection Changes (3)" when 3 pending
 
-4. [x] Update "Protect All" button handler to call `protection_intent_manager.set_intent()` for each mismatched resource with `protected=True, source="protect_all_button"`
+### Streaming Progress Dialog
 
-5. [x] Update "Unprotect All" button handler to call `set_intent()` with `protected=False, source="unprotect_all_button"`
+5. [x] Create streaming progress dialog that opens when button clicked
 
-6. [x] Ensure buttons call `protection_intent_manager.save()` after setting intents
+6. [x] Dialog layout: title "Generating Protection Changes...", Copy button, Close button
 
-7. [x] Remove direct YAML updates from Protect/Unprotect buttons (they now only record intent)
+7. [x] Dialog shows scrollable output area with monospace font, dark background
 
-8. [x] Fix button styling: create with `icon="shield"` for Protect All, `icon="lock_open"` for Unprotect All (not `set_icon()`)
+8. [x] Stream progress messages: "Reading pending intents...", "Found N resources with pending changes"
 
-### Mismatch Detection Updates (match_grid.py)
+9. [x] Stream per-resource updates: "  - resource_key: protected/unprotected"
 
-9. [x] Import ProtectionIntentManager and get instance from state
+10. [x] Stream YAML update progress: "Updating YAML files...", "Updated file.yml"
 
-10. [x] Update mismatch detection logic to use `get_effective_protection(source_key, yaml_protected)` instead of direct `source_key in protected_resources` check
+11. [x] Stream moved block generation: "Generating protection_moves.tf...", "Generated N moved blocks"
 
-11. [x] Ensure mismatch panel shows resources where TF state differs from effective protection (not YAML protection)
+12. [x] Final message: "Done!" with summary
 
-### UI Status Badges
+13. [x] Copy button copies full output to clipboard
 
-12. [x] Add pending status badge showing "Pending: Generate Protection Changes (N)" in orange when any intent has `applied_to_yaml=False`
+14. [x] Use `asyncio.create_task` for non-blocking execution
 
-13. [x] Add badge showing "Pending: TF Init/Plan/Apply (N)" in blue when any intent has `applied_to_yaml=True` but `applied_to_tf_state=False`
+15. [x] Add Cancel button that stops the operation
 
-14. [x] Add badge showing "Synced (N)" in green when intent has both `applied_to_yaml=True` and `applied_to_tf_state=True`
+### YAML Update Logic
 
-15. [x] Badge styling: orange=`classes("bg-amber-100 text-amber-800 px-2 py-1 rounded text-xs")`, blue=`classes("bg-blue-100 text-blue-800 ...")`, green=`classes("bg-green-100 text-green-800 ...")`
+16. [x] Read pending intents from `get_pending_yaml_updates()`
 
-### Recent Changes Section
+17. [x] For each pending intent, find the resource's YAML file
 
-16. [x] Add expandable "Recent Changes" section in mismatch panel showing last 5 history entries from intent file
+18. [x] Update `protected: true/false` in YAML based on intent
 
-17. [x] Format history entries showing: timestamp, resource key, action (protect/unprotect), source
+19. [x] Save modified YAML files
 
-18. [x] Add "View full audit trail in Utilities" link (placeholder - Utilities page created in Phase 4)
+20. [x] Call `mark_applied_to_yaml()` for all processed keys
+
+### Protection Moves Generation
+
+21. [x] Generate `protection_moves.tf` file in TF directory
+
+22. [x] For each resource changing protection status, add `moved { from = ... to = ... }` block
+
+23. [x] Use correct TF address format: `module.adoption["key"].resource_type.resource` to `module.adoption_protected["key"].resource_type.resource` (or vice versa)
+
+24. [x] Handle both protect (unprotected -> protected) and unprotect (protected -> unprotected) moves
+
+### UI Updates After Generation
+
+25. [x] After successful generation, update badge to "Pending: TF Init/Plan/Apply" (blue)
+
+26. [x] Refresh mismatch panel to show updated state
+
+27. [x] Intent file shows `applied_to_yaml=true` for processed resources
+
+### Warning on Existing Generate Button
+
+28. [x] Add tooltip to existing "Generate" button in TF workflow section
+
+29. [x] Tooltip text: "Regenerates ALL TF files - use 'Generate Protection Changes' for protection-only updates"
 
 ### Browser Validation
 
-19. [x] Restart server with `./restart_web.sh`, navigate to Match page, verify mismatch panel loads
+30. [x] Click "Unprotect All" to create pending intents
 
-20. [x] Click "Unprotect All", verify intent file is created/updated (check with file read)
+31. [x] Verify "Generate Protection Changes" button is enabled with count
 
-21. [x] Verify orange "Pending: Generate Protection Changes" badge appears after clicking Unprotect All
+32. [x] Click button, verify streaming dialog appears with progress
 
-22. [x] Verify "Recent Changes" section shows the unprotect action
+33. [x] Verify YAML files are updated with new protected values
+
+34. [x] Verify `protection_moves.tf` is created with correct moved blocks
+
+35. [x] Verify badge changes to blue "Pending: TF Init/Plan/Apply"
 
 ## Context
 
-### Files to Modify
-- `importer/web/state.py` - Add protection_intent field
-- `importer/web/pages/match.py` - Button handlers, UI badges
-- `importer/web/components/match_grid.py` - Mismatch detection logic
-
-### Key Pattern
-```python
-# OLD - direct YAML check
-is_yaml_protected = source_key in protected_resources
-
-# NEW - intent takes precedence
-is_yaml_protected = protection_intent_manager.get_effective_protection(
-    source_key, 
-    yaml_protected=(source_key in yaml_protected_resources)
-)
+### Moved Block Format
+```hcl
+moved {
+  from = module.adoption["resource_key"].dbtcloud_project.project
+  to   = module.adoption_protected["resource_key"].dbtcloud_project.project
+}
 ```
+
+### Files to Modify
+- `importer/web/pages/match.py` - New button, streaming dialog
+- `importer/web/utils/adoption_yaml_updater.py` - YAML update logic (may need new methods)
 
 ## Notes
 
-- Phase 3 will add "Generate Protection Changes" button
-- Buttons now ONLY record intent - they don't update YAML
-- User must click "Generate Protection Changes" (Phase 3) to apply to YAML
+- After this phase, the full workflow is: Click Unprotect → Click Generate → Run TF Init/Plan/Apply
+- Phase 4 adds Utilities page for detailed management
+- Phase 5 updates Destroy page to use intent manager
