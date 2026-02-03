@@ -1527,6 +1527,7 @@ def show_match_detail_dialog(
                         grid_row=grid_row,
                         type_info=type_info,
                         has_state_loaded=has_state_loaded,
+                        app_state=app_state,
                     )
     
     # region agent log
@@ -1546,6 +1547,7 @@ def _render_match_debug_tab(
     grid_row: dict,
     type_info: dict,
     has_state_loaded: bool = False,
+    app_state: Optional["AppState"] = None,
 ) -> None:
     """Render debug information about match resolution.
     
@@ -1861,7 +1863,122 @@ def _render_match_debug_tab(
             ):
                 ui.html(f'<pre style="white-space: pre-wrap; word-break: break-word; font-size: 0.75rem; margin: 0; padding: 8px; background: #1e1e1e; color: #d4d4d4; border-radius: 4px;">{html.escape(grid_row_json)}</pre>')
         
-        # Section 6: LLM Diagnostic Report
+        # Section 6: Set Protection Intent (interactive)
+        # Only show for resource types that support protection
+        if source_type in EXTENDED_RESOURCE_TYPE_MAP and app_state is not None:
+            state_resource_index = state_resource.get("resource_index") if state_resource else None
+            resource_key = state_resource_index or grid_row.get("project_name") or source_key
+            
+            # Get current protection states
+            yaml_protected = grid_row.get("yaml_protected", False)
+            state_protected = grid_row.get("state_protected", False)
+            
+            # Get current intent if any
+            protection_intent = app_state.protection_intent
+            current_intent = protection_intent.get_intent(resource_key)
+            
+            with ui.card().classes("w-full p-4").style("border: 2px solid #10B981;"):
+                with ui.row().classes("items-center gap-2 mb-3"):
+                    ui.icon("security", size="sm").classes("text-green-600")
+                    ui.label("Set Protection Intent").classes("font-semibold text-green-700")
+                
+                # Show current status
+                with ui.row().classes("items-center gap-4 mb-3 p-2 rounded").style("background: #F0FDF4;"):
+                    with ui.column().classes("gap-1"):
+                        ui.label("Current State:").classes("text-xs text-slate-500 font-semibold")
+                        with ui.row().classes("items-center gap-2"):
+                            state_badge = "Protected" if state_protected else "Unprotected"
+                            state_color = "blue" if state_protected else "grey"
+                            ui.badge(f"TF State: {state_badge}").props(f"color={state_color}")
+                            
+                            yaml_badge = "Protected" if yaml_protected else "Unprotected"
+                            yaml_color = "blue" if yaml_protected else "grey"
+                            ui.badge(f"YAML: {yaml_badge}").props(f"color={yaml_color}")
+                    
+                    if current_intent:
+                        with ui.column().classes("gap-1"):
+                            ui.label("Pending Intent:").classes("text-xs text-slate-500 font-semibold")
+                            intent_badge = "Protect" if current_intent.protected else "Unprotect"
+                            intent_color = "green" if current_intent.protected else "amber"
+                            ui.badge(f"Intent: {intent_badge}").props(f"color={intent_color}")
+                            ui.label(f"Set: {current_intent.timestamp[:16]}").classes("text-xs text-slate-400")
+                
+                ui.label(
+                    "Choose what you want the final protection state to be. "
+                    "This records your intent - use 'Generate Protection Changes' on the Match page to apply."
+                ).classes("text-xs text-slate-500 mb-3")
+                
+                # Intent selection buttons
+                intent_status_container = ui.element("div").classes("w-full")
+                
+                def set_intent_protected():
+                    protection_intent.set_intent(
+                        resource_key=resource_key,
+                        protected=True,
+                        source="detail_dialog",
+                        reason=f"User selected 'Protect' for {source_type}:{resource_key}",
+                    )
+                    protection_intent.save()
+                    with intent_status_container:
+                        intent_status_container.clear()
+                        with ui.row().classes("items-center gap-2 p-2 rounded").style("background: #ECFDF5;"):
+                            ui.icon("check_circle", size="sm").classes("text-green-600")
+                            ui.label(f"Intent recorded: PROTECT {resource_key}").classes("text-sm text-green-700 font-medium")
+                    ui.notify(f"Protection intent set: PROTECT {resource_key}", type="positive")
+                
+                def set_intent_unprotected():
+                    protection_intent.set_intent(
+                        resource_key=resource_key,
+                        protected=False,
+                        source="detail_dialog",
+                        reason=f"User selected 'Unprotect' for {source_type}:{resource_key}",
+                    )
+                    protection_intent.save()
+                    with intent_status_container:
+                        intent_status_container.clear()
+                        with ui.row().classes("items-center gap-2 p-2 rounded").style("background: #FEF3C7;"):
+                            ui.icon("check_circle", size="sm").classes("text-amber-600")
+                            ui.label(f"Intent recorded: UNPROTECT {resource_key}").classes("text-sm text-amber-700 font-medium")
+                    ui.notify(f"Protection intent set: UNPROTECT {resource_key}", type="info")
+                
+                def clear_intent():
+                    if protection_intent.has_intent(resource_key):
+                        # Remove the intent
+                        del protection_intent._intent[resource_key]
+                        protection_intent.save()
+                        with intent_status_container:
+                            intent_status_container.clear()
+                            ui.label("Intent cleared").classes("text-sm text-slate-500")
+                        ui.notify(f"Cleared intent for {resource_key}", type="info")
+                    else:
+                        ui.notify("No intent to clear", type="warning")
+                
+                with ui.row().classes("items-center gap-3"):
+                    ui.button(
+                        "Set Intent: Protected",
+                        icon="shield",
+                        on_click=set_intent_protected,
+                    ).props("color=positive")
+                    
+                    ui.button(
+                        "Set Intent: Unprotected",
+                        icon="lock_open",
+                        on_click=set_intent_unprotected,
+                    ).props("color=warning")
+                    
+                    ui.button(
+                        "Clear Intent",
+                        icon="clear",
+                        on_click=clear_intent,
+                    ).props("flat color=grey")
+                
+                # Show linked resources warning
+                if source_type in ("REP", "PREP"):
+                    ui.label(
+                        "⚠️ REP and PREP are linked - changing protection affects both"
+                    ).classes("text-xs text-amber-600 mt-2")
+        
+        # Section 7: LLM Diagnostic Report
         state_resource_index = state_resource.get("resource_index") if state_resource else None
         is_protected = "protected_" in state_address if state_address else False
         
