@@ -1781,6 +1781,12 @@ def _create_matching_content(
         if intent.applied_to_yaml and intent.applied_to_tf_state
     )
     
+    # Find mismatches that need intent clarification (no intent recorded yet)
+    _mismatches_needing_intent = [
+        m for m in protection_mismatches
+        if not protection_intent_manager.has_intent(m["key"])
+    ]
+    
     # Protection Intent Status section - always show so users know the feature exists
     with ui.card().classes("w-full p-4 mt-4").style("border: 1px solid #CBD5E1;"):
         with ui.row().classes("w-full items-center justify-between"):
@@ -1788,35 +1794,157 @@ def _create_matching_content(
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("checklist", size="sm").classes("text-slate-600")
                     ui.label("Protection Intent Status").classes("font-semibold text-slate-700")
-                    
-                    # Status badges
-                    with ui.row().classes("items-center gap-3 mt-2"):
-                        # Pending: Generate Protection Changes (orange)
-                        if len(_pending_yaml) > 0:
-                            ui.label(f"Pending: Generate Protection Changes ({len(_pending_yaml)})").classes(
-                                "bg-amber-100 text-amber-800 px-2 py-1 rounded text-xs font-medium"
-                            )
-                        
-                        # Pending: TF Init/Plan/Apply (blue)
-                        pending_tf_count = sum(
-                            1 for intent in protection_intent_manager._intent.values()
-                            if intent.applied_to_yaml and not intent.applied_to_tf_state
+                
+                # Status badges row
+                with ui.row().classes("items-center gap-3 mt-2 flex-wrap"):
+                    # FIRST: Needs Clarification (red/pink) - most important
+                    if len(_mismatches_needing_intent) > 0:
+                        ui.label(f"⚠️ Needs Clarification ({len(_mismatches_needing_intent)})").classes(
+                            "bg-red-100 text-red-800 px-2 py-1 rounded text-xs font-medium"
                         )
-                        if pending_tf_count > 0:
-                            ui.label(f"Pending: TF Init/Plan/Apply ({pending_tf_count})").classes(
-                                "bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-medium"
-                            )
+                    
+                    # Pending: Generate Protection Changes (orange)
+                    if len(_pending_yaml) > 0:
+                        ui.label(f"Pending: Generate ({len(_pending_yaml)})").classes(
+                            "bg-amber-100 text-amber-800 px-2 py-1 rounded text-xs font-medium"
+                        )
+                    
+                    # Pending: TF Init/Plan/Apply (blue)
+                    pending_tf_count = sum(
+                        1 for intent in protection_intent_manager._intent.values()
+                        if intent.applied_to_yaml and not intent.applied_to_tf_state
+                    )
+                    if pending_tf_count > 0:
+                        ui.label(f"Pending: TF Apply ({pending_tf_count})").classes(
+                            "bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-medium"
+                        )
+                    
+                    # Synced (green)
+                    if _synced_count > 0:
+                        ui.label(f"Synced ({_synced_count})").classes(
+                            "bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium"
+                        )
+                    
+                    # If nothing at all, show neutral state
+                    if len(_mismatches_needing_intent) == 0 and len(_pending_yaml) == 0 and pending_tf_count == 0 and _synced_count == 0:
+                        ui.label("No mismatches or pending changes").classes("text-xs text-slate-500")
+                
+                # Mismatches needing clarification - expandable section
+                if len(_mismatches_needing_intent) > 0:
+                    with ui.expansion(
+                        f"⚠️ {len(_mismatches_needing_intent)} resources need your intent clarification",
+                        icon="help_outline"
+                    ).classes("w-full mt-3").style("border: 1px solid #FCA5A5;"):
+                        ui.label(
+                            "These resources have a mismatch between Terraform state and YAML configuration. "
+                            "Please clarify what you want the final state to be."
+                        ).classes("text-xs text-slate-600 mb-3")
                         
-                        # Synced (green)
-                        if _synced_count > 0:
-                            ui.label(f"Synced ({_synced_count})").classes(
-                                "bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium"
-                            )
+                        for m in _mismatches_needing_intent[:10]:  # Show first 10
+                            resource_key = m["key"]
+                            source_type = m["type"]
+                            state_protected = m["state_protected"]
+                            yaml_protected = m["yaml_protected"]
+                            
+                            state_label = "protected" if state_protected else "unprotected"
+                            yaml_label = "protected" if yaml_protected else "unprotected"
+                            
+                            with ui.card().classes("w-full p-2 mb-2").style("background: #FEF2F2;"):
+                                with ui.row().classes("items-center justify-between"):
+                                    with ui.column().classes("gap-1"):
+                                        ui.label(f"{source_type}: {resource_key}").classes("font-medium text-sm")
+                                        with ui.row().classes("items-center gap-2"):
+                                            ui.badge(f"State: {state_label}").props(
+                                                f"color={'blue' if state_protected else 'grey'} dense"
+                                            )
+                                            ui.icon("arrow_forward", size="xs").classes("text-slate-400")
+                                            ui.badge(f"YAML: {yaml_label}").props(
+                                                f"color={'blue' if yaml_protected else 'grey'} dense"
+                                            )
+                                    
+                                    # Quick intent buttons
+                                    with ui.row().classes("items-center gap-1"):
+                                        def make_protect_handler(rkey=resource_key):
+                                            def handler():
+                                                protection_intent_manager.set_intent(
+                                                    resource_key=rkey,
+                                                    protected=True,
+                                                    source="clarification_panel",
+                                                    reason="User clarified intent: protect",
+                                                )
+                                                protection_intent_manager.save()
+                                                ui.notify(f"Intent set: PROTECT {rkey}", type="positive")
+                                                ui.navigate.reload()
+                                            return handler
+                                        
+                                        def make_unprotect_handler(rkey=resource_key):
+                                            def handler():
+                                                protection_intent_manager.set_intent(
+                                                    resource_key=rkey,
+                                                    protected=False,
+                                                    source="clarification_panel",
+                                                    reason="User clarified intent: unprotect",
+                                                )
+                                                protection_intent_manager.save()
+                                                ui.notify(f"Intent set: UNPROTECT {rkey}", type="info")
+                                                ui.navigate.reload()
+                                            return handler
+                                        
+                                        ui.button(
+                                            "Protect",
+                                            icon="shield",
+                                            on_click=make_protect_handler(),
+                                        ).props("dense size=sm color=positive")
+                                        
+                                        ui.button(
+                                            "Unprotect",
+                                            icon="lock_open",
+                                            on_click=make_unprotect_handler(),
+                                        ).props("dense size=sm color=warning")
                         
-                        # If no badges apply, show a neutral state
-                        if len(_pending_yaml) == 0 and pending_tf_count == 0 and _synced_count == 0:
-                            ui.label("No pending changes").classes("text-xs text-slate-500")
+                        if len(_mismatches_needing_intent) > 10:
+                            ui.label(f"... and {len(_mismatches_needing_intent) - 10} more").classes("text-xs text-slate-500")
                         
+                        # Bulk actions
+                        ui.separator().classes("my-2")
+                        with ui.row().classes("items-center gap-2"):
+                            def protect_all_mismatches():
+                                for m in _mismatches_needing_intent:
+                                    protection_intent_manager.set_intent(
+                                        resource_key=m["key"],
+                                        protected=True,
+                                        source="clarification_bulk",
+                                        reason="Bulk protect all mismatches",
+                                    )
+                                protection_intent_manager.save()
+                                ui.notify(f"Set intent to PROTECT for {len(_mismatches_needing_intent)} resources", type="positive")
+                                ui.navigate.reload()
+                            
+                            def unprotect_all_mismatches():
+                                for m in _mismatches_needing_intent:
+                                    protection_intent_manager.set_intent(
+                                        resource_key=m["key"],
+                                        protected=False,
+                                        source="clarification_bulk",
+                                        reason="Bulk unprotect all mismatches",
+                                    )
+                                protection_intent_manager.save()
+                                ui.notify(f"Set intent to UNPROTECT for {len(_mismatches_needing_intent)} resources", type="info")
+                                ui.navigate.reload()
+                            
+                            ui.button(
+                                f"Protect All ({len(_mismatches_needing_intent)})",
+                                icon="shield",
+                                on_click=protect_all_mismatches,
+                            ).props("dense size=sm color=positive outline")
+                            
+                            ui.button(
+                                f"Unprotect All ({len(_mismatches_needing_intent)})",
+                                icon="lock_open",
+                                on_click=unprotect_all_mismatches,
+                            ).props("dense size=sm color=warning outline")
+                
+                with ui.row().classes("items-center gap-3 mt-2"):
                         # Copy for AI button
                         def copy_for_ai():
                             """Generate structured markdown summary for AI diagnostics."""
