@@ -1834,11 +1834,11 @@ def _create_matching_content(
                     with ui.expansion(
                         f"⚠️ {len(_mismatches_needing_intent)} resources need your intent clarification",
                         icon="help_outline"
-                    ).classes("w-full mt-3").style("border: 1px solid #FCA5A5;"):
+                    ).classes("w-full mt-3 border border-red-400 rounded"):
                         ui.label(
                             "These resources have a mismatch between Terraform state and YAML configuration. "
                             "Please clarify what you want the final state to be."
-                        ).classes("text-xs text-slate-600 mb-3")
+                        ).classes("text-xs opacity-70 mb-3")
                         
                         for m in _mismatches_needing_intent[:10]:  # Show first 10
                             resource_key = m["key"]
@@ -1849,7 +1849,7 @@ def _create_matching_content(
                             state_label = "protected" if state_protected else "unprotected"
                             yaml_label = "protected" if yaml_protected else "unprotected"
                             
-                            with ui.card().classes("w-full p-2 mb-2").style("background: #FEF2F2;"):
+                            with ui.card().classes("w-full p-2 mb-2 bg-red-500 bg-opacity-10"):
                                 with ui.row().classes("items-center justify-between"):
                                     with ui.column().classes("gap-1"):
                                         ui.label(f"{source_type}: {resource_key}").classes("font-medium text-sm")
@@ -1857,7 +1857,7 @@ def _create_matching_content(
                                             ui.badge(f"State: {state_label}").props(
                                                 f"color={'blue' if state_protected else 'grey'} dense"
                                             )
-                                            ui.icon("arrow_forward", size="xs").classes("text-slate-400")
+                                            ui.icon("arrow_forward", size="xs").classes("opacity-50")
                                             ui.badge(f"YAML: {yaml_label}").props(
                                                 f"color={'blue' if yaml_protected else 'grey'} dense"
                                             )
@@ -1903,7 +1903,7 @@ def _create_matching_content(
                                         ).props("dense size=sm color=warning")
                         
                         if len(_mismatches_needing_intent) > 10:
-                            ui.label(f"... and {len(_mismatches_needing_intent) - 10} more").classes("text-xs text-slate-500")
+                            ui.label(f"... and {len(_mismatches_needing_intent) - 10} more").classes("text-xs opacity-60")
                         
                         # Bulk actions
                         ui.separator().classes("my-2")
@@ -1943,6 +1943,65 @@ def _create_matching_content(
                                 icon="lock_open",
                                 on_click=unprotect_all_mismatches,
                             ).props("dense size=sm color=warning outline")
+                
+                # Pending intents section - show recorded intents with undo option
+                _all_pending = [(k, i) for k, i in protection_intent_manager._intent.items() if not i.applied_to_yaml]
+                if len(_all_pending) > 0:
+                    with ui.expansion(
+                        f"📝 Pending Intents ({len(_all_pending)}) - click to review/undo",
+                        icon="edit_note"
+                    ).classes("w-full mt-3 border border-amber-400 rounded"):
+                        ui.label(
+                            "These intents have been recorded but not yet applied. "
+                            "Click 'Undo' to remove an intent, or 'Generate Protection Changes' to apply them."
+                        ).classes("text-xs opacity-70 mb-3")
+                        
+                        for rkey, intent in _all_pending[:15]:  # Show first 15
+                            action_label = "PROTECT" if intent.protected else "UNPROTECT"
+                            action_color = "positive" if intent.protected else "warning"
+                            
+                            with ui.card().classes("w-full p-2 mb-2 bg-amber-500 bg-opacity-10"):
+                                with ui.row().classes("items-center justify-between"):
+                                    with ui.column().classes("gap-1"):
+                                        ui.label(f"{rkey}").classes("font-medium text-sm")
+                                        with ui.row().classes("items-center gap-2"):
+                                            ui.badge(f"Intent: {action_label}").props(f"color={action_color} dense")
+                                            ui.label(f"Set: {intent.timestamp[:16]}").classes("text-xs opacity-60")
+                                    
+                                    # Undo button
+                                    def make_undo_handler(key_to_undo=rkey):
+                                        def handler():
+                                            if protection_intent_manager.has_intent(key_to_undo):
+                                                del protection_intent_manager._intent[key_to_undo]
+                                                protection_intent_manager.save()
+                                                ui.notify(f"Removed intent for {key_to_undo}", type="info")
+                                                ui.navigate.reload()
+                                        return handler
+                                    
+                                    ui.button(
+                                        "Undo",
+                                        icon="undo",
+                                        on_click=make_undo_handler(),
+                                    ).props("dense size=sm color=grey flat")
+                        
+                        if len(_all_pending) > 15:
+                            ui.label(f"... and {len(_all_pending) - 15} more").classes("text-xs opacity-60")
+                        
+                        # Clear all button
+                        ui.separator().classes("my-2")
+                        def clear_all_pending():
+                            for key, _ in _all_pending:
+                                if protection_intent_manager.has_intent(key):
+                                    del protection_intent_manager._intent[key]
+                            protection_intent_manager.save()
+                            ui.notify(f"Cleared {len(_all_pending)} pending intents", type="info")
+                            ui.navigate.reload()
+                        
+                        ui.button(
+                            f"Clear All Pending ({len(_all_pending)})",
+                            icon="delete_sweep",
+                            on_click=clear_all_pending,
+                        ).props("dense size=sm color=negative outline")
                 
                 with ui.row().classes("items-center gap-3 mt-2"):
                         # Copy for AI button

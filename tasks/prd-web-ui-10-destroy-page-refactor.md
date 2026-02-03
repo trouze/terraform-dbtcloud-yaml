@@ -148,6 +148,12 @@ Action buttons above filters - each pane is self-contained.
    - Use `size=sm padding='4px 12px'` for action buttons
    - Amber buttons with `style("color: black !important;")`
 
+4. **Protection Intent Integration** (see [Protection Intent File plan](/.cursor/plans/protection_intent_file_e08a2a4e.plan.md)):
+   - Unprotect Selected/All must write to `protection-intent.json`, NOT `state.map.unprotected_keys`
+   - Show same status badges as Match page: "Pending: Generate Protection Changes", "Pending: TF Init/Plan/Apply"
+   - Add link: "Apply protection changes on Match page"
+   - Protection panel reads effective protection from `ProtectionIntentManager.get_effective_protection()`
+
 ---
 
 ## User Stories

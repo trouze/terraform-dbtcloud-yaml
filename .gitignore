@@ -83,3 +83,10 @@ venv/
 
 # Magellan State
 .magellan/*
+# Ralph Wiggum state (partial)
+.ralph/activity.log
+.ralph/errors.log
+.ralph/.iteration
+
+# Ralph config (may contain API key)
+.cursor/ralph-config.json
