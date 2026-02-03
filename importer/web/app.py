@@ -19,6 +19,7 @@ from importer.web.pages.configure import create_configure_page
 from importer.web.pages.deploy import create_deploy_page
 from importer.web.pages.destroy import create_destroy_page
 from importer.web.pages.target_credentials import create_target_credentials_page
+from importer.web.pages.utilities import create_utilities_page
 from importer.web.env_manager import load_account_info_from_env
 from importer.web.licensing import (
     LicenseTier,
@@ -298,6 +299,8 @@ def create_page_content(state: AppState) -> None:
         create_deploy_page(state, navigate_to_step, save_state)
     elif step == WorkflowStep.DESTROY:
         create_destroy_page(state, navigate_to_step, save_state)
+    elif step == WorkflowStep.UTILITIES:
+        create_utilities_page(state, navigate_to_step, save_state)
     # Jobs as Code Generator workflow steps
     elif step == WorkflowStep.JAC_SELECT:
         create_jac_select_page(state, navigate_to_step, save_state)
@@ -505,6 +508,19 @@ def destroy_page() -> None:
     if not _require_migration_license(state):
         return
     state.current_step = WorkflowStep.DESTROY
+    save_state()
+    setup_page(state)
+
+    with ui.column().classes("w-full"):
+        create_progress_header(state)
+        create_page_content(state)
+
+
+@ui.page("/utilities")
+def utilities_page() -> None:
+    """Utilities page route."""
+    state = get_state()
+    state.current_step = WorkflowStep.UTILITIES
     save_state()
     setup_page(state)
 

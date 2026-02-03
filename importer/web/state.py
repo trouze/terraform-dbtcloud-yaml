@@ -31,6 +31,8 @@ class WorkflowStep(IntEnum):
     JAC_MAPPING = 15 # Map environments/projects (Clone only)
     JAC_CONFIG = 16  # Configure jobs (rename, triggers)
     JAC_GENERATE = 17  # Preview and export
+    # Utilities
+    UTILITIES = 18  # Protection intent management and utilities
 
 
 class WorkflowType(str, Enum):
@@ -62,6 +64,8 @@ STEP_NAMES = {
     WorkflowStep.JAC_MAPPING: "Map Resources",
     WorkflowStep.JAC_CONFIG: "Configure Jobs",
     WorkflowStep.JAC_GENERATE: "Generate YAML",
+    # Utilities
+    WorkflowStep.UTILITIES: "Utilities",
 }
 
 STEP_ICONS = {
@@ -84,6 +88,8 @@ STEP_ICONS = {
     WorkflowStep.JAC_MAPPING: "swap_horiz",
     WorkflowStep.JAC_CONFIG: "tune",
     WorkflowStep.JAC_GENERATE: "code",
+    # Utilities
+    WorkflowStep.UTILITIES: "build",
 }
 
 

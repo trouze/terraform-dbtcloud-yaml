@@ -2008,11 +2008,11 @@ def _create_matching_content(
                                 ui.label(f"({entry.action})").classes("text-slate-500")
                                 ui.label(f"via {entry.source}").classes("text-xs text-slate-400")
                         
-                        # Link to Utilities page (placeholder until Phase 4)
+                        # Link to Utilities page
                         ui.separator().classes("my-2")
                         ui.label("View full audit trail in Utilities →").classes(
                             "text-xs text-blue-600 cursor-pointer hover:underline"
-                        ).on("click", lambda: ui.notify("Utilities page coming in Phase 4", type="info"))
+                        ).on("click", lambda: ui.navigate.to("/utilities"))
     
     if has_state and protection_mismatches:
         with ui.card().classes("w-full p-4 mt-4").style("border: 2px solid #F59E0B;"):

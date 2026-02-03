@@ -1,119 +1,135 @@
 ---
-task: Protection Intent File System - Phase 3 (Generate Protection Changes)
+task: Protection Intent File System - Phase 4 (Utilities Page)
 test_command: "cd importer && python -m pytest web/tests/test_protection_intent.py -v"
 browser_validation: true
 base_url: "http://localhost:8501"
 ---
 
-# Task: Generate Protection Changes Button
+# Task: Utilities Page - Protection Management
 
-Add the "Generate Protection Changes" button that processes pending intents - updates YAML `protected:` flags and generates `protection_moves.tf` with moved blocks.
+Create the Utilities page with comprehensive protection intent management: status cards, AG Grid for intents, bulk actions, and audit history.
 
 **Plan Reference:** `.cursor/plans/protection_intent_file_e08a2a4e.plan.md`
-**Depends on:** Phase 2 (Match Page Integration)
+**Depends on:** Phase 3 (Generate Protection Changes)
 
 ## Success Criteria
 
-### New Button
+### Page Setup
 
-1. [x] Add "Generate Protection Changes" button in mismatch panel, below Protect/Unprotect buttons
+1. [x] Create `importer/web/pages/utilities.py` with new Utilities page
 
-2. [x] Button styling: `icon="auto_fix_high"`, `props("color=green")`
+2. [x] Add navigation link to Utilities page in sidebar/header
 
-3. [x] Button disabled when no pending intents (`get_pending_yaml_updates()` returns empty)
+3. [x] Page title: "Utilities" with "Protection Management" section
 
-4. [x] Button shows count: "Generate Protection Changes (3)" when 3 pending
+### Status Summary Cards
 
-### Streaming Progress Dialog
+4. [x] Add three status cards at top: "Pending Generate", "Pending TF Apply", "Synced"
 
-5. [x] Create streaming progress dialog that opens when button clicked
+5. [x] Cards show count of intents in each status
 
-6. [x] Dialog layout: title "Generating Protection Changes...", Copy button, Close button
+6. [x] Card styling consistent with other dashboard cards
 
-7. [x] Dialog shows scrollable output area with monospace font, dark background
+7. [x] Counts update dynamically when intents change
 
-8. [x] Stream progress messages: "Reading pending intents...", "Found N resources with pending changes"
+### AG Grid - Current Intents
 
-9. [x] Stream per-resource updates: "  - resource_key: protected/unprotected"
+8. [x] Create AG Grid table showing all current intents
 
-10. [x] Stream YAML update progress: "Updating YAML files...", "Updated file.yml"
+9. [x] Grid uses `theme="quartz"` with `ag-theme-quartz-auto-dark` class
 
-11. [x] Stream moved block generation: "Generating protection_moves.tf...", "Generated N moved blocks"
+10. [x] Columns with explicit `colId`: Resource Key, Type, Intent (Protect/Unprotect), Status, Set At, Actions
 
-12. [x] Final message: "Done!" with summary
+11. [x] "Type" column shows resource type (PRJ, ENV, JOB, etc.) extracted from key
 
-13. [x] Copy button copies full output to clipboard
+12. [x] "Status" column shows: "Pending Generate" (orange), "Pending TF Apply" (blue), "Synced" (green)
 
-14. [x] Use `asyncio.create_task` for non-blocking execution
+13. [x] "Actions" column has Edit button for each row
 
-15. [x] Add Cancel button that stops the operation
+14. [x] Enable row selection with checkboxes for bulk operations
 
-### YAML Update Logic
+15. [x] Pre-sort data by Set At descending in Python before passing to grid
 
-16. [x] Read pending intents from `get_pending_yaml_updates()`
+### Filters and Search
 
-17. [x] For each pending intent, find the resource's YAML file
+16. [x] Add status filter dropdown: "All Status", "Pending Generate", "Pending TF Apply", "Synced"
 
-18. [x] Update `protected: true/false` in YAML based on intent
+17. [x] Add type filter dropdown: "All Types", "PRJ", "ENV", "JOB", etc.
 
-19. [x] Save modified YAML files
+18. [x] Add search input for filtering by resource key
 
-20. [x] Call `mark_applied_to_yaml()` for all processed keys
+19. [x] Show "Showing: X/Y" count
 
-### Protection Moves Generation
+### Bulk Action Buttons
 
-21. [x] Generate `protection_moves.tf` file in TF directory
+20. [x] Add "Reset All to YAML" button - clears all intents, falls back to YAML flags
 
-22. [x] For each resource changing protection status, add `moved { from = ... to = ... }` block
+21. [x] Add confirmation dialog before Reset All: "This will clear all intent history. Continue?"
 
-23. [x] Use correct TF address format: `module.adoption["key"].resource_type.resource` to `module.adoption_protected["key"].resource_type.resource` (or vice versa)
+22. [x] Add "Sync from TF State" button - reads TF state, sets intents to match current reality
 
-24. [x] Handle both protect (unprotected -> protected) and unprotect (protected -> unprotected) moves
+23. [x] Add "Generate All Pending" button - processes all pending-generate intents at once
 
-### UI Updates After Generation
+24. [x] Add "Export JSON" button - downloads `protection-intent.json`
 
-25. [x] After successful generation, update badge to "Pending: TF Init/Plan/Apply" (blue)
+### Edit Intent Dialog
 
-26. [x] Refresh mismatch panel to show updated state
+25. [x] Edit button opens dialog for single intent modification
 
-27. [x] Intent file shows `applied_to_yaml=true` for processed resources
+26. [x] Dialog shows: Resource Key (readonly), current Intent (Protect/Unprotect toggle), Reason input
 
-### Warning on Existing Generate Button
+27. [x] Save updates intent and adds history entry
 
-28. [x] Add tooltip to existing "Generate" button in TF workflow section
+28. [x] Cancel closes dialog without changes
 
-29. [x] Tooltip text: "Regenerates ALL TF files - use 'Generate Protection Changes' for protection-only updates"
+### Audit History Section
+
+29. [x] Add "Audit History (last 20)" section below intents grid
+
+30. [x] Table columns: Timestamp, Resource, Action, Source
+
+31. [x] History sorted newest first
+
+32. [x] Add "View All" link that expands to show full history (or opens dialog)
+
+33. [x] Add "Copy History" button that copies history to clipboard
 
 ### Browser Validation
 
-30. [x] Click "Unprotect All" to create pending intents
+34. [x] Navigate to Utilities page, verify it loads
 
-31. [x] Verify "Generate Protection Changes" button is enabled with count
+35. [x] Verify status cards show correct counts
 
-32. [x] Click button, verify streaming dialog appears with progress
+36. [x] Verify AG Grid displays intents with correct columns
 
-33. [x] Verify YAML files are updated with new protected values
+37. [x] Test filter by status - verify grid updates
 
-34. [x] Verify `protection_moves.tf` is created with correct moved blocks
+38. [x] Test Edit button - verify dialog opens and saves work
 
-35. [x] Verify badge changes to blue "Pending: TF Init/Plan/Apply"
+39. [x] Test "Reset All to YAML" - verify confirmation and reset
+
+40. [x] Verify audit history shows recent changes
 
 ## Context
 
-### Moved Block Format
-```hcl
-moved {
-  from = module.adoption["resource_key"].dbtcloud_project.project
-  to   = module.adoption_protected["resource_key"].dbtcloud_project.project
-}
+### AG Grid Column Definition Pattern
+```python
+column_defs = [
+    {"field": "resource_key", "colId": "resource_key", "headerName": "Resource Key", "flex": 2},
+    {"field": "type", "colId": "type", "headerName": "Type", "width": 80},
+    {"field": "intent", "colId": "intent", "headerName": "Intent", "width": 100},
+    {"field": "status", "colId": "status", "headerName": "Status", "width": 140},
+    {"field": "set_at", "colId": "set_at", "headerName": "Set At", "width": 160},
+    {"field": "actions", "colId": "actions", "headerName": "Actions", "width": 80},
+]
 ```
 
-### Files to Modify
-- `importer/web/pages/match.py` - New button, streaming dialog
-- `importer/web/utils/adoption_yaml_updater.py` - YAML update logic (may need new methods)
+### Files to Create/Modify
+- `importer/web/pages/utilities.py` - NEW page
+- `importer/web/app.py` or equivalent - Add navigation route
 
 ## Notes
 
-- After this phase, the full workflow is: Click Unprotect → Click Generate → Run TF Init/Plan/Apply
-- Phase 4 adds Utilities page for detailed management
-- Phase 5 updates Destroy page to use intent manager
+- This page provides advanced management for power users
+- Match page has simplified quick actions
+- Audit history is essential for debugging protection issues
