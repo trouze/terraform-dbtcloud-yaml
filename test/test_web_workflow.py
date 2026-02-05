@@ -115,12 +115,14 @@ class TestStepAccessibility:
         state.fetch.fetch_complete = True
         assert state.step_is_accessible(WorkflowStep.SCOPE) is True
     
-    def test_fetch_target_requires_scope_complete(self):
-        """Fetch Target locked until Scope (normalize) complete."""
+    def test_fetch_target_always_accessible(self):
+        """Fetch Target is always accessible - can fetch target anytime."""
         state = AppState()
         
-        assert state.step_is_accessible(WorkflowStep.FETCH_TARGET) is False
+        # FETCH_TARGET is always accessible regardless of other step completion
+        assert state.step_is_accessible(WorkflowStep.FETCH_TARGET) is True
         
+        # Still accessible even without scope complete
         state.fetch.fetch_complete = True
         state.map.normalize_complete = True
         assert state.step_is_accessible(WorkflowStep.FETCH_TARGET) is True

@@ -1124,11 +1124,17 @@ def _create_destroy_protection_panel(
             
             # Helper to generate moved blocks and navigate to deploy
             def generate_and_go_to_deploy():
-                """Generate moved blocks for the unprotected resources and navigate to Deploy."""
+                """Generate moved blocks for the unprotected resources and navigate to Deploy.
+                
+                This follows the same workflow as Match page:
+                1. Apply intents to YAML (remove protected: true)
+                2. Generate protection_moves.tf from state comparison
+                """
                 from importer.web.utils.protection_manager import (
                     detect_protection_mismatches,
                     write_moved_blocks_file,
                     ProtectionChange,
+                    generate_moved_blocks_from_state,
                 )
                 from pathlib import Path
                 
@@ -1143,59 +1149,94 @@ def _create_destroy_protection_panel(
                     ui.notify(f"Terraform directory not found: {tf_path}", type="negative")
                     return
                 
-                # Build protection changes for the unprotected resources
-                module_prefix = "module.dbt_cloud.module.projects_v2[0]"
-                changes = []
-                
-                # Get the resource type mappings: (tf_type, unprotected_collection, protected_collection)
-                RESOURCE_TYPE_MAP = {
-                    "PRJ": ("dbtcloud_project", "projects", "protected_projects"),
-                    "REP": ("dbtcloud_repository", "repositories", "protected_repositories"),
-                    "PREP": ("dbtcloud_project_repository", "project_repositories", "protected_project_repositories"),
-                    "ENV": ("dbtcloud_environment", "environments", "protected_environments"),
-                    "JOB": ("dbtcloud_job", "jobs", "protected_jobs"),
-                    "GC": ("dbtcloud_global_connection", "global_connections", "protected_global_connections"),
-                }
-                
-                # For each unprotected key, create a moved block from protected to regular
-                for key in keys_to_unprotect:
-                    # Determine resource type from the key or look it up
-                    for res in protected_resources:
-                        if res.resource_key == key:
-                            resource_type = res.resource_type
-                            resource_name = res.name
-                            if resource_type in RESOURCE_TYPE_MAP:
-                                tf_type, unprotected, protected = RESOURCE_TYPE_MAP[resource_type]
-                                from_addr = f'{module_prefix}.{tf_type}.{protected}["{key}"]'
-                                to_addr = f'{module_prefix}.{tf_type}.{unprotected}["{key}"]'
-                                changes.append(ProtectionChange(
-                                    resource_key=key,
-                                    resource_type=resource_type,
-                                    name=resource_name,
-                                    direction="unprotect",
-                                    from_address=from_addr,
-                                    to_address=to_addr,
-                                ))
-                            break
-                
-                if not changes:
-                    ui.notify("No protection changes to generate", type="warning")
-                    return
-                
-                # Write the moved blocks file
-                output_file = write_moved_blocks_file(
-                    changes,
-                    tf_path,
-                    filename="protection_moves.tf",
-                    preserve_existing=False,
-                )
-                
-                if output_file:
-                    ui.notify(f"Generated {len(changes)} moved block(s) → {output_file.name}", type="positive")
-                    next_steps_dialog.close()
-                    ui.navigate.to("/deploy")
+                # Step 1: Apply intents to YAML (remove protected: true for unprotected resources)
+                yaml_file = tf_path / "dbt-cloud-config.yml"
+                if yaml_file.exists():
+                    from importer.web.utils.adoption_yaml_updater import apply_unprotection_from_set
+                    apply_unprotection_from_set(str(yaml_file), set(keys_to_unprotect))
+                    
+                    # Mark intents as applied to YAML
+                    protection_intent = state.get_protection_intent_manager()
+                    for key in keys_to_unprotect:
+                        protection_intent.mark_applied_to_yaml(key)
+                    protection_intent.save()
+                    
+                    ui.notify(f"Updated YAML: removed protection from {len(keys_to_unprotect)} resource(s)", type="info")
                 else:
-                    ui.notify("Failed to write moved blocks file", type="negative")
+                    ui.notify(f"Warning: YAML file not found: {yaml_file}", type="warning")
+                
+                # Step 2: Generate moved blocks by comparing YAML to TF state
+                state_file = tf_path / "terraform.tfstate"
+                if state_file.exists() and yaml_file.exists():
+                    from importer.web.utils.protection_manager import load_yaml_config
+                    
+                    yaml_config = load_yaml_config(str(yaml_file))
+                    changes = generate_moved_blocks_from_state(yaml_config, str(state_file))
+                    
+                    if changes:
+                        output_file = write_moved_blocks_file(
+                            changes,
+                            tf_path,
+                            filename="protection_moves.tf",
+                            preserve_existing=False,
+                        )
+                        
+                        if output_file:
+                            ui.notify(f"Generated {len(changes)} moved block(s) → {output_file.name}", type="positive")
+                            next_steps_dialog.close()
+                            ui.navigate.to("/deploy")
+                        else:
+                            ui.notify("Failed to write moved blocks file", type="negative")
+                    else:
+                        ui.notify("No moved blocks needed - state already matches YAML", type="info")
+                        next_steps_dialog.close()
+                        ui.navigate.to("/deploy")
+                else:
+                    # Fallback to old direct approach if no state file
+                    module_prefix = "module.dbt_cloud.module.projects_v2[0]"
+                    changes = []
+                    
+                    RESOURCE_TYPE_MAP = {
+                        "PRJ": ("dbtcloud_project", "projects", "protected_projects"),
+                        "REP": ("dbtcloud_repository", "repositories", "protected_repositories"),
+                        "PREP": ("dbtcloud_project_repository", "project_repositories", "protected_project_repositories"),
+                        "ENV": ("dbtcloud_environment", "environments", "protected_environments"),
+                        "JOB": ("dbtcloud_job", "jobs", "protected_jobs"),
+                        "GC": ("dbtcloud_global_connection", "global_connections", "protected_global_connections"),
+                    }
+                    
+                    for key in keys_to_unprotect:
+                        for res in protected_resources:
+                            if res.resource_key == key:
+                                resource_type = res.resource_type
+                                resource_name = res.name
+                                if resource_type in RESOURCE_TYPE_MAP:
+                                    tf_type, unprotected, protected = RESOURCE_TYPE_MAP[resource_type]
+                                    from_addr = f'{module_prefix}.{tf_type}.{protected}["{key}"]'
+                                    to_addr = f'{module_prefix}.{tf_type}.{unprotected}["{key}"]'
+                                    changes.append(ProtectionChange(
+                                        resource_key=key,
+                                        resource_type=resource_type,
+                                        name=resource_name,
+                                        direction="unprotect",
+                                        from_address=from_addr,
+                                        to_address=to_addr,
+                                    ))
+                                break
+                    
+                    if changes:
+                        output_file = write_moved_blocks_file(
+                            changes,
+                            tf_path,
+                            filename="protection_moves.tf",
+                            preserve_existing=False,
+                        )
+                        if output_file:
+                            ui.notify(f"Generated {len(changes)} moved block(s) → {output_file.name}", type="positive")
+                            next_steps_dialog.close()
+                            ui.navigate.to("/deploy")
+                    else:
+                        ui.notify("No protection changes to generate", type="warning")
             
             # Show dialog with clear next steps
             with ui.dialog() as next_steps_dialog, ui.card().style("width: 600px; max-width: 90vw;"):

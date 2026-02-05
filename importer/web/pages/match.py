@@ -2817,11 +2817,11 @@ def _create_matching_content(
                                 ui.label(f"({entry.action})").classes("text-slate-500")
                                 ui.label(f"via {entry.source}").classes("text-xs text-slate-400")
                         
-                        # Link to Utilities page
+                        # Link to Protection Management page
                         ui.separator().classes("my-2")
-                        ui.label("View full audit trail in Utilities →").classes(
+                        ui.label("View full audit trail in Protection Management →").classes(
                             "text-xs text-blue-600 cursor-pointer hover:underline"
-                        ).on("click", lambda: ui.navigate.to("/utilities"))
+                        ).on("click", lambda: ui.navigate.to("/protection-management"))
     
     # DISABLED: Old protection mismatches panel - replaced by Protection Intent Status panel above
     # The new system uses ProtectionIntentManager to track user intent and generate protection changes

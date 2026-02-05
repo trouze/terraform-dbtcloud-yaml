@@ -50,8 +50,8 @@ def _create_protection_status_section(
     state_protected_resources = set()
     state_unprotected_resources = set()
     
-    if has_state and state.deploy._state_data:
-        for resource in state.deploy._state_data.get("resources", []):
+    if has_state and state.deploy.reconcile_state_loaded and state.deploy.reconcile_state_resources:
+        for resource in state.deploy.reconcile_state_resources:
             tf_name = resource.get("tf_name", "")
             resource_index = resource.get("resource_index", "")
             element_code = resource.get("element_code", "")
@@ -510,13 +510,24 @@ def _create_protection_management_section(
             ).props("outline").tooltip("Create intents to match current TF state")
             
             async def generate_all_pending():
-                """Process all pending-generate intents at once."""
-                pending = protection_intent.get_pending_yaml_updates()
+                """Process all pending-generate intents at once.
+                
+                This follows the same workflow as Match page:
+                1. Read pending intents
+                2. Apply intents to YAML
+                3. Generate protection_moves.tf from state comparison
+                """
+                # Get both pending YAML updates AND pending TF apply items
+                pending_yaml = protection_intent.get_pending_yaml_updates()
+                pending_tf = {k: i for k, i in protection_intent._intent.items()
+                             if i.applied_to_yaml and not i.applied_to_tf_state}
+                
+                pending = {**pending_yaml, **pending_tf}
+                
                 if not pending:
                     ui.notify("No pending intents to generate", type="warning")
                     return
                 
-                # Reuse the same logic from match.py's generate_protection_changes
                 from pathlib import Path
                 
                 tf_dir = state.deploy.terraform_dir or "deployments/migration"
@@ -530,6 +541,7 @@ def _create_protection_management_section(
                     ui.notify(f"YAML file not found: {yaml_file}", type="negative")
                     return
                 
+                # Step 1: Apply intents to YAML
                 from importer.web.utils.adoption_yaml_updater import apply_protection_from_set, apply_unprotection_from_set
                 
                 keys_to_protect = {k for k, i in pending.items() if i.protected}
@@ -540,10 +552,38 @@ def _create_protection_management_section(
                 if keys_to_unprotect:
                     apply_unprotection_from_set(str(yaml_file), keys_to_unprotect)
                 
-                protection_intent.mark_applied_to_yaml(set(pending.keys()))
+                # Mark as applied to YAML
+                for key in pending_yaml.keys():
+                    protection_intent.mark_applied_to_yaml(key)
                 protection_intent.save()
                 
-                ui.notify(f"Generated protection changes for {len(pending)} resources", type="positive")
+                # Step 2: Generate protection_moves.tf by comparing YAML to state
+                state_file = tf_path / "terraform.tfstate"
+                if state_file.exists():
+                    from importer.web.utils.protection_manager import (
+                        generate_moved_blocks_from_state,
+                        write_moved_blocks_file,
+                    )
+                    from importer.web.utils.protection_manager import load_yaml_config
+                    
+                    yaml_config = load_yaml_config(str(yaml_file))
+                    protection_changes = generate_moved_blocks_from_state(yaml_config, str(state_file))
+                    
+                    if protection_changes:
+                        moved_file = write_moved_blocks_file(
+                            protection_changes,
+                            str(tf_path),
+                            filename="protection_moves.tf",
+                            preserve_existing=False,
+                        )
+                        if moved_file:
+                            ui.notify(f"Generated {len(protection_changes)} moved block(s) → {moved_file.name}", type="positive")
+                    else:
+                        ui.notify("YAML updated - no moved blocks needed (state already matches)", type="info")
+                else:
+                    ui.notify("YAML updated - no state file found to compare", type="info")
+                
+                ui.notify(f"Processed {len(pending)} protection intent(s)", type="positive")
                 ui.navigate.reload()
             
             generate_btn = ui.button(

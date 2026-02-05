@@ -1,8 +1,8 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2026-02-05  
-**Current Importer Version:** 0.16.1  
-**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix + Match Diagnostics Improvements + AG Grid Standardization + Dialog Width Fix + Protection Mismatch Fix + Adoption Override Data Flow Fix + Debug Logging Standards + View Output Plan Dialog Fix + Independent Protection Architecture + Comprehensive Protection Unit Tests
+**Current Importer Version:** 0.16.2  
+**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix + Match Diagnostics Improvements + AG Grid Standardization + Dialog Width Fix + Protection Mismatch Fix + Adoption Override Data Flow Fix + Debug Logging Standards + View Output Plan Dialog Fix + Independent Protection Architecture + Comprehensive Protection Unit Tests + Repository Key Prefix Matching Fix
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
 > 
@@ -1228,6 +1228,15 @@ The following items require API endpoint research before implementation can begi
   - API returns error string instead of expected array, which `jsondecode()` parses as a string
   - Caused "Inconsistent conditional result types" error in `modules/projects_v2/data_sources.tf`
   - Solution: Wrapped decode in `try(tolist(jsondecode(...)), [])` to ensure consistent list type
+
+### 2026-02-05 (v0.16.2)
+- **Version:** Incremented to 0.16.2 (patch release - bug fix)
+- **Repository Key Prefix Matching Fix**: Fixed bug where `apply_protection_from_set` failed to match repository keys with prefixes
+  - YAML repository keys have prefixes like `dbt_ep_` (e.g., `dbt_ep_sse_dm_fin_fido`)
+  - Intent keys use base names (e.g., `REP:sse_dm_fin_fido`)
+  - Now uses flexible matching: exact match first, then checks if `repo_key.endswith(base_key)` or `base_key in repo_key`
+  - This fixes the "Moved object still exists" terraform error when protection intent repair failed to update YAML
+- **New Tests**: Added 8 tests for repository key prefix matching (`TestRepositoryKeyPrefixMatching`, `TestIntentYamlRepairWithPrefixedRepos`)
 
 ### 2026-02-05 (v0.16.1)
 - **Version:** Incremented to 0.16.1 (patch release - testing)

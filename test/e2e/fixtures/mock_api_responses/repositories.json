@@ -1,0 +1,60 @@
+{
+  "status": {
+    "code": 200,
+    "is_success": true,
+    "user_message": "Success",
+    "developer_message": "Successfully retrieved repositories"
+  },
+  "data": [
+    {
+      "id": 12,
+      "account_id": 1,
+      "project_id": 123,
+      "remote_url": "https://github.com/test/repo",
+      "remote_backend": "github",
+      "git_clone_strategy": "github_app",
+      "deploy_key_id": null,
+      "github_installation_id": 12345678,
+      "state": 1,
+      "created_at": "2024-01-01T00:00:00.000000Z",
+      "updated_at": "2024-01-01T00:00:00.000000Z"
+    },
+    {
+      "id": 13,
+      "account_id": 1,
+      "project_id": 456,
+      "remote_url": "https://github.com/test/another-repo",
+      "remote_backend": "github",
+      "git_clone_strategy": "deploy_key",
+      "deploy_key_id": 999,
+      "github_installation_id": null,
+      "state": 1,
+      "created_at": "2024-01-15T00:00:00.000000Z",
+      "updated_at": "2024-01-15T00:00:00.000000Z"
+    },
+    {
+      "id": 14,
+      "account_id": 1,
+      "project_id": 789,
+      "remote_url": "git@gitlab.com:test/gitlab-repo.git",
+      "remote_backend": "gitlab",
+      "git_clone_strategy": "deploy_key",
+      "deploy_key_id": 888,
+      "github_installation_id": null,
+      "state": 1,
+      "created_at": "2024-02-01T00:00:00.000000Z",
+      "updated_at": "2024-02-01T00:00:00.000000Z"
+    }
+  ],
+  "extra": {
+    "filters": {
+      "limit": 100,
+      "offset": 0
+    },
+    "order_by": "id",
+    "pagination": {
+      "count": 3,
+      "total_count": 3
+    }
+  }
+}

@@ -607,12 +607,25 @@ def apply_protection_from_set(
             logger.info(f"  Set protected=True for connection {conn_key}")
     
     # Process global repositories
+    # NOTE: Repository keys in YAML often have prefixes like "dbt_ep_" 
+    # (e.g., "dbt_ep_sse_dm_fin_fido") while intent keys use the base name
+    # (e.g., "sse_dm_fin_fido"). We need flexible matching.
     for repo in globals_section.get("repositories", []):
         repo_key = repo.get("key", "")
+        # Check exact match first
         if repo_key in repo_keys_to_protect or repo_key in all_unprefixed:
             repo["protected"] = True
             updated_count += 1
             logger.info(f"  Set protected=True for global repository {repo_key}")
+        else:
+            # Check if repo_key contains or ends with any protected key
+            # Common pattern: dbt_ep_{project_key} -> {project_key}
+            for prot_key in repo_keys_to_protect | all_unprefixed:
+                if prot_key and (prot_key in repo_key or repo_key.endswith(prot_key)):
+                    repo["protected"] = True
+                    updated_count += 1
+                    logger.info(f"  Set protected=True for global repository {repo_key} (matched {prot_key})")
+                    break
     
     # Save updated YAML
     output = output_path or yaml_file
@@ -711,13 +724,31 @@ def apply_unprotection_from_set(
     globals_section = config.get("globals", {})
     
     # Process global repositories
+    # NOTE: Repository keys in YAML often have prefixes like "dbt_ep_"
+    # (e.g., "dbt_ep_sse_dm_fin_fido") while intent keys use the base name
+    # (e.g., "sse_dm_fin_fido"). We need flexible matching.
     for repo in globals_section.get("repositories", []):
         repo_key = repo.get("key", "")
+        should_unprotect = False
+        matched_key = None
+        
+        # Check exact match first
         if repo_key in repo_keys_to_unprotect or repo_key in all_unprefixed:
-            if "protected" in repo:
-                del repo["protected"]
-                updated_count += 1
-                logger.info(f"  Removed protection from global repository {repo_key}")
+            should_unprotect = True
+            matched_key = repo_key
+        else:
+            # Check if repo_key contains or ends with any unprotected key
+            # Common pattern: dbt_ep_{project_key} -> {project_key}
+            for unprot_key in repo_keys_to_unprotect | all_unprefixed:
+                if unprot_key and (unprot_key in repo_key or repo_key.endswith(unprot_key)):
+                    should_unprotect = True
+                    matched_key = unprot_key
+                    break
+        
+        if should_unprotect and "protected" in repo:
+            del repo["protected"]
+            updated_count += 1
+            logger.info(f"  Removed protection from global repository {repo_key} (matched {matched_key})")
     
     # Save updated YAML
     output = output_path or yaml_file

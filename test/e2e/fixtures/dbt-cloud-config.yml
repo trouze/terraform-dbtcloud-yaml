@@ -1,0 +1,62 @@
+# Test YAML configuration for E2E tests
+version: 2
+
+projects:
+  - key: test_project
+    name: Test Project
+    protected: false
+    repository: test_repo
+    environments:
+      - key: dev
+        name: Development
+        protected: false
+        type: development
+      - key: staging
+        name: Staging
+        protected: false
+        type: staging
+      - key: prod
+        name: Production
+        protected: false
+        type: production
+    jobs:
+      - key: daily_refresh
+        name: Daily Refresh
+        protected: false
+        environment: prod
+        schedule:
+          cron: "0 6 * * *"
+      - key: weekly_full
+        name: Weekly Full Refresh
+        protected: false
+        environment: prod
+        schedule:
+          cron: "0 2 * * 0"
+  
+  - key: analytics_project
+    name: Analytics Project
+    protected: false
+    repository: analytics_repo
+    environments:
+      - key: dev
+        name: Analytics Dev
+        protected: false
+      - key: prod
+        name: Analytics Prod
+        protected: true
+    jobs:
+      - key: transform
+        name: Transform Job
+        protected: false
+        environment: prod
+
+globals:
+  repositories:
+    - key: test_repo
+      remote_url: https://github.com/test-org/test-repo
+      protected: false
+      git_clone_strategy: github_app
+    - key: analytics_repo
+      remote_url: https://github.com/test-org/analytics-repo
+      protected: false
+      git_clone_strategy: github_app
