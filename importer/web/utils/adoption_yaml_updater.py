@@ -480,7 +480,8 @@ def apply_protection_from_set(
     
     Args:
         yaml_file: Path to the YAML config file
-        protected_keys: Set of source_keys that should be marked as protected
+        protected_keys: Set of source_keys that should be marked as protected.
+            Keys may be prefixed with type (e.g., "PRJ:bt_data_ops_db") or unprefixed.
         output_path: Optional path to write updated YAML (defaults to overwriting input)
         
     Returns:
@@ -504,54 +505,82 @@ def apply_protection_from_set(
         logger.warning(f"Empty YAML config: {yaml_file}")
         return yaml_file
     
+    # Build lookup sets for each resource type from prefixed keys
+    # Keys can be "TYPE:key" (e.g., "PRJ:bt_data_ops_db") or just "key"
+    project_keys_to_protect = set()
+    repo_keys_to_protect = set()
+    prep_keys_to_protect = set()  # Project-repository links
+    env_keys_to_protect = set()
+    job_keys_to_protect = set()
+    conn_keys_to_protect = set()
+    all_unprefixed = set()  # Fallback for unprefixed keys
+    
+    for key in protected_keys:
+        if ":" in key:
+            prefix, resource_key = key.split(":", 1)
+            if prefix == "PRJ":
+                project_keys_to_protect.add(resource_key)
+            elif prefix == "REP":
+                repo_keys_to_protect.add(resource_key)
+            elif prefix == "PREP":
+                prep_keys_to_protect.add(resource_key)
+            elif prefix == "ENV":
+                env_keys_to_protect.add(resource_key)
+            elif prefix == "JOB":
+                job_keys_to_protect.add(resource_key)
+            elif prefix == "CON":
+                conn_keys_to_protect.add(resource_key)
+            else:
+                # Unknown prefix, add to unprefixed set
+                all_unprefixed.add(resource_key)
+        else:
+            # No prefix - add to all sets for backward compatibility
+            all_unprefixed.add(key)
+    
     updated_count = 0
     projects_in_yaml = [p.get("key") for p in config.get("projects", [])]
     
     # #region agent log
     with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
-        f.write(_json_prot.dumps({"hypothesisId": "H_APPLY_PROT", "location": "adoption_yaml_updater.py:apply_protection_from_set:projects_loaded", "message": "Projects loaded from YAML", "data": {"num_projects": len(projects_in_yaml), "sample_projects": projects_in_yaml[:10], "looking_for": list(protected_keys)}, "timestamp": __import__("time").time()}) + "\n")
+        f.write(_json_prot.dumps({"hypothesisId": "H_APPLY_PROT", "location": "adoption_yaml_updater.py:apply_protection_from_set:projects_loaded", "message": "Projects loaded from YAML", "data": {"num_projects": len(projects_in_yaml), "sample_projects": projects_in_yaml[:10], "project_keys_to_protect": list(project_keys_to_protect), "all_unprefixed": list(all_unprefixed)}, "timestamp": __import__("time").time()}) + "\n")
     # #endregion
     
     # Process projects
     matched_projects = []
     for project in config.get("projects", []):
         project_key = project.get("key", "")
-        if project_key in protected_keys:
+        # Check if project should be protected (PRJ: prefix or unprefixed match)
+        if project_key in project_keys_to_protect or project_key in all_unprefixed:
             project["protected"] = True
             updated_count += 1
             matched_projects.append(project_key)
             logger.info(f"  Set protected=True for project {project_key}")
-        elif "protected" in project and project_key not in protected_keys:
-            # Remove protection if key is not in set
-            del project["protected"]
-            logger.info(f"  Removed protection from project {project_key}")
+        # Don't remove protection here - that's handled by apply_unprotection_from_set
         
         # Process environments within project
         for env in project.get("environments", []):
             env_key = env.get("key", "")
             full_env_key = f"{project_key}_{env_key}" if env_key else ""
             
-            # Check both standalone key and project-prefixed key
-            if env_key in protected_keys or full_env_key in protected_keys:
+            # Check both standalone key and project-prefixed key against ENV keys or unprefixed
+            if (env_key in env_keys_to_protect or full_env_key in env_keys_to_protect or 
+                env_key in all_unprefixed or full_env_key in all_unprefixed):
                 env["protected"] = True
                 updated_count += 1
                 logger.info(f"  Set protected=True for environment {env_key}")
-            elif "protected" in env:
-                del env["protected"]
             
             # Process jobs within environment
             for job in env.get("jobs", []):
                 job_key = job.get("key", "")
                 full_job_key = f"{project_key}_{job_key}" if job_key else ""
                 
-                if job_key in protected_keys or full_job_key in protected_keys:
+                if (job_key in job_keys_to_protect or full_job_key in job_keys_to_protect or
+                    job_key in all_unprefixed or full_job_key in all_unprefixed):
                     job["protected"] = True
                     updated_count += 1
                     logger.info(f"  Set protected=True for job {job_key}")
-                elif "protected" in job:
-                    del job["protected"]
         
-        # Process repository in project
+        # Process repository in project (inline repository definition)
         if "repository" in project and isinstance(project["repository"], dict):
             repo = project["repository"]
             repo_key = repo.get("key", "")
@@ -559,14 +588,12 @@ def apply_protection_from_set(
             # 1. repo's own key
             # 2. project_key (repos often use project key as their identifier)
             # 3. project_key_repo suffix format
-            possible_keys = [repo_key, project_key, f"{project_key}_repo"]
+            possible_keys = [k for k in [repo_key, project_key, f"{project_key}_repo"] if k]
             
-            if any(k in protected_keys for k in possible_keys if k):
+            if any(k in repo_keys_to_protect or k in all_unprefixed for k in possible_keys):
                 repo["protected"] = True
                 updated_count += 1
-                logger.info(f"  Set protected=True for repository (keys: {[k for k in possible_keys if k]})")
-            elif "protected" in repo:
-                del repo["protected"]
+                logger.info(f"  Set protected=True for repository (keys: {possible_keys})")
     
     # Process globals section
     globals_section = config.get("globals", {})
@@ -574,22 +601,18 @@ def apply_protection_from_set(
     # Process global connections
     for conn in globals_section.get("connections", []):
         conn_key = conn.get("key", "")
-        if conn_key in protected_keys:
+        if conn_key in conn_keys_to_protect or conn_key in all_unprefixed:
             conn["protected"] = True
             updated_count += 1
             logger.info(f"  Set protected=True for connection {conn_key}")
-        elif "protected" in conn:
-            del conn["protected"]
     
     # Process global repositories
     for repo in globals_section.get("repositories", []):
         repo_key = repo.get("key", "")
-        if repo_key in protected_keys:
+        if repo_key in repo_keys_to_protect or repo_key in all_unprefixed:
             repo["protected"] = True
             updated_count += 1
             logger.info(f"  Set protected=True for global repository {repo_key}")
-        elif "protected" in repo:
-            del repo["protected"]
     
     # Save updated YAML
     output = output_path or yaml_file
@@ -624,7 +647,8 @@ def apply_unprotection_from_set(
     
     Args:
         yaml_file: Path to the YAML config file
-        unprotected_keys: Set of source_keys that should have protection removed
+        unprotected_keys: Set of source_keys that should have protection removed.
+            Keys may be prefixed with type (e.g., "PRJ:bt_data_ops_db") or unprefixed.
         output_path: Optional path to write updated YAML (defaults to overwriting input)
         
     Returns:
@@ -642,17 +666,30 @@ def apply_unprotection_from_set(
         logger.warning(f"Empty YAML config: {yaml_file}")
         return yaml_file
     
-    updated_count = 0
+    # Build lookup sets for each resource type from prefixed keys
+    project_keys_to_unprotect = set()
+    repo_keys_to_unprotect = set()
+    all_unprefixed = set()
     
-    def key_matches(key: str, possible_keys: list[str]) -> bool:
-        """Check if a key matches any of the possible keys."""
-        return any(k and k in unprotected_keys for k in [key] + possible_keys)
+    for key in unprotected_keys:
+        if ":" in key:
+            prefix, resource_key = key.split(":", 1)
+            if prefix == "PRJ":
+                project_keys_to_unprotect.add(resource_key)
+            elif prefix == "REP":
+                repo_keys_to_unprotect.add(resource_key)
+            else:
+                all_unprefixed.add(resource_key)
+        else:
+            all_unprefixed.add(key)
+    
+    updated_count = 0
     
     # Process projects
     for project in config.get("projects", []):
         project_key = project.get("key", "")
-        # Check project key and common variations
-        if project_key in unprotected_keys:
+        # Check project key against PRJ keys or unprefixed
+        if project_key in project_keys_to_unprotect or project_key in all_unprefixed:
             if "protected" in project:
                 del project["protected"]
                 updated_count += 1
@@ -662,10 +699,9 @@ def apply_unprotection_from_set(
         if "repository" in project and isinstance(project["repository"], dict):
             repo = project["repository"]
             repo_key = repo.get("key", "")
-            # Check multiple key formats for repos
-            possible_keys = [repo_key, project_key, f"{project_key}_repo"]
+            possible_keys = [k for k in [repo_key, project_key, f"{project_key}_repo"] if k]
             
-            if key_matches(repo_key, possible_keys):
+            if any(k in repo_keys_to_unprotect or k in all_unprefixed for k in possible_keys):
                 if "protected" in repo:
                     del repo["protected"]
                     updated_count += 1
@@ -677,7 +713,7 @@ def apply_unprotection_from_set(
     # Process global repositories
     for repo in globals_section.get("repositories", []):
         repo_key = repo.get("key", "")
-        if repo_key in unprotected_keys:
+        if repo_key in repo_keys_to_unprotect or repo_key in all_unprefixed:
             if "protected" in repo:
                 del repo["protected"]
                 updated_count += 1

@@ -170,6 +170,43 @@ class NormalizationContext:
         log.warning(f"Key collision detected in '{namespace}': '{key}' -> '{new_key}'")
         return new_key
 
+    def get_collision_summary(self) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Get a summary of all key collisions detected during normalization.
+        
+        Returns:
+            Dict mapping namespace to list of collision details:
+            {
+                "jobs": [
+                    {"key": "my_job", "count": 2, "generated_keys": ["my_job", "my_job_2"]}
+                ]
+            }
+        """
+        summary: Dict[str, List[Dict[str, Any]]] = {}
+        for namespace, keys in self.collisions.items():
+            collisions_in_ns = []
+            for key, count in keys.items():
+                if count > 1:
+                    # Generate the list of keys that were created
+                    generated = [key] + [f"{key}_{i}" for i in range(2, count + 1)]
+                    collisions_in_ns.append({
+                        "key": key,
+                        "count": count,
+                        "generated_keys": generated,
+                    })
+            if collisions_in_ns:
+                summary[namespace] = collisions_in_ns
+        return summary
+
+    def get_collision_count(self) -> int:
+        """Get total number of collisions (resources with duplicate keys)."""
+        total = 0
+        for keys in self.collisions.values():
+            for count in keys.values():
+                if count > 1:
+                    total += count - 1  # Each collision after the first
+        return total
+
     def register_element(self, element_id: str, key: str) -> None:
         """Register an element mapping ID to its normalized key."""
         self.element_id_to_key[element_id] = key

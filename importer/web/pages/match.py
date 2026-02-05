@@ -120,8 +120,8 @@ def create_match_page(
         # Row 2: Main content - flex container that allows grid to grow
         # Note: Navigation is created inside _create_matching_content so it has access
         # to the grid data for accurate status display
-        with ui.element("div").classes("flex flex-col").style(
-            "width: 100%; height: 100%; overflow: auto; display: flex; flex-direction: column;"
+        with ui.element("div").classes("flex flex-col flex-nowrap").style(
+            "width: 100%; height: 100%; overflow: auto; display: flex; flex-direction: column; flex-wrap: nowrap;"
         ):
             _create_matching_content(
                 state, 
@@ -729,14 +729,17 @@ def _create_matching_content(
                 return  # Don't save yet - wait for dialog
             else:
                 # No parents to protect, just protect this one
-                # Record intent
+                # Record intent with prefixed key (TYPE:key)
                 protection_intent = state.get_protection_intent_manager()
                 tf_state_at_decision = "protected" if row_data.get("state_protected") else "unprotected"
+                source_type = row_data.get("source_type", "")
+                prefixed_key = f"{source_type}:{source_key}" if source_type else source_key
                 protection_intent.set_intent(
-                    key=source_key,
+                    key=prefixed_key,
                     protected=True,
                     source="user_click",
                     reason="Single resource protect from Match grid",
+                    resource_type=source_type or None,
                     tf_state_at_decision=tf_state_at_decision,
                     yaml_state_before=old_protected,
                 )
@@ -766,14 +769,17 @@ def _create_matching_content(
                 return  # Don't save yet - wait for dialog
             else:
                 # No protected children, just unprotect
-                # Record intent
+                # Record intent with prefixed key (TYPE:key)
                 protection_intent = state.get_protection_intent_manager()
                 tf_state_at_decision = "protected" if row_data.get("state_protected") else "unprotected"
+                source_type = row_data.get("source_type", "")
+                prefixed_key = f"{source_type}:{source_key}" if source_type else source_key
                 protection_intent.set_intent(
-                    key=source_key,
+                    key=prefixed_key,
                     protected=False,
                     source="user_click",
                     reason="Single resource unprotect from Match grid",
+                    resource_type=source_type or None,
                     tf_state_at_decision=tf_state_at_decision,
                     yaml_state_before=old_protected,
                 )
@@ -1775,20 +1781,73 @@ def _create_matching_content(
     _pending_tf = protection_intent_manager.get_pending_tf_moves()
     _history = protection_intent_manager._history[-5:] if protection_intent_manager._history else []
     
-    # Count synced intents (applied_to_yaml=True AND applied_to_tf_state=True)
-    _synced_count = sum(
-        1 for intent in protection_intent_manager._intent.values()
+    # Collect synced intents (applied_to_yaml=True AND applied_to_tf_state=True)
+    _all_synced_intents = [
+        (key, intent) for key, intent in protection_intent_manager._intent.items()
         if intent.applied_to_yaml and intent.applied_to_tf_state
+    ]
+    
+    # Group synced intents by base resource key (PRJ, REP, PREP with same key are grouped)
+    # Only show PRJ items in the count - REP/PREP are implicit
+    _synced_prj_keys = set()
+    _synced_orphan_items = []  # REP/PREP without matching PRJ
+    for key, intent in _all_synced_intents:
+        if ":" in key:
+            rtype, rkey = key.split(":", 1)
+        else:
+            rtype = intent.resource_type or ""
+            rkey = key
+        
+        if rtype == "PRJ":
+            _synced_prj_keys.add(rkey)
+        elif rtype in ("REP", "PREP"):
+            # Check if there's a PRJ with this key already
+            has_prj = any(
+                (k == f"PRJ:{rkey}" or (i.resource_type == "PRJ" and k == rkey))
+                for k, i in _all_synced_intents
+            )
+            if not has_prj:
+                _synced_orphan_items.append((key, intent))
+        else:
+            # Other types shown as-is
+            _synced_orphan_items.append((key, intent))
+    
+    # For display, group PRJ items with their linked REP/PREP
+    _synced_intents = [(f"PRJ:{k}", protection_intent_manager._intent.get(f"PRJ:{k}") or 
+                        protection_intent_manager._intent.get(k)) 
+                       for k in _synced_prj_keys 
+                       if protection_intent_manager._intent.get(f"PRJ:{k}") or protection_intent_manager._intent.get(k)]
+    _synced_intents.extend(_synced_orphan_items)
+    _synced_count = len(_synced_prj_keys) + len(_synced_orphan_items)  # Count projects (grouped) + orphans
+    
+    # Count pending TF applies (applied_to_yaml=True but applied_to_tf_state=False)
+    _pending_tf_count = sum(
+        1 for intent in protection_intent_manager._intent.values()
+        if intent.applied_to_yaml and not intent.applied_to_tf_state
     )
     
     # Find mismatches that need intent clarification (no intent recorded yet)
-    _mismatches_needing_intent = [
+    # Check using prefixed key (TYPE:key) to match intent storage format
+    # IMPORTANT: Only show PRJ (project) items - REP and PREP are implicitly coupled
+    # When you protect a project, the repo and project-repo link must move together
+    _all_mismatches_needing_intent = [
         m for m in protection_mismatches
-        if not protection_intent_manager.has_intent(m["key"])
+        if not protection_intent_manager.has_intent(f"{m.get('type', '')}:{m['key']}" if m.get('type') else m['key'])
+    ]
+    
+    # Filter to only show PRJ items in the UI - REP/PREP follow automatically
+    # Also show items without a type (legacy) or items that don't have a PRJ counterpart
+    _prj_keys = {m['key'] for m in _all_mismatches_needing_intent if m.get('type') == 'PRJ'}
+    _mismatches_needing_intent = [
+        m for m in _all_mismatches_needing_intent
+        if m.get('type') == 'PRJ'  # Show all projects
+        or (m.get('type') not in ('REP', 'PREP'))  # Show non-repo types  
+        or (m.get('type') in ('REP', 'PREP') and m['key'] not in _prj_keys)  # Show orphan repos without matching project
     ]
     
     # Protection Intent Status section - always show so users know the feature exists
-    with ui.card().classes("w-full p-4 mt-4").style("border: 1px solid #CBD5E1;"):
+    # Added flex-shrink: 0 and max-width to prevent being pushed sideways by sibling elements
+    with ui.card().classes("w-full p-4 mt-4").style("border: 1px solid #CBD5E1; max-width: 100%; flex-shrink: 0; overflow: hidden;"):
         with ui.row().classes("w-full items-center justify-between"):
             with ui.column().classes("gap-2 flex-grow"):
                 with ui.row().classes("items-center gap-2"):
@@ -1829,15 +1888,94 @@ def _create_matching_content(
                     if len(_mismatches_needing_intent) == 0 and len(_pending_yaml) == 0 and pending_tf_count == 0 and _synced_count == 0:
                         ui.label("No mismatches or pending changes").classes("text-xs text-slate-500")
                 
+                # Synced intents - expandable section to show details
+                if _synced_count > 0:
+                    with ui.expansion(
+                        f"✅ View {_synced_count} synced intent(s)",
+                        icon="verified"
+                    ).classes("w-full mt-3 border border-green-300 rounded"):
+                        ui.label(
+                            "These resources have protection intent that is fully synced with both YAML and Terraform state. "
+                            "Projects (PRJ) include their linked Repository (REP) and Project-Repository (PREP) automatically."
+                        ).classes("text-xs opacity-70 mb-3")
+                        
+                        for resource_key, intent in _synced_intents:
+                            if intent is None:
+                                continue  # Skip if intent couldn't be found
+                                
+                            protection_status = "protected" if intent.protected else "unprotected"
+                            status_color = "blue" if intent.protected else "grey"
+                            
+                            # Parse the key to get type and base key
+                            if ":" in resource_key:
+                                rtype, rkey = resource_key.split(":", 1)
+                            else:
+                                rtype = intent.resource_type or ""
+                                rkey = resource_key
+                            
+                            # Check if this is a PRJ with linked resources
+                            is_project = rtype == "PRJ"
+                            is_orphan = rtype not in ("PRJ", "REP", "PREP") and not rtype
+                            
+                            # For projects, check for linked REPO (single key covers both repository + project_repository_link)
+                            linked_resources = []
+                            if is_project:
+                                repo_key = f"REPO:{rkey}"
+                                if repo_key in protection_intent_manager._intent:
+                                    linked_resources.append("REPO")
+                            
+                            # Use different styling
+                            card_bg = "bg-amber-500 bg-opacity-10" if is_orphan else "bg-green-500 bg-opacity-10"
+                            
+                            with ui.card().classes(f"w-full p-2 mb-2 {card_bg}"):
+                                with ui.row().classes("items-center justify-between"):
+                                    with ui.column().classes("gap-1 flex-grow"):
+                                        # Show resource name with linked indicator for projects
+                                        if is_project and linked_resources:
+                                            ui.label(f"🔗 {rkey} (PRJ + {' + '.join(linked_resources)})").classes("font-medium text-sm")
+                                        else:
+                                            ui.label(f"{resource_key}").classes("font-medium text-sm")
+                                        
+                                        with ui.row().classes("items-center gap-2"):
+                                            ui.badge(f"Intent: {protection_status}").props(
+                                                f"color={status_color} dense"
+                                            )
+                                            ui.icon("check_circle", size="xs").classes("text-green-600")
+                                            ui.label("YAML ✓").classes("text-xs text-green-700")
+                                            ui.icon("check_circle", size="xs").classes("text-green-600")
+                                            ui.label("TF State ✓").classes("text-xs text-green-700")
+                                        
+                                        # Show source/reason if available
+                                        if intent.reason:
+                                            ui.label(f"Reason: {intent.reason}").classes("text-xs opacity-60")
+                                    
+                                    # Add delete button for orphan entries
+                                    if is_orphan:
+                                        def make_delete_handler(rkey=resource_key):
+                                            def handler():
+                                                # Remove the orphan entry from the intent file
+                                                if rkey in protection_intent_manager._intent:
+                                                    del protection_intent_manager._intent[rkey]
+                                                    protection_intent_manager.save()
+                                                    ui.notify(f"Removed orphan intent: {rkey}", type="info")
+                                                    ui.navigate.reload()
+                                            return handler
+                                        
+                                        ui.button(
+                                            icon="delete",
+                                            on_click=make_delete_handler(),
+                                        ).props("flat dense color=warning").tooltip("Remove this orphan entry")
+                
                 # Mismatches needing clarification - expandable section
                 if len(_mismatches_needing_intent) > 0:
                     with ui.expansion(
-                        f"⚠️ {len(_mismatches_needing_intent)} resources need your intent clarification",
+                        f"⚠️ {len(_mismatches_needing_intent)} project(s) need your intent clarification",
                         icon="help_outline"
                     ).classes("w-full mt-3 border border-red-400 rounded"):
                         ui.label(
-                            "These resources have a mismatch between Terraform state and YAML configuration. "
-                            "Please clarify what you want the final state to be."
+                            "These projects have a mismatch between Terraform state and YAML configuration. "
+                            "When you protect a project, its linked repository (REP) and project-repository link (PREP) "
+                            "are automatically protected together."
                         ).classes("text-xs opacity-70 mb-3")
                         
                         for m in _mismatches_needing_intent[:10]:  # Show first 10
@@ -1852,7 +1990,12 @@ def _create_matching_content(
                             with ui.card().classes("w-full p-2 mb-2 bg-red-500 bg-opacity-10"):
                                 with ui.row().classes("items-center justify-between"):
                                     with ui.column().classes("gap-1"):
-                                        ui.label(f"{source_type}: {resource_key}").classes("font-medium text-sm")
+                                        # Show project with indicator that REP/PREP are linked
+                                        if source_type == "PRJ":
+                                            ui.label(f"🔗 Project: {resource_key}").classes("font-medium text-sm")
+                                            ui.label("(includes linked Repository + Project-Repository)").classes("text-xs opacity-60")
+                                        else:
+                                            ui.label(f"{source_type}: {resource_key}").classes("font-medium text-sm")
                                         with ui.row().classes("items-center gap-2"):
                                             ui.badge(f"State: {state_label}").props(
                                                 f"color={'blue' if state_protected else 'grey'} dense"
@@ -1864,29 +2007,57 @@ def _create_matching_content(
                                     
                                     # Quick intent buttons
                                     with ui.row().classes("items-center gap-1"):
-                                        def make_protect_handler(rkey=resource_key):
+                                        def make_protect_handler(rkey=resource_key, rtype=source_type):
                                             def handler():
+                                                # Set intent for this resource with prefixed key
+                                                prefixed_key = f"{rtype}:{rkey}" if rtype else rkey
                                                 protection_intent_manager.set_intent(
-                                                    key=rkey,
+                                                    key=prefixed_key,
                                                     protected=True,
                                                     source="clarification_panel",
                                                     reason="User clarified intent: protect",
+                                                    resource_type=rtype or None,
                                                 )
+                                                
+                                                # CASCADE: When protecting a project, also set intent for linked REPO (covers both dbtcloud_repository and dbtcloud_project_repository)
+                                                if rtype == "PRJ":
+                                                    protection_intent_manager.set_intent(
+                                                        key=f"REPO:{rkey}",
+                                                        protected=True,
+                                                        source="clarification_panel_cascade",
+                                                        reason="Auto-cascaded from project protection (covers repository + project_repository_link)",
+                                                        resource_type="REPO",
+                                                    )
+                                                
                                                 protection_intent_manager.save()
-                                                ui.notify(f"Intent set: PROTECT {rkey}", type="positive")
+                                                ui.notify(f"Intent set: PROTECT {rkey}" + (" (+REP, +PREP)" if rtype == "PRJ" else ""), type="positive")
                                                 ui.navigate.reload()
                                             return handler
                                         
-                                        def make_unprotect_handler(rkey=resource_key):
+                                        def make_unprotect_handler(rkey=resource_key, rtype=source_type):
                                             def handler():
+                                                # Set intent for this resource with prefixed key
+                                                prefixed_key = f"{rtype}:{rkey}" if rtype else rkey
                                                 protection_intent_manager.set_intent(
-                                                    key=rkey,
+                                                    key=prefixed_key,
                                                     protected=False,
                                                     source="clarification_panel",
                                                     reason="User clarified intent: unprotect",
+                                                    resource_type=rtype or None,
                                                 )
+                                                
+                                                # CASCADE: When unprotecting a project, also set intent for linked REPO (covers both dbtcloud_repository and dbtcloud_project_repository)
+                                                if rtype == "PRJ":
+                                                    protection_intent_manager.set_intent(
+                                                        key=f"REPO:{rkey}",
+                                                        protected=False,
+                                                        source="clarification_panel_cascade",
+                                                        reason="Auto-cascaded from project unprotection (covers repository + project_repository_link)",
+                                                        resource_type="REPO",
+                                                    )
+                                                
                                                 protection_intent_manager.save()
-                                                ui.notify(f"Intent set: UNPROTECT {rkey}", type="info")
+                                                ui.notify(f"Intent set: UNPROTECT {rkey}" + (" (+REP, +PREP)" if rtype == "PRJ" else ""), type="info")
                                                 ui.navigate.reload()
                                             return handler
                                         
@@ -1909,27 +2080,65 @@ def _create_matching_content(
                         ui.separator().classes("my-2")
                         with ui.row().classes("items-center gap-2"):
                             def protect_all_mismatches():
+                                count = 0
                                 for m in _mismatches_needing_intent:
+                                    # Use prefixed key for intent: TYPE:key
+                                    resource_type = m.get("type", "")
+                                    base_key = m["key"]
+                                    prefixed_key = f"{resource_type}:{base_key}" if resource_type else base_key
                                     protection_intent_manager.set_intent(
-                                        key=m["key"],
+                                        key=prefixed_key,
                                         protected=True,
                                         source="clarification_bulk",
                                         reason="Bulk protect all mismatches",
+                                        resource_type=resource_type or None,
                                     )
+                                    count += 1
+                                    
+                                    # CASCADE: When protecting a project, also set intent for linked REPO (covers both dbtcloud_repository and dbtcloud_project_repository)
+                                    if resource_type == "PRJ":
+                                        protection_intent_manager.set_intent(
+                                            key=f"REPO:{base_key}",
+                                            protected=True,
+                                            source="clarification_bulk_cascade",
+                                            reason="Auto-cascaded from project protection (covers repository + project_repository_link)",
+                                            resource_type="REPO",
+                                        )
+                                        count += 1  # REPO (single intent covers both TF resources)
+                                
                                 protection_intent_manager.save()
-                                ui.notify(f"Set intent to PROTECT for {len(_mismatches_needing_intent)} resources", type="positive")
+                                ui.notify(f"Set intent to PROTECT for {count} resources (including cascaded)", type="positive")
                                 ui.navigate.reload()
                             
                             def unprotect_all_mismatches():
+                                count = 0
                                 for m in _mismatches_needing_intent:
+                                    # Use prefixed key for intent: TYPE:key
+                                    resource_type = m.get("type", "")
+                                    base_key = m["key"]
+                                    prefixed_key = f"{resource_type}:{base_key}" if resource_type else base_key
                                     protection_intent_manager.set_intent(
-                                        key=m["key"],
+                                        key=prefixed_key,
                                         protected=False,
                                         source="clarification_bulk",
                                         reason="Bulk unprotect all mismatches",
+                                        resource_type=resource_type or None,
                                     )
+                                    count += 1
+                                    
+                                    # CASCADE: When unprotecting a project, also set intent for linked REPO (covers both dbtcloud_repository and dbtcloud_project_repository)
+                                    if resource_type == "PRJ":
+                                        protection_intent_manager.set_intent(
+                                            key=f"REPO:{base_key}",
+                                            protected=False,
+                                            source="clarification_bulk_cascade",
+                                            reason="Auto-cascaded from project unprotection (covers repository + project_repository_link)",
+                                            resource_type="REPO",
+                                        )
+                                        count += 1  # REPO (single intent covers both TF resources)
+                                
                                 protection_intent_manager.save()
-                                ui.notify(f"Set intent to UNPROTECT for {len(_mismatches_needing_intent)} resources", type="info")
+                                ui.notify(f"Set intent to UNPROTECT for {count} resources (including cascaded)", type="info")
                                 ui.navigate.reload()
                             
                             ui.button(
@@ -2049,7 +2258,7 @@ def _create_matching_content(
                                     lines.append(f"| {ts} | {entry.resource_key} | {entry.action} | {entry.source} |")
                                 lines.append("")
                             
-                            # Current YAML Protected Resources
+                            # Current YAML Protected Resources (from parsed YAML file)
                             yaml_protected = state.map.protected_resources or set()
                             if yaml_protected:
                                 lines.append(f"### Current YAML Protected Resources ({len(yaml_protected)}):")
@@ -2058,6 +2267,31 @@ def _create_matching_content(
                                 if len(yaml_protected) > 20:
                                     lines.append(f"- ... and {len(yaml_protected) - 20} more")
                                 lines.append("")
+                            
+                            # Synced Intents (intent file - resources with intent decisions)
+                            synced_intents = [(k, i) for k, i in protection_intent_manager._intent.items() 
+                                              if i.applied_to_yaml and i.applied_to_tf_state]
+                            if synced_intents:
+                                protected_synced = [(k, i) for k, i in synced_intents if i.protected]
+                                unprotected_synced = [(k, i) for k, i in synced_intents if not i.protected]
+                                
+                                if protected_synced:
+                                    lines.append(f"### Synced Protected Intents ({len(protected_synced)}):")
+                                    for key, intent in sorted(protected_synced, key=lambda x: x[0])[:20]:
+                                        rtype = intent.resource_type or "?"
+                                        lines.append(f"- {key} ({rtype})")
+                                    if len(protected_synced) > 20:
+                                        lines.append(f"- ... and {len(protected_synced) - 20} more")
+                                    lines.append("")
+                                
+                                if unprotected_synced:
+                                    lines.append(f"### Synced Unprotected Intents ({len(unprotected_synced)}):")
+                                    for key, intent in sorted(unprotected_synced, key=lambda x: x[0])[:10]:
+                                        rtype = intent.resource_type or "?"
+                                        lines.append(f"- {key} ({rtype})")
+                                    if len(unprotected_synced) > 10:
+                                        lines.append(f"- ... and {len(unprotected_synced) - 10} more")
+                                    lines.append("")
                             
                             summary = "\n".join(lines)
                             ui.run_javascript(f'navigator.clipboard.writeText({repr(summary)})')
@@ -2070,14 +2304,16 @@ def _create_matching_content(
                         ).props("flat dense").tooltip("Copy structured summary for AI debugging")
                 
                 # Generate Protection Changes button
+                # Enable if there are pending YAML updates OR pending TF apply items (for re-analysis)
                 has_pending = len(_pending_yaml) > 0
+                can_generate = has_pending or _pending_tf_count > 0
                 
-                async def generate_protection_changes():
-                    """Generate protection changes from pending intents."""
+                def start_generate_protection_changes():
+                    """Start the generate protection changes workflow (creates dialog synchronously)."""
                     from pathlib import Path
                     import asyncio
                     
-                    # Create streaming dialog
+                    # Create streaming dialog SYNCHRONOUSLY in UI thread
                     dialog = ui.dialog()
                     output_lines = []
                     cancelled = {"value": False}
@@ -2105,7 +2341,12 @@ def _create_matching_content(
                                 "padding: 12px; border-radius: 8px; font-family: monospace; font-size: 12px;"
                             )
                             
-                            close_btn = ui.button("Close", on_click=dialog.close).props("flat").classes("mt-4")
+                            def close_and_reload():
+                                """Close dialog and reload page to show Terraform buttons."""
+                                dialog.close()
+                                ui.navigate.reload()
+                            
+                            close_btn = ui.button("Close & Continue", on_click=close_and_reload).props("color=primary").classes("mt-4")
                             close_btn.set_visibility(False)  # Show when done
                     
                     def append_output(text: str, color: str = "#e0e0e0"):
@@ -2113,134 +2354,451 @@ def _create_matching_content(
                         with output_area:
                             ui.label(text).style(f"color: {color}; white-space: pre-wrap;")
                     
+                    # Open dialog synchronously
                     dialog.open()
-                    await asyncio.sleep(0.1)  # Let dialog render
                     
-                    try:
-                        # Step 1: Read pending intents
-                        append_output("📋 Reading pending intents...")
-                        pending = protection_intent_manager.get_pending_yaml_updates()
-                        append_output(f"   Found {len(pending)} resources with pending changes", "#10B981")
-                        await asyncio.sleep(0.2)
+                    # Now define and run async work
+                    async def do_generate_work():
+                        await asyncio.sleep(0.1)  # Let dialog render
                         
-                        if cancelled["value"]:
-                            append_output("\n❌ Cancelled by user", "#F59E0B")
-                            cancel_btn.set_visibility(False)
-                            close_btn.set_visibility(True)
-                            return
-                        
-                        # Step 2: Show per-resource updates
-                        for key, intent in pending.items():
+                        try:
+                            # Step 1: Read pending intents (both new and re-analysis)
+                            append_output("📋 Reading pending intents...")
+                            pending_yaml = protection_intent_manager.get_pending_yaml_updates()
+                            pending_tf = {k: i for k, i in protection_intent_manager._intent.items()
+                                          if i.applied_to_yaml and not i.applied_to_tf_state}
+                            
+                            # Combine: new items + re-analysis items
+                            pending = {**pending_yaml, **pending_tf}
+                            
+                            if len(pending_yaml) > 0:
+                                append_output(f"   Found {len(pending_yaml)} resources with pending YAML changes", "#10B981")
+                            if len(pending_tf) > 0:
+                                append_output(f"   Found {len(pending_tf)} resources for re-analysis (pending TF apply)", "#60A5FA")
+                            if len(pending) == 0:
+                                append_output("   No pending changes found", "#6B7280")
+                            await asyncio.sleep(0.2)
+                            
                             if cancelled["value"]:
-                                break
-                            status = "protected" if intent.protected else "unprotected"
-                            append_output(f"   - {key}: {status}")
-                        await asyncio.sleep(0.2)
-                        
-                        if cancelled["value"]:
-                            append_output("\n❌ Cancelled by user", "#F59E0B")
+                                append_output("\n❌ Cancelled by user", "#F59E0B")
+                                cancel_btn.set_visibility(False)
+                                close_btn.set_visibility(True)
+                                return
+                            
+                            # Step 2: Show per-resource updates
+                            for key, intent in pending.items():
+                                if cancelled["value"]:
+                                    break
+                                status = "protected" if intent.protected else "unprotected"
+                                append_output(f"   - {key}: {status}")
+                            await asyncio.sleep(0.2)
+                            
+                            if cancelled["value"]:
+                                append_output("\n❌ Cancelled by user", "#F59E0B")
+                                cancel_btn.set_visibility(False)
+                                close_btn.set_visibility(True)
+                                return
+                            
+                            # Step 3: Update YAML files
+                            append_output("\n📝 Updating YAML files...")
+                            
+                            # Get terraform directory
+                            tf_dir = state.deploy.terraform_dir or "deployments/migration"
+                            tf_path = Path(tf_dir)
+                            if not tf_path.is_absolute():
+                                # Project root is parent of importer directory (not inside importer)
+                                project_root = Path(__file__).parent.parent.parent.parent.resolve()
+                                tf_path = project_root / tf_dir
+                            
+                            # Look for YAML config file - check multiple possible locations
+                            yaml_file = tf_path / "dbt-cloud-config.yml"
+                            if not yaml_file.exists():
+                                # Try fetch output dir
+                                if state.fetch.output_dir:
+                                    fetch_yaml = Path(state.fetch.output_dir) / "dbt-cloud-config.yml"
+                                    if fetch_yaml.exists():
+                                        yaml_file = fetch_yaml
+                            
+                            if not yaml_file.exists():
+                                # Find any YAML file matching our naming pattern in dev_support/samples
+                                samples_dir = Path(__file__).parent.parent.parent.resolve() / "dev_support" / "samples"
+                                yaml_files = list(samples_dir.glob("*__yaml__*.yml")) + list(samples_dir.glob("account_*.yml"))
+                                if yaml_files:
+                                    yaml_file = sorted(yaml_files, key=lambda f: f.stat().st_mtime, reverse=True)[0]
+                            
+                            if not yaml_file.exists():
+                                append_output(f"   ⚠️ YAML file not found: {yaml_file}", "#F59E0B")
+                                append_output("   Skipping YAML update - will still generate moved blocks", "#F59E0B")
+                            else:
+                                from importer.web.utils.adoption_yaml_updater import apply_protection_from_set, apply_unprotection_from_set
+                                
+                                # Separate keys by protection status
+                                keys_to_protect = {k for k, i in pending.items() if i.protected}
+                                keys_to_unprotect = {k for k, i in pending.items() if not i.protected}
+                                
+                                if keys_to_protect:
+                                    apply_protection_from_set(str(yaml_file), keys_to_protect)
+                                    append_output(f"   ✓ Applied protection to {len(keys_to_protect)} resources", "#10B981")
+                                
+                                if keys_to_unprotect:
+                                    apply_unprotection_from_set(str(yaml_file), keys_to_unprotect)
+                                    append_output(f"   ✓ Removed protection from {len(keys_to_unprotect)} resources", "#10B981")
+                                
+                                append_output(f"   Updated {yaml_file.name}")
+                            
+                            await asyncio.sleep(0.2)
+                            
+                            if cancelled["value"]:
+                                append_output("\n❌ Cancelled by user", "#F59E0B")
+                                cancel_btn.set_visibility(False)
+                                close_btn.set_visibility(True)
+                                return
+                            
+                            # Step 4: Generate protection_moves.tf
+                            append_output("\n🔄 Generating protection_moves.tf...")
+                            
+                            from importer.web.utils.protection_manager import generate_repair_moved_blocks, ProtectionMismatch
+                            
+                            # Build ProtectionMismatch objects from pending intents
+                            moves_data = []
+                            module_prefix = "module.dbt_cloud.module.projects_v2[0]"
+                            
+                            # Track which resource keys we've added (to avoid duplicates)
+                            added_keys = set()
+                            
+                            def add_mismatch(res_type: str, res_key: str, is_protected: bool):
+                                """Helper to add a ProtectionMismatch for a resource."""
+                                combo_key = f"{res_type}:{res_key}"
+                                if combo_key in added_keys:
+                                    return
+                                added_keys.add(combo_key)
+                                
+                                if is_protected:
+                                    # Moving from unprotected to protected
+                                    if res_type == "PRJ":
+                                        state_addr = f'{module_prefix}.dbtcloud_project.projects["{res_key}"]'
+                                        expected_addr = f'{module_prefix}.dbtcloud_project.protected_projects["{res_key}"]'
+                                    elif res_type == "REP":
+                                        state_addr = f'{module_prefix}.dbtcloud_repository.repositories["{res_key}"]'
+                                        expected_addr = f'{module_prefix}.dbtcloud_repository.protected_repositories["{res_key}"]'
+                                    elif res_type == "PREP":
+                                        state_addr = f'{module_prefix}.dbtcloud_project_repository.project_repositories["{res_key}"]'
+                                        expected_addr = f'{module_prefix}.dbtcloud_project_repository.protected_project_repositories["{res_key}"]'
+                                    else:
+                                        return  # Unknown type, skip
+                                else:
+                                    # Moving from protected to unprotected
+                                    if res_type == "PRJ":
+                                        state_addr = f'{module_prefix}.dbtcloud_project.protected_projects["{res_key}"]'
+                                        expected_addr = f'{module_prefix}.dbtcloud_project.projects["{res_key}"]'
+                                    elif res_type == "REP":
+                                        state_addr = f'{module_prefix}.dbtcloud_repository.protected_repositories["{res_key}"]'
+                                        expected_addr = f'{module_prefix}.dbtcloud_repository.repositories["{res_key}"]'
+                                    elif res_type == "PREP":
+                                        state_addr = f'{module_prefix}.dbtcloud_project_repository.protected_project_repositories["{res_key}"]'
+                                        expected_addr = f'{module_prefix}.dbtcloud_project_repository.project_repositories["{res_key}"]'
+                                    else:
+                                        return  # Unknown type, skip
+                                
+                                mismatch = ProtectionMismatch(
+                                    resource_key=res_key,
+                                    resource_type=res_type,
+                                    yaml_protected=is_protected,
+                                    state_protected=not is_protected,
+                                    state_address=state_addr,
+                                    expected_address=expected_addr,
+                                )
+                                moves_data.append(mismatch)
+                            
+                            for key, intent in pending.items():
+                                # Parse key to get resource type and resource key
+                                # Key format is "TYPE:resource_key" (e.g., "PRJ:my_project", "REPO:my_project")
+                                # REPO covers both dbtcloud_repository and dbtcloud_project_repository
+                                if ":" in key:
+                                    resource_type, resource_key = key.split(":", 1)
+                                else:
+                                    # Legacy key without type prefix
+                                    resource_type = intent.resource_type if intent.resource_type else "PRJ"
+                                    resource_key = key
+                                
+                                yaml_protected = intent.protected
+                                
+                                # Add the mismatch for this resource
+                                add_mismatch(resource_type, resource_key, yaml_protected)
+                                
+                                # IMPORTANT: When protecting a PROJECT (PRJ), also add moved blocks
+                                # for the associated repository (REP) and project-repository link (PREP)
+                                # since the module uses project protection status for all three
+                                if resource_type == "PRJ":
+                                    add_mismatch("REP", resource_key, yaml_protected)
+                                    add_mismatch("PREP", resource_key, yaml_protected)
+                            
+                            # Determine output path for moved blocks - prefer tf_path, fallback to dev_support/samples
+                            if tf_path.exists():
+                                moves_file = tf_path / "protection_moves.tf"
+                            else:
+                                samples_dir = Path(__file__).parent.parent.parent.resolve() / "dev_support" / "samples"
+                                samples_dir.mkdir(parents=True, exist_ok=True)
+                                moves_file = samples_dir / "protection_moves.tf"
+                            
+                            moved_blocks = generate_repair_moved_blocks(moves_data, module_prefix)
+                            
+                            if moved_blocks:
+                                # Ensure parent directory exists
+                                moves_file.parent.mkdir(parents=True, exist_ok=True)
+                                moves_file.write_text(moved_blocks)
+                                append_output(f"   ✓ Generated {len(moves_data)} moved blocks", "#10B981")
+                                append_output(f"   Written to {moves_file}")
+                            else:
+                                append_output("   No moved blocks needed", "#6B7280")
+                            
+                            await asyncio.sleep(0.2)
+                            
+                            # Step 5: Mark as applied to YAML
+                            append_output("\n✅ Marking intents as applied...")
+                            protection_intent_manager.mark_applied_to_yaml(set(pending.keys()))
+                            protection_intent_manager.save()
+                            append_output(f"   Updated {len(pending)} intent records")
+                            
+                            # Final summary
+                            append_output(f"\n{'='*50}", "#6B7280")
+                            append_output("✅ Done!", "#10B981")
+                            append_output(f"   - Updated YAML with protection flags", "#10B981")
+                            if moved_blocks:
+                                append_output(f"   - Generated protection_moves.tf", "#10B981")
+                            append_output(f"   - Next: Run terraform init/plan/apply", "#60A5FA")
+                            
+                            # Show completion message - don't auto-close so user can copy output
+                            append_output("\n💡 Click 'Close & Continue' to proceed to Terraform commands.", "#60A5FA")
                             cancel_btn.set_visibility(False)
                             close_btn.set_visibility(True)
                             return
-                        
-                        # Step 3: Update YAML files
-                        append_output("\n📝 Updating YAML files...")
-                        
-                        # Get terraform directory
-                        tf_dir = state.deploy.terraform_dir or "deployments/migration"
-                        tf_path = Path(tf_dir)
-                        if not tf_path.is_absolute():
-                            project_root = Path(__file__).parent.parent.parent.resolve()
-                            tf_path = project_root / tf_dir
-                        
-                        yaml_file = tf_path / "dbt-cloud-config.yml"
-                        if not yaml_file.exists():
-                            append_output(f"   ⚠️ YAML file not found: {yaml_file}", "#F59E0B")
-                        else:
-                            from importer.web.utils.adoption_yaml_updater import apply_protection_from_set, apply_unprotection_from_set
                             
-                            # Separate keys by protection status
-                            keys_to_protect = {k for k, i in pending.items() if i.protected}
-                            keys_to_unprotect = {k for k, i in pending.items() if not i.protected}
-                            
-                            if keys_to_protect:
-                                apply_protection_from_set(str(yaml_file), keys_to_protect)
-                                append_output(f"   ✓ Applied protection to {len(keys_to_protect)} resources", "#10B981")
-                            
-                            if keys_to_unprotect:
-                                apply_unprotection_from_set(str(yaml_file), keys_to_unprotect)
-                                append_output(f"   ✓ Removed protection from {len(keys_to_unprotect)} resources", "#10B981")
-                            
-                            append_output(f"   Updated {yaml_file.name}")
-                        
-                        await asyncio.sleep(0.2)
-                        
-                        if cancelled["value"]:
-                            append_output("\n❌ Cancelled by user", "#F59E0B")
+                        except Exception as e:
+                            append_output(f"\n❌ Error: {e}", "#EF4444")
+                        finally:
                             cancel_btn.set_visibility(False)
                             close_btn.set_visibility(True)
-                            return
-                        
-                        # Step 4: Generate protection_moves.tf
-                        append_output("\n🔄 Generating protection_moves.tf...")
-                        
-                        from importer.web.utils.protection_manager import generate_repair_moved_blocks
-                        
-                        # Build mismatch-like data from pending intents
-                        moves_data = []
-                        for key, intent in pending.items():
-                            # Determine the direction of the move
-                            # If intent.protected=True, moving TO protected (state was unprotected)
-                            # If intent.protected=False, moving FROM protected (state was protected)
-                            moves_data.append({
-                                "type": "PRJ",  # Will be determined by key pattern
-                                "key": key,
-                                "yaml_protected": intent.protected,
-                                "state_protected": not intent.protected,  # Opposite of intent
-                            })
-                        
-                        moves_file = tf_path / "protection_moves.tf"
-                        moved_blocks = generate_repair_moved_blocks(moves_data, "module.dbt_cloud.module.projects_v2[0]")
-                        
-                        if moved_blocks:
-                            moves_file.write_text(moved_blocks)
-                            append_output(f"   ✓ Generated {len(moves_data)} moved blocks", "#10B981")
-                            append_output(f"   Written to {moves_file.name}")
-                        else:
-                            append_output("   No moved blocks needed", "#6B7280")
-                        
-                        await asyncio.sleep(0.2)
-                        
-                        # Step 5: Mark as applied to YAML
-                        append_output("\n✅ Marking intents as applied...")
-                        protection_intent_manager.mark_applied_to_yaml(set(pending.keys()))
-                        protection_intent_manager.save()
-                        append_output(f"   Updated {len(pending)} intent records")
-                        
-                        # Final summary
-                        append_output(f"\n{'='*50}", "#6B7280")
-                        append_output("✅ Done!", "#10B981")
-                        append_output(f"   - Updated YAML with protection flags", "#10B981")
-                        if moved_blocks:
-                            append_output(f"   - Generated protection_moves.tf", "#10B981")
-                        append_output(f"   - Next: Run terraform init/plan/apply", "#60A5FA")
-                        
-                    except Exception as e:
-                        append_output(f"\n❌ Error: {e}", "#EF4444")
-                    finally:
-                        cancel_btn.set_visibility(False)
-                        close_btn.set_visibility(True)
+                    
+                    # Launch the async work
+                    asyncio.create_task(do_generate_work())
+                
+                # Button label depends on what's pending
+                if has_pending:
+                    btn_label = f"Generate Protection Changes ({len(_pending_yaml)})"
+                elif _pending_tf_count > 0:
+                    btn_label = f"Re-analyze ({_pending_tf_count} pending TF)"
+                else:
+                    btn_label = "Generate Protection Changes"
                 
                 generate_btn = ui.button(
-                    f"Generate Protection Changes ({len(_pending_yaml)})" if has_pending else "Generate Protection Changes",
+                    btn_label,
                     icon="auto_fix_high",
-                    on_click=lambda: asyncio.create_task(generate_protection_changes()),
+                    on_click=start_generate_protection_changes,
                 ).props("color=green")
-                generate_btn.set_enabled(has_pending)
+                generate_btn.set_enabled(can_generate)
+                
+                # Terraform Commands Section - show when there are pending TF applies
+                if _pending_tf_count > 0:
+                    with ui.expansion("Terraform Commands", icon="terminal").classes("w-full mt-3").style("max-width: 100%; overflow: hidden;"):
+                        with ui.column().classes("gap-3 w-full"):
+                            # Get terraform directory
+                            tf_dir = state.deploy.terraform_dir or "deployments/migration"
+                            tf_path_for_cmd = Path(tf_dir)
+                            if not tf_path_for_cmd.is_absolute():
+                                project_root = Path(state.fetch.output_dir).parent.parent if state.fetch.output_dir else Path.cwd()
+                                tf_path_for_cmd = project_root / tf_dir
+                            tf_path_for_cmd = tf_path_for_cmd.resolve()
+                            
+                            # Info about what will happen
+                            ui.label(f"Run terraform commands to apply protection moves from: {tf_path_for_cmd}").classes("text-xs text-slate-500")
+                            
+                            # Terminal output area
+                            tf_cmd_output = ui.element("div").classes("w-full")
+                            tf_outputs_local = {"init": "", "plan": "", "apply": ""}
+                            
+                            async def run_tf_init():
+                                """Run terraform init."""
+                                import asyncio
+                                import subprocess
+                                with tf_cmd_output:
+                                    tf_cmd_output.clear()
+                                    ui.label("Running terraform init...").classes("text-xs text-blue-500")
+                                
+                                env = _get_terraform_env(state)
+                                result = await asyncio.to_thread(
+                                    subprocess.run,
+                                    ["terraform", "init", "-no-color", "-input=false"],
+                                    cwd=str(tf_path_for_cmd),
+                                    capture_output=True,
+                                    text=True,
+                                    env=env,
+                                )
+                                tf_outputs_local["init"] = result.stdout + result.stderr
+                                
+                                with tf_cmd_output:
+                                    tf_cmd_output.clear()
+                                    if result.returncode == 0:
+                                        ui.label("✅ Init completed").classes("text-xs text-green-600 font-semibold")
+                                    else:
+                                        ui.label("❌ Init failed").classes("text-xs text-red-600 font-semibold")
+                                        ui.label(result.stderr[:200] if result.stderr else "Unknown error").classes("text-xs text-red-500")
+                                
+                                if result.returncode == 0:
+                                    ui.notify("Terraform initialized!", type="positive")
+                                else:
+                                    ui.notify("Init failed - see output", type="negative")
+                        
+                        async def run_tf_plan():
+                            """Run terraform plan."""
+                            import asyncio
+                            import subprocess
+                            with tf_cmd_output:
+                                tf_cmd_output.clear()
+                                ui.label("Running terraform plan...").classes("text-xs text-blue-500")
+                            
+                            env = _get_terraform_env(state)
+                            result = await asyncio.to_thread(
+                                subprocess.run,
+                                ["terraform", "plan", "-no-color", "-input=false"],
+                                cwd=str(tf_path_for_cmd),
+                                capture_output=True,
+                                text=True,
+                                env=env,
+                            )
+                            tf_outputs_local["plan"] = result.stdout + result.stderr
+                            
+                            with tf_cmd_output:
+                                tf_cmd_output.clear()
+                                if result.returncode == 0:
+                                    ui.label("✅ Plan completed - click View Plan").classes("text-xs text-green-600 font-semibold")
+                                else:
+                                    ui.label("❌ Plan failed").classes("text-xs text-red-600 font-semibold")
+                            
+                            if result.returncode == 0:
+                                plan_output = tf_outputs_local["plan"]
+                                
+                                # Check if plan shows no changes needed
+                                # Multiple patterns to detect "no changes" state:
+                                # 1. Older terraform: "No changes."
+                                # 2. Newer terraform: "Your infrastructure matches the configuration"
+                                # 3. Also check plan summary format: all zeros for add/change/destroy
+                                import re
+                                no_changes = (
+                                    "No changes." in plan_output 
+                                    or "Your infrastructure matches the configuration" in plan_output
+                                    or "0 to add, 0 to change, 0 to destroy" in plan_output
+                                    # Also detect when the regex pattern shows all zeros
+                                    or bool(re.search(r"Plan: 0 to add, 0 to change, 0 to destroy", plan_output))
+                                )
+                                
+                                if no_changes:
+                                    ui.notify("No changes needed - infrastructure already matches!", type="positive")
+                                    # Mark pending intents as synced since TF state already matches
+                                    synced_count = 0
+                                    for key, intent in protection_intent_manager._intent.items():
+                                        if intent.applied_to_yaml and not intent.applied_to_tf_state:
+                                            intent.applied_to_tf_state = True
+                                            synced_count += 1
+                                    if synced_count > 0:
+                                        protection_intent_manager.save()
+                                        ui.notify(f"Marked {synced_count} intent(s) as synced - state already matched", type="positive")
+                                        # Update the UI status display
+                                        with tf_cmd_output:
+                                            tf_cmd_output.clear()
+                                            ui.label(f"✅ No changes needed - {synced_count} intent(s) synced").classes("text-xs text-green-600 font-semibold")
+                                else:
+                                    ui.notify("Plan completed!", type="positive")
+                                
+                                # Auto-open plan viewer
+                                from importer.web.utils.yaml_viewer import create_plan_viewer_dialog
+                                dialog = create_plan_viewer_dialog(plan_output, "Terraform Plan Output")
+                                dialog.open()
+                            else:
+                                ui.notify("Plan failed - see output", type="negative")
+                        
+                        async def run_tf_apply():
+                            """Run terraform apply with auto-approve."""
+                            import asyncio
+                            import subprocess
+                            with tf_cmd_output:
+                                tf_cmd_output.clear()
+                                ui.label("Running terraform apply...").classes("text-xs text-blue-500")
+                            
+                            env = _get_terraform_env(state)
+                            result = await asyncio.to_thread(
+                                subprocess.run,
+                                ["terraform", "apply", "-auto-approve", "-no-color", "-input=false"],
+                                cwd=str(tf_path_for_cmd),
+                                capture_output=True,
+                                text=True,
+                                env=env,
+                            )
+                            tf_outputs_local["apply"] = result.stdout + result.stderr
+                            
+                            with tf_cmd_output:
+                                tf_cmd_output.clear()
+                                if result.returncode == 0:
+                                    ui.label("✅ Apply completed!").classes("text-xs text-green-600 font-semibold")
+                                else:
+                                    ui.label("❌ Apply failed").classes("text-xs text-red-600 font-semibold")
+                            
+                            if result.returncode == 0:
+                                ui.notify("Terraform apply completed!", type="positive")
+                                # Mark pending intents as applied to TF state
+                                for key, intent in protection_intent_manager._intent.items():
+                                    if intent.applied_to_yaml and not intent.applied_to_tf_state:
+                                        intent.applied_to_tf_state = True
+                                protection_intent_manager.save()
+                                ui.notify("Protection intents marked as synced", type="positive")
+                            else:
+                                ui.notify("Apply failed - see output", type="negative")
+                        
+                        def show_plan_output():
+                            """Show the plan output in a dialog."""
+                            output = tf_outputs_local.get("plan", "")
+                            if not output:
+                                ui.notify("No plan output available. Run plan first.", type="warning")
+                                return
+                            from importer.web.utils.yaml_viewer import create_plan_viewer_dialog
+                            dialog = create_plan_viewer_dialog(output, "Terraform Plan Output")
+                            dialog.open()
+                        
+                        def show_init_output():
+                            """Show the init output in a dialog."""
+                            output = tf_outputs_local.get("init", "")
+                            if not output:
+                                ui.notify("No init output available. Run init first.", type="warning")
+                                return
+                            from importer.web.utils.yaml_viewer import create_plan_viewer_dialog
+                            dialog = create_plan_viewer_dialog(output, "Terraform Init Output")
+                            dialog.open()
+                        
+                        def show_apply_output():
+                            """Show the apply output in a dialog."""
+                            output = tf_outputs_local.get("apply", "")
+                            if not output:
+                                ui.notify("No apply output available. Run apply first.", type="warning")
+                                return
+                            from importer.web.utils.yaml_viewer import create_plan_viewer_dialog
+                            dialog = create_plan_viewer_dialog(output, "Terraform Apply Output")
+                            dialog.open()
+                        
+                        # Buttons row - action buttons
+                        with ui.row().classes("gap-2 items-center"):
+                            ui.button("Init", icon="downloading", on_click=run_tf_init).props("outline").style("min-width: 80px;")
+                            ui.button("Plan", icon="visibility", on_click=run_tf_plan).props("outline").style("min-width: 80px;")
+                            ui.button("Apply", icon="play_arrow", on_click=run_tf_apply).props("color=green").style("min-width: 80px;")
+                        
+                        # View output buttons row
+                        with ui.row().classes("gap-2 items-center mt-1"):
+                            ui.button("View Init", icon="article", on_click=show_init_output).props("flat dense").style("min-width: 90px;")
+                            ui.button("View Plan", icon="description", on_click=show_plan_output).props("flat dense").style("min-width: 90px;")
+                            ui.button("View Apply", icon="fact_check", on_click=show_apply_output).props("flat dense").style("min-width: 90px;")
             
             # Recent Changes Section
             if _history:
-                with ui.expansion("Recent Changes", icon="history").classes("w-full mt-3"):
+                with ui.expansion("Recent Changes", icon="history").classes("w-full mt-3").style("max-width: 100%; overflow: hidden;"):
                     with ui.column().classes("gap-2"):
                         for entry in reversed(_history):  # Most recent first
                             action_emoji = "🛡️" if entry.action == "protect" else "🔓"
@@ -4025,7 +4583,8 @@ moved {{
     pending_match_count = sum(1 for r in grid_row_data if r.get("status") == "pending" and r.get("action") == "match" and r.get("target_id"))
     
     if has_matches:
-        with ui.card().classes("w-full p-4 mt-4").style(f"border: 2px solid {DBT_TEAL};"):
+        # Added flex-shrink: 0, max-width and overflow: hidden to prevent being pushed sideways by sibling elements
+        with ui.card().classes("w-full p-4 mt-4").style(f"border: 2px solid {DBT_TEAL}; max-width: 100%; flex-shrink: 0; overflow: hidden;"):
             with ui.row().classes("w-full items-center justify-between"):
                 with ui.column().classes("gap-1"):
                     ui.label("Save Mapping File").classes("font-semibold")
@@ -4153,7 +4712,8 @@ def _create_navigation_with_grid_data(
         confirmed_count: Number of confirmed mappings in current grid
         has_unsaved_confirmed: True if there are confirmed mappings that need saving
     """
-    with ui.row().classes("w-full justify-between mt-4"):
+    # Added flex-shrink: 0 and max-width to prevent being pushed sideways by sibling elements
+    with ui.row().classes("w-full justify-between mt-4").style("max-width: 100%; flex-shrink: 0;"):
         ui.button(
             f"Back to {state.get_step_label(WorkflowStep.EXPLORE_TARGET)}",
             icon="arrow_back",

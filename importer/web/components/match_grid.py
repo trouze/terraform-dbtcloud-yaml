@@ -1291,7 +1291,8 @@ def create_match_grid(
     
     # Create the grid - use quartz theme for automatic dark/light mode support
     # Use flex-grow to fill available space, with min-height for smaller viewports
-    grid = ui.aggrid(grid_options, theme="quartz").classes("w-full flex-grow ag-theme-quartz-auto-dark").style("height: 100%; min-height: 300px;")
+    # CRITICAL: Set width: 100% and overflow to enable horizontal scrolling within the grid
+    grid = ui.aggrid(grid_options, theme="quartz").classes("w-full flex-grow ag-theme-quartz-auto-dark").style("height: 100%; min-height: 300px; width: 100%; overflow-x: auto;")
     
     # Handle cell value changes
     def on_cell_changed(e):

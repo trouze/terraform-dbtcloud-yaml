@@ -75,6 +75,11 @@ locals {
 
   #############################################
   # Protection: Split projects into protected/unprotected
+  # 
+  # Two independent protection scopes:
+  # - protected: Controls project resource protection (independent)
+  # - repository_protected: Controls repository + project_repository protection
+  #   Falls back to `protected` if not explicitly set, for backward compatibility
   #############################################
 
   # All projects as a map
@@ -97,18 +102,31 @@ locals {
     if try(project.protected, false) != true
   }
 
-  # Protected projects with repositories
-  protected_projects_with_repositories = {
-    for key, project in local.protected_projects_map :
-    key => project
-    if local.resolve_repository[key] != null
+  # Determine effective repository protection status
+  # Uses repository_protected if explicitly set, otherwise falls back to project.protected
+  # This enables independent protection: protect project but not repo, or vice versa
+  effective_repository_protected = {
+    for key, project in local.all_projects_map :
+    key => (
+      # If repository_protected is explicitly set (true or false), use it
+      try(project.repository_protected, null) != null ? project.repository_protected :
+      # Otherwise fall back to project.protected for backward compatibility
+      try(project.protected, false)
+    )
   }
 
-  # Unprotected projects with repositories
-  unprotected_projects_with_repositories = {
-    for key, project in local.unprotected_projects_map :
+  # Protected repositories (based on effective_repository_protected)
+  protected_repositories_map = {
+    for key, project in local.all_projects_map :
     key => project
-    if local.resolve_repository[key] != null
+    if local.effective_repository_protected[key] == true && local.resolve_repository[key] != null
+  }
+
+  # Unprotected repositories (based on effective_repository_protected)
+  unprotected_repositories_map = {
+    for key, project in local.all_projects_map :
+    key => project
+    if local.effective_repository_protected[key] != true && local.resolve_repository[key] != null
   }
 }
 
@@ -138,14 +156,20 @@ resource "dbtcloud_project" "protected_projects" {
 
 #############################################
 # Unprotected Repositories - standard lifecycle
+# Uses effective_repository_protected (independent of project protection)
 #############################################
 
 # Note: GitLab repositories (deploy_token strategy) require a PAT - use TF_VAR_dbt_token with PAT
 resource "dbtcloud_repository" "repositories" {
-  for_each = local.unprotected_projects_with_repositories
+  for_each = local.unprotected_repositories_map
 
-  # Reference the correct project resource based on protection status
-  project_id = dbtcloud_project.projects[each.key].id
+  # Reference the correct project resource based on PROJECT protection status
+  # (repo protection is independent - repo can be unprotected while project is protected)
+  project_id = (
+    contains(keys(local.protected_projects_map), each.key) ?
+    dbtcloud_project.protected_projects[each.key].id :
+    dbtcloud_project.projects[each.key].id
+  )
   remote_url = local.resolve_repository[each.key].remote_url
 
   # Git clone strategy (with fallback to deploy_key if github_app without PAT)
@@ -198,13 +222,19 @@ resource "dbtcloud_repository" "repositories" {
 
 #############################################
 # Protected Repositories - prevent_destroy lifecycle
+# Uses effective_repository_protected (independent of project protection)
 #############################################
 
 resource "dbtcloud_repository" "protected_repositories" {
-  for_each = local.protected_projects_with_repositories
+  for_each = local.protected_repositories_map
 
-  # Reference the protected project resource
-  project_id = dbtcloud_project.protected_projects[each.key].id
+  # Reference the correct project resource based on PROJECT protection status
+  # (repo protection is independent - repo can be protected while project is unprotected)
+  project_id = (
+    contains(keys(local.protected_projects_map), each.key) ?
+    dbtcloud_project.protected_projects[each.key].id :
+    dbtcloud_project.projects[each.key].id
+  )
   remote_url = local.resolve_repository[each.key].remote_url
 
   # Git clone strategy (with fallback to deploy_key if github_app without PAT)
@@ -261,21 +291,32 @@ resource "dbtcloud_repository" "protected_repositories" {
 
 #############################################
 # Project-Repository Links
+# Protection follows repository_protected (same as repository resources)
 #############################################
 
 # Link unprotected repositories to projects
 resource "dbtcloud_project_repository" "project_repositories" {
-  for_each = local.unprotected_projects_with_repositories
+  for_each = local.unprotected_repositories_map
 
-  project_id    = dbtcloud_project.projects[each.key].id
+  # Reference the correct project resource based on PROJECT protection status
+  project_id = (
+    contains(keys(local.protected_projects_map), each.key) ?
+    dbtcloud_project.protected_projects[each.key].id :
+    dbtcloud_project.projects[each.key].id
+  )
   repository_id = dbtcloud_repository.repositories[each.key].repository_id
 }
 
 # Link protected repositories to projects
 resource "dbtcloud_project_repository" "protected_project_repositories" {
-  for_each = local.protected_projects_with_repositories
+  for_each = local.protected_repositories_map
 
-  project_id    = dbtcloud_project.protected_projects[each.key].id
+  # Reference the correct project resource based on PROJECT protection status
+  project_id = (
+    contains(keys(local.protected_projects_map), each.key) ?
+    dbtcloud_project.protected_projects[each.key].id :
+    dbtcloud_project.projects[each.key].id
+  )
   repository_id = dbtcloud_repository.protected_repositories[each.key].repository_id
   
   lifecycle {

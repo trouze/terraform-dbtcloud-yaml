@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-02-02
+
+### Added
+- **Independent Protection Architecture**: Implemented separate protection scopes for projects vs repositories
+  - **Project Protection (PRJ:)**: Projects can be protected independently without affecting their associated repository or project-repository link
+  - **Repository + PREP Protection (REPO:)**: Repository and project-repository link are always protected/unprotected together as a paired unit
+  - Added `repository_protected` field to YAML schema for explicit repository protection control
+  - Updated Terraform module (`projects.tf`) with independent repository protection logic
+  - Protection Intent Manager now uses consolidated `REPO:` prefix instead of separate `REP:` and `PREP:` keys
+
+### Changed
+- **Terraform Module**: Updated `modules/projects_v2/projects.tf` to support independent repository protection
+  - Added `effective_repository_protected`, `protected_repositories_map`, and `unprotected_repositories_map` locals
+  - Repository resources now route to protected/unprotected blocks based on `repository_protected` field (with fallback to project protection)
+  - Project-repository links follow repository protection status
+- **Protection Intent File**: Consolidated key format from `REP:` + `PREP:` to single `REPO:` prefix
+
+### Fixed
+- **Terraform `Moved object still exists` Error**: Fixed conflict between `moved` blocks and new independent protection logic
+  - Removed repository and project-repository `moved` blocks that conflicted with `repository_protected: false` setting
+
 ## [0.15.10] - 2026-02-02
 
 ### Fixed

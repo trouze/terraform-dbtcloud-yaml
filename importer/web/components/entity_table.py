@@ -1867,7 +1867,9 @@ def _render_match_debug_tab(
         # Only show for resource types that support protection
         if source_type in EXTENDED_RESOURCE_TYPE_MAP and app_state is not None:
             state_resource_index = state_resource.get("resource_index") if state_resource else None
-            resource_key = state_resource_index or grid_row.get("project_name") or source_key
+            # Use type-prefixed key to avoid collisions (PRJ, REP, PREP can share same project name)
+            base_key = state_resource_index or grid_row.get("project_name") or source_key
+            resource_key = f"{source_type}:{base_key}"
             
             # Get current protection states
             yaml_protected = grid_row.get("yaml_protected", False)
@@ -1877,54 +1879,137 @@ def _render_match_debug_tab(
             protection_intent = app_state.get_protection_intent_manager()
             current_intent = protection_intent.get_intent(resource_key)
             
-            with ui.card().classes("w-full p-4 border-2 border-green-500"):
+            # Detect "Protected - Needs Decision" state
+            # This is when state AND yaml are PROTECTED but intent is NOT SET or says UNPROTECTED
+            needs_decision = False
+            needs_decision_reason = ""
+            if state_protected and yaml_protected:
+                if current_intent is None:
+                    needs_decision = True
+                    needs_decision_reason = "No intent set - please confirm your decision"
+                elif not current_intent.protected:
+                    needs_decision = True
+                    needs_decision_reason = "Intent says UNPROTECT but resource is still protected (intent drift)"
+            
+            # Card border color based on state
+            card_border = "border-purple-500" if needs_decision else "border-green-500"
+            card_icon_color = "text-purple-500" if needs_decision else "text-green-500"
+            card_title_color = "text-purple-500" if needs_decision else "text-green-500"
+            
+            with ui.card().classes(f"w-full p-4 border-2 {card_border}"):
+                # Show "Needs Decision" banner if applicable
+                if needs_decision:
+                    with ui.row().classes("items-center gap-2 p-2 mb-3 rounded bg-purple-500 bg-opacity-20"):
+                        ui.icon("warning", size="sm").classes("text-purple-600")
+                        with ui.column().classes("gap-0"):
+                            ui.label("🔒 Protected - Needs Decision").classes("font-semibold text-purple-600 text-sm")
+                            ui.label(needs_decision_reason).classes("text-xs text-purple-600 opacity-80")
+                
                 with ui.row().classes("items-center gap-2 mb-3"):
-                    ui.icon("security", size="sm").classes("text-green-500")
-                    ui.label("Set Protection Intent").classes("font-semibold text-green-500")
+                    ui.icon("security", size="sm").classes(card_icon_color)
+                    ui.label("Set Protection Intent").classes(f"font-semibold {card_title_color}")
                 
-                # Show current status
-                with ui.row().classes("items-center gap-4 mb-3 p-2 rounded bg-green-500 bg-opacity-10"):
+                # Show all three protection sources: TF State, YAML Config, Intent File
+                sources_bg = "bg-purple-500 bg-opacity-10" if needs_decision else "bg-green-500 bg-opacity-10"
+                with ui.row().classes(f"items-center gap-4 mb-3 p-2 rounded {sources_bg} flex-wrap"):
+                    # TF State
                     with ui.column().classes("gap-1"):
-                        ui.label("Current State:").classes("text-xs font-semibold opacity-70")
-                        with ui.row().classes("items-center gap-2"):
-                            state_badge = "Protected" if state_protected else "Unprotected"
-                            state_color = "blue" if state_protected else "grey"
-                            ui.badge(f"TF State: {state_badge}").props(f"color={state_color}")
-                            
-                            yaml_badge = "Protected" if yaml_protected else "Unprotected"
-                            yaml_color = "blue" if yaml_protected else "grey"
-                            ui.badge(f"YAML: {yaml_badge}").props(f"color={yaml_color}")
+                        ui.label("TF State:").classes("text-xs font-semibold opacity-70")
+                        state_badge = "Protected" if state_protected else "Unprotected"
+                        state_color = "purple" if state_protected else "grey"
+                        ui.badge(f"🗃️ {state_badge}").props(f"color={state_color}")
                     
-                    if current_intent:
-                        with ui.column().classes("gap-1"):
-                            ui.label("Pending Intent:").classes("text-xs font-semibold opacity-70")
-                            intent_badge = "Protect" if current_intent.protected else "Unprotect"
+                    # YAML Config (effective value which includes intent)
+                    with ui.column().classes("gap-1"):
+                        ui.label("YAML Config:").classes("text-xs font-semibold opacity-70")
+                        yaml_badge = "Protected" if yaml_protected else "Unprotected"
+                        yaml_color = "blue" if yaml_protected else "grey"
+                        ui.badge(f"📄 {yaml_badge}").props(f"color={yaml_color}")
+                    
+                    # Intent File
+                    with ui.column().classes("gap-1"):
+                        ui.label("Intent File:").classes("text-xs font-semibold opacity-70")
+                        if current_intent:
+                            intent_badge = "Protected" if current_intent.protected else "Unprotected"
                             intent_color = "green" if current_intent.protected else "amber"
-                            ui.badge(f"Intent: {intent_badge}").props(f"color={intent_color}")
+                            ui.badge(f"🎯 {intent_badge}").props(f"color={intent_color}")
                             ui.label(f"Set: {current_intent.set_at[:16]}").classes("text-xs opacity-60")
+                        else:
+                            ui.badge("🎯 Not Set").props("color=grey outline")
                 
-                ui.label(
-                    "Choose what you want the final protection state to be. "
-                    "This records your intent - use 'Generate Protection Changes' on the Match page to apply."
-                ).classes("text-xs opacity-70 mb-3")
+                # Show intent status - whether pending change or recorded (no action needed)
+                if current_intent is not None:
+                    intent_direction = "PROTECT" if current_intent.protected else "UNPROTECT"
+                    if current_intent.protected != state_protected:
+                        # Intent differs from state = pending change
+                        with ui.row().classes("items-center gap-2 p-2 mb-3 rounded bg-blue-500 bg-opacity-20"):
+                            ui.icon("schedule", size="sm").classes("text-blue-600")
+                            with ui.column().classes("gap-0"):
+                                ui.label(f"⏳ Pending Change: {intent_direction}").classes("font-semibold text-blue-600 text-sm")
+                                ui.label(
+                                    f"Your intent to {intent_direction.lower()} is recorded. Use 'Generate Protection Changes' to apply."
+                                ).classes("text-xs text-blue-600 opacity-80")
+                    else:
+                        # Intent matches state = no action needed, but intent IS recorded
+                        with ui.row().classes("items-center gap-2 p-2 mb-3 rounded bg-green-500 bg-opacity-20"):
+                            ui.icon("check_circle", size="sm").classes("text-green-600")
+                            with ui.column().classes("gap-0"):
+                                ui.label(f"✓ Intent Recorded: {intent_direction}").classes("font-semibold text-green-600 text-sm")
+                                ui.label(
+                                    f"Resource is already {intent_direction.lower()}ed as intended. No action needed."
+                                ).classes("text-xs text-green-600 opacity-80")
+                else:
+                    ui.label(
+                        "Choose what you want the final protection state to be. "
+                        "This records your intent - use 'Generate Protection Changes' on the Match page to apply."
+                    ).classes("text-xs opacity-70 mb-3")
                 
                 # Intent selection buttons
                 intent_status_container = ui.element("div").classes("w-full")
                 
                 def set_intent_protected():
+                    # #region agent log - Hypothesis A,E: Log key used when saving intent
+                    import json as _json_debug
+                    _debug_log_path = "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log"
+                    try:
+                        with open(_debug_log_path, "a") as _f:
+                            _f.write(_json_debug.dumps({"location": "entity_table.py:set_intent_protected", "message": "Saving intent", "hypothesisId": "A,E", "data": {"resource_key": resource_key, "source_type": source_type, "state_resource_index": state_resource_index, "source_key": source_key, "project_name": grid_row.get("project_name")}, "timestamp": __import__("time").time()}) + "\n")
+                    except: pass
+                    # #endregion
                     protection_intent.set_intent(
                         key=resource_key,
                         protected=True,
                         source="detail_dialog",
                         reason=f"User selected 'Protect' for {source_type}:{resource_key}",
+                        resource_type=source_type,
                     )
+                    # Also set intent for linked resources (REP <-> PREP)
+                    linked_keys = []
+                    if source_type == "REP":
+                        linked_key = f"PREP:{base_key}"
+                        protection_intent.set_intent(key=linked_key, protected=True, source="detail_dialog_linked", reason=f"Linked to REP:{base_key}", resource_type="PREP")
+                        linked_keys.append(linked_key)
+                    elif source_type == "PREP":
+                        linked_key = f"REP:{base_key}"
+                        protection_intent.set_intent(key=linked_key, protected=True, source="detail_dialog_linked", reason=f"Linked to PREP:{base_key}", resource_type="REP")
+                        linked_keys.append(linked_key)
                     protection_intent.save()
+                    # #region agent log - Hypothesis D: Log intent state after save
+                    try:
+                        _all_intents = list(protection_intent._intent.keys()) if hasattr(protection_intent, '_intent') else []
+                        with open(_debug_log_path, "a") as _f:
+                            _f.write(_json_debug.dumps({"location": "entity_table.py:set_intent_protected", "message": "Intent saved", "hypothesisId": "D", "data": {"all_intent_keys": _all_intents, "intent_count": len(_all_intents), "linked_keys": linked_keys}, "timestamp": __import__("time").time()}) + "\n")
+                    except: pass
+                    # #endregion
                     with intent_status_container:
                         intent_status_container.clear()
                         with ui.row().classes("items-center gap-2 p-2 rounded bg-green-500 bg-opacity-20"):
                             ui.icon("check_circle", size="sm").classes("text-green-500")
-                            ui.label(f"Intent recorded: PROTECT {resource_key}").classes("text-sm text-green-500 font-medium")
-                    ui.notify(f"Protection intent set: PROTECT {resource_key}", type="positive")
+                            msg = f"Intent recorded: PROTECT {resource_key}"
+                            if linked_keys:
+                                msg += f" (+ linked: {', '.join(linked_keys)})"
+                            ui.label(msg).classes("text-sm text-green-500 font-medium")
+                    ui.notify(f"Protection intent set: PROTECT {resource_key}" + (f" + {len(linked_keys)} linked" if linked_keys else ""), type="positive")
                 
                 def set_intent_unprotected():
                     protection_intent.set_intent(
@@ -1932,24 +2017,52 @@ def _render_match_debug_tab(
                         protected=False,
                         source="detail_dialog",
                         reason=f"User selected 'Unprotect' for {source_type}:{resource_key}",
+                        resource_type=source_type,
                     )
+                    # Also set intent for linked resources (REP <-> PREP)
+                    linked_keys = []
+                    if source_type == "REP":
+                        linked_key = f"PREP:{base_key}"
+                        protection_intent.set_intent(key=linked_key, protected=False, source="detail_dialog_linked", reason=f"Linked to REP:{base_key}", resource_type="PREP")
+                        linked_keys.append(linked_key)
+                    elif source_type == "PREP":
+                        linked_key = f"REP:{base_key}"
+                        protection_intent.set_intent(key=linked_key, protected=False, source="detail_dialog_linked", reason=f"Linked to PREP:{base_key}", resource_type="REP")
+                        linked_keys.append(linked_key)
                     protection_intent.save()
                     with intent_status_container:
                         intent_status_container.clear()
                         with ui.row().classes("items-center gap-2 p-2 rounded bg-amber-500 bg-opacity-20"):
                             ui.icon("check_circle", size="sm").classes("text-amber-500")
-                            ui.label(f"Intent recorded: UNPROTECT {resource_key}").classes("text-sm text-amber-500 font-medium")
-                    ui.notify(f"Protection intent set: UNPROTECT {resource_key}", type="info")
+                            msg = f"Intent recorded: UNPROTECT {resource_key}"
+                            if linked_keys:
+                                msg += f" (+ linked: {', '.join(linked_keys)})"
+                            ui.label(msg).classes("text-sm text-amber-500 font-medium")
+                    ui.notify(f"Protection intent set: UNPROTECT {resource_key}" + (f" + {len(linked_keys)} linked" if linked_keys else ""), type="info")
                 
                 def clear_intent():
+                    cleared = []
                     if protection_intent.has_intent(resource_key):
                         # Remove the intent
                         del protection_intent._intent[resource_key]
+                        cleared.append(resource_key)
+                    # Also clear linked resources (REP <-> PREP)
+                    if source_type == "REP":
+                        linked_key = f"PREP:{base_key}"
+                        if protection_intent.has_intent(linked_key):
+                            del protection_intent._intent[linked_key]
+                            cleared.append(linked_key)
+                    elif source_type == "PREP":
+                        linked_key = f"REP:{base_key}"
+                        if protection_intent.has_intent(linked_key):
+                            del protection_intent._intent[linked_key]
+                            cleared.append(linked_key)
+                    if cleared:
                         protection_intent.save()
                         with intent_status_container:
                             intent_status_container.clear()
-                            ui.label("Intent cleared").classes("text-sm opacity-70")
-                        ui.notify(f"Cleared intent for {resource_key}", type="info")
+                            ui.label(f"Intent cleared: {', '.join(cleared)}").classes("text-sm opacity-70")
+                        ui.notify(f"Cleared intent for {', '.join(cleared)}", type="info")
                     else:
                         ui.notify("No intent to clear", type="warning")
                 
@@ -2002,6 +2115,7 @@ def _render_match_debug_tab(
             grid_row=grid_row,
             source_data=source_data,
             state_resource=state_resource,
+            app_state=app_state,
         )
         
         with ui.card().classes("w-full p-4").style("border: 2px solid #8B5CF6;"):
@@ -2049,6 +2163,7 @@ def _build_llm_diagnostic(
     grid_row: dict,
     source_data: dict,
     state_resource: Optional[dict],
+    app_state: Optional["AppState"] = None,
 ) -> str:
     """Build an LLM-friendly diagnostic report for match debugging.
     
@@ -2089,6 +2204,44 @@ def _build_llm_diagnostic(
         project_has_repository=project_has_repo,
     ) if source_type in EXTENDED_RESOURCE_TYPE_MAP else None
     
+    # Get intent info early for Problem Summary
+    # Use type-prefixed key to avoid collisions (PRJ, REP, PREP can share same project name)
+    base_key_for_intent = state_resource_index or source_key or ""
+    resource_key_for_intent = f"{source_type}:{base_key_for_intent}" if base_key_for_intent else ""
+    current_intent = None
+    # #region agent log - Hypothesis A,B,C,D: Debug intent retrieval in diagnostic
+    import json as _json_debug
+    _debug_log_path = "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log"
+    try:
+        with open(_debug_log_path, "a") as _f:
+            _f.write(_json_debug.dumps({"location": "entity_table.py:_build_llm_diagnostic", "message": "Intent retrieval start", "hypothesisId": "A,B", "data": {"source_type": source_type, "source_key": source_key, "state_resource_index": state_resource_index, "resource_key_for_intent": resource_key_for_intent, "app_state_is_none": app_state is None}, "timestamp": __import__("time").time()}) + "\n")
+    except: pass
+    # #endregion
+    if app_state is not None and resource_key_for_intent:
+        try:
+            protection_intent_manager = app_state.get_protection_intent_manager()
+            current_intent = protection_intent_manager.get_intent(resource_key_for_intent)
+            # #region agent log - Hypothesis C,D: Check what intent manager returns
+            try:
+                _all_intents = list(protection_intent_manager._intent.keys()) if hasattr(protection_intent_manager, '_intent') else []
+                with open(_debug_log_path, "a") as _f:
+                    _f.write(_json_debug.dumps({"location": "entity_table.py:_build_llm_diagnostic", "message": "Intent lookup result", "hypothesisId": "C,D", "data": {"resource_key_for_intent": resource_key_for_intent, "current_intent_found": current_intent is not None, "current_intent_protected": current_intent.protected if current_intent else None, "all_intent_keys": _all_intents[:10], "intent_count": len(_all_intents)}, "timestamp": __import__("time").time()}) + "\n")
+            except: pass
+            # #endregion
+        except Exception as e:
+            # #region agent log - Hypothesis D: Exception during intent retrieval
+            try:
+                with open(_debug_log_path, "a") as _f:
+                    _f.write(_json_debug.dumps({"location": "entity_table.py:_build_llm_diagnostic", "message": "Intent retrieval exception", "hypothesisId": "D", "data": {"error": str(e), "resource_key_for_intent": resource_key_for_intent}, "timestamp": __import__("time").time()}) + "\n")
+            except: pass
+            # #endregion
+            pass  # Intent not available
+    
+    # Check for intent drift (intent differs from current state)
+    intent_drift = False
+    if current_intent is not None and state_protected is not None:
+        intent_drift = current_intent.protected != state_protected
+    
     # Check for protection mismatch
     if protection_info and protection_info.has_mismatch:
         direction = protection_info.mismatch_direction
@@ -2101,6 +2254,14 @@ def _build_llm_diagnostic(
         if protection_info.linked_resources:
             linked = ", ".join(protection_info.linked_resources)
             issues.append(f"  → Linked resources also need moving: {linked}")
+    elif intent_drift:
+        # Intent differs from state - flag this as needing resolution
+        intent_direction = "protect" if current_intent.protected else "unprotect"
+        state_status = "protected" if state_protected else "unprotected"
+        issues.append(
+            f"**INTENT DRIFT**: Your intent is to `{intent_direction}` this resource, "
+            f"but TF state has it as `{state_status}`. Generate protection changes to apply."
+        )
     
     if drift_status == "state_only":
         issues.append("Resource exists in Terraform state but has no matched target")
@@ -2162,8 +2323,68 @@ def _build_llm_diagnostic(
     lines.append(f"- **Drift Status**: {drift_status}")
     lines.append("")
     
+    # Drift Analysis section - explain what drift means
+    lines.append("## Drift Analysis")
+    drift_explanations = {
+        "in_sync": (
+            "✅ No Drift Detected",
+            "The Terraform state ID matches the target resource ID. Terraform will not make changes to this resource."
+        ),
+        "id_mismatch": (
+            "⚠️ ID Mismatch",
+            f"The Terraform state tracks ID {state_id}, but the matched target has ID {target_id}. "
+            "This means Terraform would try to update/replace this resource. "
+            "To adopt the current target, set action to 'adopt' and generate import blocks."
+        ),
+        "not_in_state": (
+            "🚫 Not in Terraform State",
+            f"This resource matched target ID {target_id}, but it's not tracked in Terraform state. "
+            "Terraform will try to create a new resource. "
+            "To adopt the existing resource, set action to 'adopt' and generate import blocks."
+        ),
+        "state_only": (
+            "📌 State Only (Orphaned)",
+            f"This resource exists in Terraform state (ID {state_id}) but has no target match. "
+            "If you proceed with 'create_new', Terraform may destroy the existing resource."
+        ),
+        "no_state": (
+            "— No State Loaded" if not has_state_loaded else "— Not in State",
+            "Terraform state is not loaded or no matching resource was found. "
+            "Load state to see accurate drift analysis." if not has_state_loaded else
+            "This resource is not tracked in Terraform state. It will be created as new."
+        ),
+    }
+    
+    drift_title, drift_explanation = drift_explanations.get(
+        drift_status,
+        (f"Unknown: {drift_status}", "Drift status not recognized.")
+    )
+    lines.append(f"### {drift_title}")
+    lines.append(drift_explanation)
+    lines.append("")
+    
+    # What Terraform will do
+    lines.append("### What Terraform Will Do")
+    if drift_status == "in_sync":
+        lines.append("- **No changes** - resource is correctly tracked and matched")
+    elif drift_status == "id_mismatch":
+        lines.append("- **Update/Replace** - Terraform will try to update the resource to match state")
+        lines.append("- **Recommendation**: Set action to 'adopt' to import the correct resource")
+    elif drift_status == "not_in_state":
+        lines.append("- **Create** - Terraform will create a new resource (may cause duplicate)")
+        lines.append("- **Recommendation**: Set action to 'adopt' to import the existing resource")
+    elif drift_status == "state_only":
+        lines.append("- **Destroy** - Terraform may destroy this resource if not matched")
+        lines.append("- **Recommendation**: Match to a target or review if destruction is intended")
+    else:
+        lines.append("- Load Terraform state to determine what actions Terraform will take")
+    lines.append("")
+    
     # Protection Analysis section
     lines.append("## Protection Analysis")
+    
+    # Note: current_intent was retrieved earlier for Problem Summary
+    
     if protection_info:
         lines.append(f"- **Resource Type**: {source_type}")
         if source_type in EXTENDED_RESOURCE_TYPE_MAP:
@@ -2172,14 +2393,27 @@ def _build_llm_diagnostic(
             lines.append(f"- **Unprotected Block**: `{unprotected_name}`")
             lines.append(f"- **Protected Block**: `{protected_name}`")
         lines.append("")
-        lines.append(f"- **YAML Protection Status**: `{yaml_protected}` ({'protected' if yaml_protected else 'unprotected'})")
-        if state_protected is not None:
-            lines.append(f"- **State Protection Status**: `{state_protected}` ({'protected' if state_protected else 'unprotected'})")
-            lines.append(f"- **State Address Block**: `{protection_info.state_address_prefix}`")
+        
+        # Show all three protection sources
+        lines.append("### Protection Sources")
+        lines.append(f"- **🗃️ TF State**: `{state_protected}` ({'protected' if state_protected else 'unprotected'})" if state_protected is not None else "- **🗃️ TF State**: N/A (not in state)")
+        lines.append(f"- **📄 YAML Config**: `{yaml_protected}` ({'protected' if yaml_protected else 'unprotected'})")
+        if current_intent:
+            intent_status = "protected" if current_intent.protected else "unprotected"
+            lines.append(f"- **🎯 Intent File**: `{current_intent.protected}` ({intent_status}) - set at {current_intent.set_at[:16]}")
         else:
-            lines.append("- **State Protection Status**: N/A (not in state)")
+            lines.append("- **🎯 Intent File**: Not set")
+        lines.append("")
+        
+        if state_protected is not None:
+            lines.append(f"- **State Address Block**: `{protection_info.state_address_prefix}`")
         lines.append(f"- **Expected Address Block**: `{protection_info.expected_address_prefix}`")
         lines.append("")
+        
+        # Check for intent drift (intent differs from state)
+        intent_drift = False
+        if current_intent is not None and state_protected is not None:
+            intent_drift = current_intent.protected != state_protected
         
         if protection_info.has_mismatch:
             lines.append("### ⚠️ PROTECTION MISMATCH DETECTED")
@@ -2207,10 +2441,24 @@ def _build_llm_diagnostic(
                 lines.append("Protection relationships:")
                 lines.append("- **PRJ** (Project): Independent - can be protected/unprotected on its own")
                 lines.append("- **REP** (Repository) ↔ **PREP** (Project-Repository): Linked - must move together")
+        elif intent_drift:
+            # Intent differs from state - this is a form of drift
+            intent_direction = "protect" if current_intent.protected else "unprotect"
+            state_status = "protected" if state_protected else "unprotected"
+            lines.append("### 🎯 INTENT DRIFT DETECTED")
+            lines.append(f"- **Current State**: resource is `{state_status}`")
+            lines.append(f"- **Your Intent**: `{intent_direction}` this resource")
+            lines.append(f"- **Action Needed**: Generate protection changes to apply your intent")
+            lines.append("")
+            lines.append("Your recorded intent differs from the current Terraform state.")
+            lines.append("Use 'Generate Protection Changes' on the Match page to create the necessary `moved` blocks.")
         else:
             lines.append("### ✅ Protection Status OK")
             if state_protected is not None:
-                lines.append(f"- State and YAML agree: resource is `{'protected' if yaml_protected else 'unprotected'}`")
+                if current_intent:
+                    lines.append(f"- State, YAML, and Intent agree: resource is `{'protected' if yaml_protected else 'unprotected'}`")
+                else:
+                    lines.append(f"- State and YAML agree: resource is `{'protected' if yaml_protected else 'unprotected'}`")
             else:
                 lines.append("- Resource not yet in state - will be created in correct block")
     else:
@@ -2369,7 +2617,10 @@ def _render_drift_comparison(
     project_name = grid_row.get("project_name", "")
     
     # Check for protection mismatch
-    yaml_protected = source_data.get("protected", False) if source_data else False
+    # IMPORTANT: Use grid_row["yaml_protected"] which is the authoritative source
+    # computed from protected_resources set. Don't use source_data["protected"]
+    # as that can be stale for resources that predate the protection system.
+    yaml_protected = grid_row.get("yaml_protected", False)
     project_has_repo = bool(source_data.get("repository")) if source_data and source_type == "PRJ" else True
     
     protection_info = None
@@ -2515,259 +2766,312 @@ def _render_drift_comparison(
                                 on_click=lambda: on_adopt(protected=protection_state["protected"]),
                             ).props("color=warning dense")
         
-        # Protection Mismatch card
-        if protection_info and protection_info.has_mismatch:
+        # Combined Protection Status & Intent section
+        # Show for all resource types that support protection
+        if source_type in EXTENDED_RESOURCE_TYPE_MAP and app_state is not None:
             ui.separator()
-            with ui.card().classes("w-full p-4").style("border: 2px solid #F59E0B;"):
-                with ui.row().classes("items-center gap-2 mb-2"):
-                    ui.icon("warning", color="amber", size="md")
-                    ui.label("Protection Mismatch Detected").classes("font-bold text-lg text-amber-600")
+            source_key = grid_row.get("source_key", "")
+            # Use type-prefixed key to avoid collisions (PRJ, REP, PREP can share same project name)
+            base_key = state_resource_index or grid_row.get("project_name") or source_key
+            resource_key = f"{source_type}:{base_key}"
+            
+            # Get current protection states
+            state_protected = grid_row.get("state_protected", False)
+            
+            # Get current intent if any
+            protection_intent = app_state.get_protection_intent_manager()
+            current_intent = protection_intent.get_intent(resource_key)
+            
+            # Determine if there's a mismatch
+            has_mismatch = protection_info and protection_info.has_mismatch
+            
+            # Detect "Protected - Needs Decision" state (no state/yaml mismatch, but needs explicit intent)
+            needs_decision = False
+            needs_decision_reason = ""
+            if not has_mismatch and state_protected and yaml_protected:
+                if current_intent is None:
+                    needs_decision = True
+                    needs_decision_reason = "No intent set - please confirm your decision"
+                elif not current_intent.protected:
+                    needs_decision = True
+                    needs_decision_reason = "Intent says UNPROTECT but resource is still protected (intent drift)"
+            
+            # Card styling based on status
+            if has_mismatch:
+                card_border = "border-2 border-amber-500"
+            elif needs_decision:
+                card_border = "border-2 border-purple-500"
+            else:
+                card_border = "border-2 border-green-500"
+            
+            with ui.card().classes(f"w-full p-4 {card_border}"):
+                # Header - changes based on status
+                if has_mismatch:
+                    with ui.row().classes("items-center gap-2 mb-3"):
+                        ui.icon("warning", color="amber", size="md")
+                        ui.label("Protection Mismatch - Set Your Intent").classes("font-bold text-lg text-amber-600")
+                    
+                    # Explain the mismatch
+                    state_status = "protected" if protection_info.state_protected else "unprotected"
+                    yaml_status = "protected" if protection_info.yaml_protected else "unprotected"
+                    
+                    ui.label(
+                        f"This resource is {state_status} in Terraform state but should be {yaml_status} according to YAML configuration. "
+                        "Choose your intended protection state below."
+                    ).classes("text-sm mb-3 opacity-80")
+                elif needs_decision:
+                    # Show "Needs Decision" banner
+                    with ui.row().classes("items-center gap-2 p-2 mb-3 rounded bg-purple-500 bg-opacity-20"):
+                        ui.icon("warning", size="sm").classes("text-purple-600")
+                        with ui.column().classes("gap-0"):
+                            ui.label("🔒 Protected - Needs Decision").classes("font-semibold text-purple-600 text-sm")
+                            ui.label(needs_decision_reason).classes("text-xs text-purple-600 opacity-80")
+                    
+                    with ui.row().classes("items-center gap-2 mb-3"):
+                        ui.icon("security", size="sm").classes("text-purple-500")
+                        ui.label("Protection Status & Intent").classes("font-semibold text-purple-500")
+                else:
+                    with ui.row().classes("items-center gap-2 mb-3"):
+                        ui.icon("security", size="sm").classes("text-green-500")
+                        ui.label("Protection Status & Intent").classes("font-semibold text-green-500")
                 
-                # Explain the mismatch
-                state_status = "protected" if protection_info.state_protected else "unprotected"
-                yaml_status = "protected" if protection_info.yaml_protected else "unprotected"
-                direction = protection_info.mismatch_direction
-                
-                ui.label(
-                    f"This resource is {state_status} in Terraform state but should be {yaml_status} according to YAML configuration."
-                ).classes("text-sm mb-2")
-                
-                with ui.row().classes("gap-4 mb-3"):
+                # Show all three protection sources: TF State, YAML Config, Intent File
+                if has_mismatch:
+                    bg_color = "bg-amber-500 bg-opacity-10"
+                elif needs_decision:
+                    bg_color = "bg-purple-500 bg-opacity-10"
+                else:
+                    bg_color = "bg-green-500 bg-opacity-10"
+                with ui.row().classes(f"items-center gap-4 mb-3 p-3 rounded {bg_color} flex-wrap"):
+                    # TF State
                     with ui.column().classes("gap-1"):
-                        ui.label("Current (State)").classes("text-xs text-slate-500 font-semibold")
-                        ui.badge(
-                            f"🛡️ {state_status.upper()}" if protection_info.state_protected else f"📝 {state_status.upper()}",
-                            color="purple" if protection_info.state_protected else "grey"
-                        )
-                    ui.icon("arrow_forward", size="sm").classes("text-slate-400 self-center")
+                        ui.label("🗃️ TF State:").classes("text-xs font-semibold opacity-70")
+                        state_badge = "Protected" if state_protected else "Unprotected"
+                        state_color = "purple" if state_protected else "grey"
+                        ui.badge(state_badge).props(f"color={state_color}")
+                    
+                    # Arrow for mismatch visual
+                    if has_mismatch:
+                        ui.icon("sync_problem", size="sm").classes("text-amber-500 self-center")
+                    elif needs_decision:
+                        ui.icon("help_outline", size="sm").classes("text-purple-500 self-center")
+                    else:
+                        ui.icon("check_circle", size="sm").classes("text-green-500 self-center")
+                    
+                    # YAML Config (effective value which includes intent)
                     with ui.column().classes("gap-1"):
-                        ui.label("Expected (YAML)").classes("text-xs text-slate-500 font-semibold")
-                        ui.badge(
-                            f"🛡️ {yaml_status.upper()}" if protection_info.yaml_protected else f"📝 {yaml_status.upper()}",
-                            color="green" if protection_info.yaml_protected else "blue"
-                        )
+                        ui.label("📄 YAML Config:").classes("text-xs font-semibold opacity-70")
+                        yaml_badge = "Protected" if yaml_protected else "Unprotected"
+                        yaml_color = "blue" if yaml_protected else "grey"
+                        ui.badge(yaml_badge).props(f"color={yaml_color}")
+                    
+                    # Intent File
+                    with ui.column().classes("gap-1"):
+                        ui.label("🎯 Intent File:").classes("text-xs font-semibold opacity-70")
+                        if current_intent:
+                            intent_badge = "Protected" if current_intent.protected else "Unprotected"
+                            intent_color = "green" if current_intent.protected else "amber"
+                            ui.badge(intent_badge).props(f"color={intent_color}")
+                            ui.label(f"Set: {current_intent.set_at[:16]}").classes("text-xs opacity-60")
+                        else:
+                            ui.badge("Not Set").props("color=grey outline")
                 
-                # Show linked resources warning
-                if protection_info.linked_resources:
-                    with ui.row().classes("items-center gap-2 mb-3 p-2 bg-amber-50 rounded"):
+                # Show linked resources warning (for mismatch)
+                if has_mismatch and protection_info.linked_resources:
+                    with ui.row().classes("items-center gap-2 mb-3 p-2 rounded bg-amber-500 bg-opacity-20"):
                         ui.icon("link", size="sm").classes("text-amber-600")
                         linked = ", ".join(protection_info.linked_resources)
-                        ui.label(f"Linked resources also need moving: {linked}").classes("text-sm text-amber-700")
+                        ui.label(f"Linked resources also need moving: {linked}").classes("text-sm text-amber-600")
                 
-                # Generate moved blocks for display and copy
-                module_prefix = "module.dbt_cloud.module.projects_v2[0]"
-                tf_type, unprotected_name, protected_name = EXTENDED_RESOURCE_TYPE_MAP[source_type]
-                from_block = protected_name if protection_info.state_protected else unprotected_name
-                to_block = unprotected_name if protection_info.state_protected else protected_name
-                resource_key = state_resource_index or grid_row.get("source_key", "RESOURCE_KEY")
+                # Show intent status - whether pending change or recorded (no action needed)
+                if current_intent is not None:
+                    intent_direction = "PROTECT" if current_intent.protected else "UNPROTECT"
+                    if current_intent.protected != state_protected:
+                        # Intent differs from state = pending change
+                        with ui.row().classes("items-center gap-2 p-2 mb-3 rounded bg-blue-500 bg-opacity-20"):
+                            ui.icon("schedule", size="sm").classes("text-blue-600")
+                            with ui.column().classes("gap-0"):
+                                ui.label(f"⏳ Pending Change: {intent_direction}").classes("font-semibold text-blue-600 text-sm")
+                                ui.label(
+                                    f"Your intent to {intent_direction.lower()} is recorded. Use 'Generate Protection Changes' to apply."
+                                ).classes("text-xs text-blue-600 opacity-80")
+                    else:
+                        # Intent matches state = no action needed, but intent IS recorded
+                        with ui.row().classes("items-center gap-2 p-2 mb-3 rounded bg-green-500 bg-opacity-20"):
+                            ui.icon("check_circle", size="sm").classes("text-green-600")
+                            with ui.column().classes("gap-0"):
+                                ui.label(f"✓ Intent Recorded: {intent_direction}").classes("font-semibold text-green-600 text-sm")
+                                ui.label(
+                                    f"Resource is already {intent_direction.lower()}ed as intended. No action needed."
+                                ).classes("text-xs text-green-600 opacity-80")
+                else:
+                    ui.label(
+                        "Set your intended protection state. This will be used when generating protection changes."
+                    ).classes("text-xs opacity-70 mb-3")
                 
-                moved_block = f'''moved {{
-  from = {module_prefix}.{tf_type}.{from_block}["{resource_key}"]
-  to   = {module_prefix}.{tf_type}.{to_block}["{resource_key}"]
-}}'''
+                # Intent selection buttons
+                drift_intent_status_container = ui.element("div").classes("w-full")
                 
-                # Also generate linked resource moves
-                all_moved_blocks = [moved_block]
-                if protection_info.linked_resources:
-                    for linked_type in protection_info.linked_resources:
-                        if linked_type in EXTENDED_RESOURCE_TYPE_MAP:
-                            l_tf_type, l_unprotected, l_protected = EXTENDED_RESOURCE_TYPE_MAP[linked_type]
-                            l_from = l_protected if protection_info.state_protected else l_unprotected
-                            l_to = l_unprotected if protection_info.state_protected else l_protected
-                            linked_block = f'''moved {{
-  from = {module_prefix}.{l_tf_type}.{l_from}["{resource_key}"]
-  to   = {module_prefix}.{l_tf_type}.{l_to}["{resource_key}"]
-}}'''
-                            all_moved_blocks.append(linked_block)
+                # Capture values for closures
+                _resource_key = resource_key
+                _source_type = source_type
+                _protection_intent = protection_intent
+                # Extract base_key from type-prefixed resource_key (e.g., "REP:foo" -> "foo")
+                _base_key = base_key
                 
-                full_content = "\n\n".join(all_moved_blocks)
+                def set_drift_intent_protected():
+                    _protection_intent.set_intent(
+                        key=_resource_key,
+                        protected=True,
+                        source="drift_dialog",
+                        reason=f"User selected 'Protect' for {_source_type}:{_resource_key}",
+                        resource_type=_source_type,
+                    )
+                    # Also set intent for linked resources (REP <-> PREP)
+                    linked_keys = []
+                    if _source_type == "REP":
+                        linked_key = f"PREP:{_base_key}"
+                        _protection_intent.set_intent(key=linked_key, protected=True, source="drift_dialog_linked", reason=f"Linked to REP:{_base_key}", resource_type="PREP")
+                        linked_keys.append(linked_key)
+                    elif _source_type == "PREP":
+                        linked_key = f"REP:{_base_key}"
+                        _protection_intent.set_intent(key=linked_key, protected=True, source="drift_dialog_linked", reason=f"Linked to PREP:{_base_key}", resource_type="REP")
+                        linked_keys.append(linked_key)
+                    _protection_intent.save()
+                    with drift_intent_status_container:
+                        drift_intent_status_container.clear()
+                        with ui.row().classes("items-center gap-2 p-2 rounded bg-green-500 bg-opacity-20"):
+                            ui.icon("check_circle", size="sm").classes("text-green-500")
+                            msg = f"Intent recorded: PROTECT {_resource_key}"
+                            if linked_keys:
+                                msg += f" (+ linked: {', '.join(linked_keys)})"
+                            ui.label(msg).classes("text-sm text-green-500 font-medium")
+                    ui.notify(f"Protection intent set: PROTECT {_resource_key}" + (f" + {len(linked_keys)} linked" if linked_keys else ""), type="positive")
                 
-                # Show the required moved block
-                with ui.expansion("View Required Moved Block", icon="code").classes("w-full mb-3"):
-                    ui.html(f'<pre style="background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 4px; font-size: 0.75rem; overflow-x: auto;">{html.escape(full_content)}</pre>')
+                def set_drift_intent_unprotected():
+                    _protection_intent.set_intent(
+                        key=_resource_key,
+                        protected=False,
+                        source="drift_dialog",
+                        reason=f"User selected 'Unprotect' for {_source_type}:{_resource_key}",
+                        resource_type=_source_type,
+                    )
+                    # Also set intent for linked resources (REP <-> PREP)
+                    linked_keys = []
+                    if _source_type == "REP":
+                        linked_key = f"PREP:{_base_key}"
+                        _protection_intent.set_intent(key=linked_key, protected=False, source="drift_dialog_linked", reason=f"Linked to REP:{_base_key}", resource_type="PREP")
+                        linked_keys.append(linked_key)
+                    elif _source_type == "PREP":
+                        linked_key = f"REP:{_base_key}"
+                        _protection_intent.set_intent(key=linked_key, protected=False, source="drift_dialog_linked", reason=f"Linked to PREP:{_base_key}", resource_type="REP")
+                        linked_keys.append(linked_key)
+                    _protection_intent.save()
+                    with drift_intent_status_container:
+                        drift_intent_status_container.clear()
+                        with ui.row().classes("items-center gap-2 p-2 rounded bg-amber-500 bg-opacity-20"):
+                            ui.icon("check_circle", size="sm").classes("text-amber-500")
+                            msg = f"Intent recorded: UNPROTECT {_resource_key}"
+                            if linked_keys:
+                                msg += f" (+ linked: {', '.join(linked_keys)})"
+                            ui.label(msg).classes("text-sm text-amber-500 font-medium")
+                    ui.notify(f"Protection intent set: UNPROTECT {_resource_key}" + (f" + {len(linked_keys)} linked" if linked_keys else ""), type="info")
                 
-                # Status tracking for this card - use a mutable ref
-                fix_status_ref = {"pending": False, "file_path": "", "previous_content": ""}
+                def clear_drift_intent():
+                    cleared = []
+                    if _protection_intent.has_intent(_resource_key):
+                        # Remove the intent
+                        del _protection_intent._intent[_resource_key]
+                        cleared.append(_resource_key)
+                    # Also clear linked resources (REP <-> PREP)
+                    if _source_type == "REP":
+                        linked_key = f"PREP:{_base_key}"
+                        if _protection_intent.has_intent(linked_key):
+                            del _protection_intent._intent[linked_key]
+                            cleared.append(linked_key)
+                    elif _source_type == "PREP":
+                        linked_key = f"REP:{_base_key}"
+                        if _protection_intent.has_intent(linked_key):
+                            del _protection_intent._intent[linked_key]
+                            cleared.append(linked_key)
+                    if cleared:
+                        _protection_intent.save()
+                        with drift_intent_status_container:
+                            drift_intent_status_container.clear()
+                            ui.label(f"Intent cleared: {', '.join(cleared)}").classes("text-sm opacity-70")
+                        ui.notify(f"Cleared intent for {', '.join(cleared)}", type="info")
+                    else:
+                        ui.notify("No intent to clear", type="warning")
                 
-                # Create a container for the status message that we'll update
-                status_container = ui.element("div").classes("w-full")
-                
-                # Undo function
-                def undo_protection_fix(fix_btn, undo_btn, status_container):
-                    """Restore the previous protection_moves.tf content."""
-                    if not fix_status_ref["pending"]:
-                        ui.notify("No pending fix to undo", type="warning")
-                        return
+                with ui.row().classes("items-center gap-3 flex-wrap"):
+                    ui.button(
+                        "Set Intent: Protected",
+                        icon="shield",
+                        on_click=set_drift_intent_protected,
+                    ).props("color=positive")
                     
-                    try:
-                        file_path = Path(fix_status_ref["file_path"])
-                        previous = fix_status_ref["previous_content"]
-                        
-                        if previous:
-                            file_path.write_text(previous)
-                            ui.notify("Restored previous protection_moves.tf", type="positive")
-                        else:
-                            # No previous content - delete or clear the file
-                            file_path.write_text("# Protection moves cleared\n")
-                            ui.notify("Cleared protection_moves.tf", type="positive")
-                        
-                        # Reset status
-                        fix_status_ref["pending"] = False
-                        fix_status_ref["file_path"] = ""
-                        fix_status_ref["previous_content"] = ""
-                        
-                        # Reset button states - remove disabled and reset color
-                        fix_btn.props(remove="disabled")
-                        fix_btn.props("color=warning")
-                        fix_btn.set_text("Fix Protection Mismatch")
-                        fix_btn.set_icon("build")
-                        undo_btn.set_visibility(False)
-                        
-                        # Clear status container
-                        status_container.clear()
-                        
-                    except Exception as e:
-                        ui.notify(f"Error undoing fix: {e}", type="negative")
+                    ui.button(
+                        "Set Intent: Unprotected",
+                        icon="lock_open",
+                        on_click=set_drift_intent_unprotected,
+                    ).props("color=warning")
+                    
+                    ui.button(
+                        "Clear Intent",
+                        icon="clear",
+                        on_click=clear_drift_intent,
+                    ).props("flat color=grey")
                 
-                # Fix button
-                async def fix_protection_mismatch(fix_btn, undo_btn, status_container):
-                    """Write the moved blocks to protection_moves.tf."""
-                    if not app_state:
-                        ui.notify("App state not available", type="negative")
-                        return
+                # Show linked resources warning (for non-mismatch REP/PREP)
+                if not has_mismatch and source_type in ("REP", "PREP"):
+                    ui.label(
+                        "⚠️ REP and PREP are linked - changing protection affects both"
+                    ).classes("text-xs text-amber-600 mt-2")
+                
+                # Show moved blocks expansion (only if there's a mismatch)
+                if has_mismatch:
+                    ui.separator().classes("my-3")
                     
-                    # Get deployment path from app_state.deploy.terraform_dir or default to deployments/migration
-                    tf_dir = ""
-                    deploy_state = getattr(app_state, "deploy", None)
-                    if deploy_state:
-                        tf_dir = getattr(deploy_state, "terraform_dir", "")
-                    
-                    # Fall back to deployments/migration (same as destroy page)
-                    if not tf_dir:
-                        tf_dir = "deployments/migration"
-                    
-                    # Resolve to absolute path
-                    project_root = Path(__file__).parent.parent.parent.parent.resolve()
-                    deployment_path = project_root / tf_dir
-                    
-                    if not deployment_path.exists():
-                        ui.notify(f"Deployment path not found: {deployment_path}", type="negative")
-                        return
-                    
-                    moves_file = deployment_path / "protection_moves.tf"
-                    
-                    # Generate all moved blocks
+                    # Generate moved blocks for display and copy
                     module_prefix = "module.dbt_cloud.module.projects_v2[0]"
                     tf_type, unprotected_name, protected_name = EXTENDED_RESOURCE_TYPE_MAP[source_type]
                     from_block = protected_name if protection_info.state_protected else unprotected_name
                     to_block = unprotected_name if protection_info.state_protected else protected_name
-                    resource_key = state_resource_index or grid_row.get("source_key", "RESOURCE_KEY")
                     
-                    blocks = []
-                    blocks.append(f'''# Move {source_type} from {from_block} to {to_block}
-moved {{
+                    moved_block = f'''moved {{
   from = {module_prefix}.{tf_type}.{from_block}["{resource_key}"]
   to   = {module_prefix}.{tf_type}.{to_block}["{resource_key}"]
-}}''')
+}}'''
                     
+                    # Also generate linked resource moves
+                    all_moved_blocks = [moved_block]
                     if protection_info.linked_resources:
                         for linked_type in protection_info.linked_resources:
                             if linked_type in EXTENDED_RESOURCE_TYPE_MAP:
                                 l_tf_type, l_unprotected, l_protected = EXTENDED_RESOURCE_TYPE_MAP[linked_type]
                                 l_from = l_protected if protection_info.state_protected else l_unprotected
                                 l_to = l_unprotected if protection_info.state_protected else l_protected
-                                blocks.append(f'''# Move linked {linked_type} from {l_from} to {l_to}
-moved {{
+                                linked_block = f'''moved {{
   from = {module_prefix}.{l_tf_type}.{l_from}["{resource_key}"]
   to   = {module_prefix}.{l_tf_type}.{l_to}["{resource_key}"]
-}}''')
+}}'''
+                                all_moved_blocks.append(linked_block)
                     
-                    content = f'''# Generated moved blocks for protection status changes
-# Resource: {resource_key}
-# Direction: {direction}
-# Generated: {datetime.now().isoformat()}
-
-''' + "\n\n".join(blocks) + "\n"
+                    full_content = "\n\n".join(all_moved_blocks)
                     
-                    try:
-                        # Read existing content if file exists - save for undo
-                        existing = ""
-                        if moves_file.exists():
-                            existing = moves_file.read_text()
+                    with ui.expansion("View Required Moved Blocks (if following YAML)", icon="code").classes("w-full"):
+                        ui.html(f'<pre style="background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 4px; font-size: 0.75rem; overflow-x: auto;">{html.escape(full_content)}</pre>')
                         
-                        # Store previous content for undo
-                        fix_status_ref["previous_content"] = existing
-                        
-                        # Append or write new content
-                        if existing.strip() and not existing.strip().startswith("# Protection moved blocks will be regenerated"):
-                            # Append to existing file
-                            content = existing.rstrip() + "\n\n" + "\n\n".join(blocks) + "\n"
-                        
-                        moves_file.write_text(content)
-                        
-                        # Update status
-                        fix_status_ref["pending"] = True
-                        fix_status_ref["file_path"] = str(moves_file)
-                        
-                        # Update the button to show success state
-                        fix_btn.props("color=positive disabled")
-                        fix_btn.set_text("Fix Queued")
-                        
-                        # Show undo button
-                        undo_btn.set_visibility(True)
-                        
-                        # Show pending status in the status container
-                        with status_container:
-                            status_container.clear()
-                            with ui.card().classes("w-full p-3 mt-3").style("background: #ECFDF5; border: 1px solid #10B981;"):
-                                with ui.row().classes("items-center justify-between"):
-                                    with ui.row().classes("items-center gap-2"):
-                                        ui.icon("hourglass_empty", size="sm").classes("text-green-600")
-                                        ui.label("PENDING FIX").classes("font-bold text-green-700")
-                                ui.label(f"Moved blocks written to: {moves_file.name}").classes("text-sm text-green-700 mt-1")
-                                ui.label("Run 'terraform plan' then 'terraform apply' to complete").classes("text-xs text-green-600")
-                        
-                        # Show clear confirmation notification
-                        ui.notify(
-                            f"SUCCESS: Wrote {len(blocks)} moved block(s) to protection_moves.tf",
-                            type="positive",
-                            timeout=5000,
-                        )
-                        ui.notify(
-                            "Next: Run 'terraform plan' to verify, then 'terraform apply' to execute",
-                            type="info",
-                            timeout=8000,
-                        )
-                    except Exception as e:
-                        ui.notify(f"Error writing file: {e}", type="negative")
-                
-                with ui.row().classes("gap-2"):
-                    fix_btn = ui.button(
-                        "Fix Protection Mismatch",
-                        icon="build",
-                    ).props("color=warning")
-                    
-                    # Undo button - hidden initially
-                    undo_btn = ui.button(
-                        "Undo",
-                        icon="undo",
-                    ).props("color=grey outline")
-                    undo_btn.set_visibility(False)
-                    
-                    # Wire up click handlers with references
-                    fix_btn.on_click(lambda: fix_protection_mismatch(fix_btn, undo_btn, status_container))
-                    undo_btn.on_click(lambda: undo_protection_fix(fix_btn, undo_btn, status_container))
-                    
-                    # Capture full_content value for the lambda
-                    copy_content = full_content
-                    ui.button(
-                        "Copy Moved Block",
-                        icon="content_copy",
-                        on_click=lambda c=copy_content: (
-                            ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(c)})"),
-                            ui.notify("Moved block copied to clipboard", type="positive"),
-                        ),
-                    ).props("color=grey outline")
+                        # Copy button inside expansion
+                        copy_content = full_content
+                        ui.button(
+                            "Copy Moved Blocks",
+                            icon="content_copy",
+                            on_click=lambda c=copy_content: (
+                                ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(c)})"),
+                                ui.notify("Moved blocks copied to clipboard", type="positive"),
+                            ),
+                        ).props("color=grey outline dense").classes("mt-2")
         
         # Target selector dropdown (for manual matching)
         if available_targets and not target_id:

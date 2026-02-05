@@ -1,0 +1,205 @@
+# Ralph Task Cache
+# Auto-generated from RALPH_TASK.md
+# DO NOT EDIT - regenerated on task file change
+
+source_file: RALPH_TASK.md
+source_mtime: 1770082113
+generated_at: 2026-02-03T01:38:01Z
+
+tasks:
+  - id: "line_19"
+    line_number: 19
+    status: pending
+    parallel_group: 999999
+    description: Create `ExtendedAttributes` Pydantic model in `importer/models.py` with fields: `id`, `extended_attributes_id`, `project_id`, `state`, `extended_attributes` (dict), `created_at`, `updated_at`
+    indent_level: 0
+    raw_marker: 1.
+  - id: "line_21"
+    line_number: 21
+    status: pending
+    parallel_group: 999999
+    description: Add `key` property that generates unique identifier (e.g., `extattr_{project_id}_{id}`)
+    indent_level: 0
+    raw_marker: 2.
+  - id: "line_23"
+    line_number: 23
+    status: pending
+    parallel_group: 999999
+    description: Add `protected: bool = False` field for protection tracking
+    indent_level: 0
+    raw_marker: 3.
+  - id: "line_25"
+    line_number: 25
+    status: pending
+    parallel_group: 999999
+    description: Update `Environment` model to add `extended_attributes_id: Optional[int]` field
+    indent_level: 0
+    raw_marker: 4.
+  - id: "line_27"
+    line_number: 27
+    status: pending
+    parallel_group: 999999
+    description: Update `Environment` model to add `extended_attributes_key: Optional[str]` field (populated during linking)
+    indent_level: 0
+    raw_marker: 5.
+  - id: "line_29"
+    line_number: 29
+    status: pending
+    parallel_group: 999999
+    description: Update `Project` model to add `extended_attributes: list[ExtendedAttributes] = []` field
+    indent_level: 0
+    raw_marker: 6.
+  - id: "line_31"
+    line_number: 31
+    status: pending
+    parallel_group: 999999
+    description: Run typecheck: `cd importer && pyright models.py`
+    indent_level: 0
+    raw_marker: 7.
+  - id: "line_35"
+    line_number: 35
+    status: pending
+    parallel_group: 999999
+    description: Add `_fetch_extended_attributes()` method to `importer/fetcher.py`
+    indent_level: 0
+    raw_marker: 8.
+  - id: "line_37"
+    line_number: 37
+    status: pending
+    parallel_group: 999999
+    description: Fetch from `/api/v3/accounts/{account_id}/extended-attributes/` endpoint
+    indent_level: 0
+    raw_marker: 9.
+  - id: "line_39"
+    line_number: 39
+    status: pending
+    parallel_group: 999999
+    description: Parse response into `ExtendedAttributes` model instances
+    indent_level: 0
+    raw_marker: 10.
+  - id: "line_41"
+    line_number: 41
+    status: pending
+    parallel_group: 999999
+    description: Link extended attributes to environments via `extended_attributes_id` matching
+    indent_level: 0
+    raw_marker: 11.
+  - id: "line_43"
+    line_number: 43
+    status: pending
+    parallel_group: 999999
+    description: Populate `environment.extended_attributes_key` when linking
+    indent_level: 0
+    raw_marker: 12.
+  - id: "line_45"
+    line_number: 45
+    status: pending
+    parallel_group: 999999
+    description: Add extended attributes to project's `extended_attributes` list
+    indent_level: 0
+    raw_marker: 13.
+  - id: "line_47"
+    line_number: 47
+    status: pending
+    parallel_group: 999999
+    description: Handle environments with no extended attributes gracefully
+    indent_level: 0
+    raw_marker: 14.
+  - id: "line_49"
+    line_number: 49
+    status: pending
+    parallel_group: 999999
+    description: Add logging for extended attributes fetch: `log.info(f\"Fetched {len(attrs)} extended attributes\")`
+    indent_level: 0
+    raw_marker: 15.
+  - id: "line_53"
+    line_number: 53
+    status: pending
+    parallel_group: 999999
+    description: Update `schemas/v2.json` with `extendedAttributes` definition
+    indent_level: 0
+    raw_marker: 16.
+  - id: "line_55"
+    line_number: 55
+    status: pending
+    parallel_group: 999999
+    description: Schema includes: `type`, `extended_attributes` (object), `protected` (boolean), environment reference
+    indent_level: 0
+    raw_marker: 17.
+  - id: "line_57"
+    line_number: 57
+    status: pending
+    parallel_group: 999999
+    description: Validate schema with existing test suite
+    indent_level: 0
+    raw_marker: 18.
+  - id: "line_61"
+    line_number: 61
+    status: pending
+    parallel_group: 999999
+    description: Update `importer/yaml_converter.py` to serialize extended attributes
+    indent_level: 0
+    raw_marker: 19.
+  - id: "line_63"
+    line_number: 63
+    status: pending
+    parallel_group: 999999
+    description: Extended attributes nested under environments in YAML output:
+    indent_level: 0
+    raw_marker: 20.
+  - id: "line_73"
+    line_number: 73
+    status: pending
+    parallel_group: 999999
+    description: Update `importer/normalizer/core.py` to process extended attributes in normalization
+    indent_level: 0
+    raw_marker: 21.
+  - id: "line_75"
+    line_number: 75
+    status: pending
+    parallel_group: 999999
+    description: Handle extended attributes in import mapping
+    indent_level: 0
+    raw_marker: 22.
+  - id: "line_79"
+    line_number: 79
+    status: pending
+    parallel_group: 999999
+    description: Test: ExtendedAttributes model instantiation and key generation
+    indent_level: 0
+    raw_marker: 23.
+  - id: "line_81"
+    line_number: 81
+    status: pending
+    parallel_group: 999999
+    description: Test: Environment linking via extended_attributes_id
+    indent_level: 0
+    raw_marker: 24.
+  - id: "line_83"
+    line_number: 83
+    status: pending
+    parallel_group: 999999
+    description: Test: YAML serialization includes extended attributes
+    indent_level: 0
+    raw_marker: 25.
+  - id: "line_85"
+    line_number: 85
+    status: pending
+    parallel_group: 999999
+    description: Test: YAML deserialization restores extended attributes
+    indent_level: 0
+    raw_marker: 26.
+  - id: "line_87"
+    line_number: 87
+    status: pending
+    parallel_group: 999999
+    description: Test: Schema validation passes for extended attributes YAML
+    indent_level: 0
+    raw_marker: 27.
+  - id: "line_89"
+    line_number: 89
+    status: pending
+    parallel_group: 999999
+    description: Test: Environments without extended attributes serialize correctly
+    indent_level: 0
+    raw_marker: 28.

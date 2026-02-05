@@ -90,9 +90,15 @@ def save_state() -> None:
     """Save the current state to storage."""
     global _app_state
     if _app_state:
-        app.storage.user["app_state"] = _app_state.to_dict()
-        # Also save protection intent file if it was accessed
-        _app_state.save_protection_intent()
+        try:
+            app.storage.user["app_state"] = _app_state.to_dict()
+            # Also save protection intent file if it was accessed
+            _app_state.save_protection_intent()
+        except (AssertionError, KeyError) as e:
+            # User storage not yet initialized (e.g., direct URL access before session established)
+            # This is recoverable - state will be saved on next interaction
+            import logging
+            logging.getLogger(__name__).debug(f"Could not save state (session not ready): {e}")
 
 
 def navigate_to_step(step: WorkflowStep) -> None:

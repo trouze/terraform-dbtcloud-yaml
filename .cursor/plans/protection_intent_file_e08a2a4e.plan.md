@@ -210,33 +210,60 @@ projects/
 
 ## File Format
 
+The intent file uses prefixed keys to distinguish protection scope:
+
+- `PRJ:{name}` - Project resource protection (independent)
+- `REPO:{name}` - Repository + PREP protection (single key covers both TF resources)
+
+**IMPORTANT: REPO Consolidation (2026-02-04)**
+
+Do NOT use separate `REP:` and `PREP:` keys - these have been deprecated and consolidated into a single `REPO:` key. A single `REPO:` intent generates TWO Terraform moved blocks.
+
 ```json
 {
   "version": 1,
   "updated_at": "2026-02-02T14:30:00Z",
   "intent": {
-    "sse_dm_fin_fido": {
+    "PRJ:sse_dm_fin_fido": {
       "protected": false,
       "set_at": "2026-02-02T10:00:00Z",
       "set_by": "user_click",
-      "reason": "Unprotect All button",
+      "reason": "Unprotect project only",
+      "resource_type": "PRJ",
       "applied_to_yaml": true,
       "applied_to_tf_state": false,
+      "tf_state_at_decision": "protected"
+    },
+    "REPO:sse_dm_fin_fido": {
+      "protected": true,
+      "set_at": "2026-02-02T10:00:00Z",
+      "set_by": "user_click",
+      "reason": "Keep repo+prep protected (covers both TF resources)",
+      "resource_type": "REPO",
+      "applied_to_yaml": true,
+      "applied_to_tf_state": true,
       "tf_state_at_decision": "protected"
     }
   },
   "history": [
     {
-      "resource_key": "sse_dm_fin_fido",
+      "resource_key": "PRJ:sse_dm_fin_fido",
       "action": "unprotect",
       "timestamp": "2026-02-02T10:00:00Z",
-      "source": "unprotect_all_button",
+      "source": "unprotect_project_button",
       "tf_state_before": "protected",
       "yaml_state_before": true
     }
   ]
 }
 ```
+
+**When a `REPO:{name}` intent is applied**, it generates `moved` blocks for BOTH:
+
+1. `dbtcloud_repository.{name}`
+2. `dbtcloud_project_repository.{name}`
+
+This ensures repository and project_repository_link always move together as required by the TF module architecture.
 
 ## Key Design Decisions
 
@@ -245,6 +272,97 @@ projects/
 - **Track application status**: Know if intent has been applied to YAML and TF state
 - **History for audit**: Full trail of who changed what and when
 - **TF state reference**: Track what TF state was when decision was made
+
+## Protection Architecture (Critical)
+
+**The Terraform module has TWO INDEPENDENT protection scopes:**
+
+### 1. Project Protection (Independent)
+
+A **project** is protected independently. A protected project:
+
+- Cannot be destroyed or replaced
+- CAN have its repository/prep replaced or destroyed (if they are unprotected)
+- Protection status has no effect on child resources
+
+### 2. Repository + PREP Protection (Paired)
+
+A **repository** and its **project-repository link (PREP)** are ALWAYS protected together as a pair:
+
+- A repository cannot exist without a PREP (1:1 relationship)
+- If you protect a repository, the PREP is automatically protected
+- If you unprotect a repository, the PREP is automatically unprotected
+- They are created/destroyed together
+
+### Protection Matrix
+
+
+| Scenario        | Project Protected | Repo/PREP Protected | Allowed Operations                 |
+| --------------- | ----------------- | ------------------- | ---------------------------------- |
+| Fully protected | Yes               | Yes                 | None - all frozen                  |
+| Project only    | Yes               | No                  | Can replace/destroy repo+prep      |
+| Repo only       | No                | Yes                 | Can replace/destroy project (rare) |
+| Unprotected     | No                | No                  | Can replace/destroy all            |
+
+
+### Intent File Key Format
+
+The intent file tracks protection at the **resource** level with these keys:
+
+- `PRJ:{name}` - Project protection intent (independent)
+- `REPO:{name}` - Repository + PREP protection intent (single intent covers both TF resources)
+
+**IMPORTANT: REPO Consolidation**
+
+The `REPO:` key is a single intent that generates TWO Terraform moved blocks:
+
+1. `dbtcloud_repository.{name}`
+2. `dbtcloud_project_repository.{name}`
+
+Do NOT use separate `REP:` and `PREP:` keys - these have been deprecated and consolidated into `REPO:`.
+
+When recording a "repository" protection intent, the system automatically applies it to both the repository resource and the project-repository link resource in Terraform.
+
+### Examples
+
+**Protecting only the project:**
+
+```json
+{
+  "intent": {
+    "PRJ:analytics_prod": {
+      "protected": true,
+      "set_by": "user_click",
+      "resource_type": "PRJ"
+    }
+  }
+}
+```
+
+**Protecting only the repo+prep (project stays unprotected):**
+
+```json
+{
+  "intent": {
+    "REPO:analytics_prod": {
+      "protected": true,
+      "set_by": "user_click",
+      "resource_type": "REPO"
+    }
+  }
+}
+```
+
+**Common case - protecting everything:**
+
+```json
+{
+  "intent": {
+    "PRJ:analytics_prod": { "protected": true, "resource_type": "PRJ" },
+    "REPO:analytics_prod": { "protected": true, "resource_type": "REPO" }
+  }
+}
+```
 
 ## Implementation
 
@@ -305,18 +423,39 @@ else:
 
 **File:** `importer/web/pages/match.py`
 
-**Protect All / Unprotect All buttons:**
+**Protection Scope Separation in UI:**
+
+The Match page needs to support the two independent protection scopes:
+
+
+| Button                 | Records Intent For            | TF Resources Affected                                               |
+| ---------------------- | ----------------------------- | ------------------------------------------------------------------- |
+| Protect All Projects   | `PRJ:{name}` for each project | `dbtcloud_project.{name}`                                           |
+| Protect All Repos      | `REPO:{name}` for each repo   | `dbtcloud_repository.{name}` + `dbtcloud_project_repository.{name}` |
+| Unprotect All Projects | `PRJ:{name}` for each project | `dbtcloud_project.{name}`                                           |
+| Unprotect All Repos    | `REPO:{name}` for each repo   | `dbtcloud_repository.{name}` + `dbtcloud_project_repository.{name}` |
+
+
+**Or simplified approach (single buttons with scope selection):**
+
+- "Protect All" + scope dropdown: [Projects Only | Repos Only | Both]
+- "Unprotect All" + scope dropdown: [Projects Only | Repos Only | Both]
+
+**Intent recording (for each button click):**
 
 1. Write intent to `protection-intent.json` with `applied_to_yaml=False, applied_to_tf_state=False`
-2. Add history entry
-3. UI shows badge: "Pending: Generate Protection Changes" (orange)
-4. Do NOT immediately update YAML
+2. Use the correct key prefix: `PRJ:{name}` or `REPO:{name}`
+3. Add history entry
+4. UI shows badge: "Pending: Generate Protection Changes" (orange)
+5. Do NOT immediately update YAML
 
 **NEW "Generate Protection Changes" button:**
 
 1. Read pending intents where `applied_to_yaml=False`
 2. Update YAML `protected:` flags for those resources
-3. Generate `protection_moves.tf` with moved blocks
+3. Generate `protection_moves.tf` with moved blocks:
+  - For `PRJ:{name}` intents: one moved block for project
+  - For `REPO:{name}` intents: TWO moved blocks (repo + prep)
 4. Mark `applied_to_yaml=True` in intent file
 5. UI shows badge: "Pending: TF Init/Plan/Apply" (blue)
 
@@ -427,31 +566,49 @@ Inspired by Match page mismatch panel and Destroy page protection panel:
 │  [Reset All to YAML] [Sync from TF State] [Export JSON] [Generate All Pending]│
 ├────────────────────────────────────────────────────────────────────────────────┤
 │  Current Intents                                                               │
-│  Filter: [All Status v]  [All Types v]  Search: [______]    Showing: 50/50    │
+│  Filter: [All Status v]  [All Scopes v]  Search: [______]    Showing: 50/50   │
 ├────────────────────────────────────────────────────────────────────────────────┤
-│  Resource Key    │ Type │ Intent    │ Status           │ Set At     │ Actions │
+│  Resource Name   │ Scope│ Intent    │ Status           │ Set At     │ Actions │
 │  ────────────────┼──────┼───────────┼──────────────────┼────────────┼─────────│
 │  sse_dm_fin_fido │ PRJ  │ Unprotect │ Pending Generate │ 2026-02-02 │ [Edit]  │
+│  sse_dm_fin_fido │ REPO │ Protect   │ Synced           │ 2026-02-02 │ [Edit]  │
 │  bt_data_ops_db  │ PRJ  │ Protect   │ Pending TF Apply │ 2026-02-01 │ [Edit]  │
+│  bt_data_ops_db  │ REPO │ Protect   │ Pending TF Apply │ 2026-02-01 │ [Edit]  │
 │  analytics_prod  │ PRJ  │ Protect   │ Synced           │ 2026-01-15 │ [Edit]  │
+│  analytics_prod  │ REPO │ Protect   │ Synced           │ 2026-01-15 │ [Edit]  │
 ├────────────────────────────────────────────────────────────────────────────────┤
 │  Audit History (last 20)                                          [View All]   │
 ├────────────────────────────────────────────────────────────────────────────────┤
-│  Timestamp           │ Resource         │ Action    │ Source              │    │
-│  ────────────────────┼──────────────────┼───────────┼─────────────────────│    │
-│  2026-02-02 10:00:00 │ sse_dm_fin_fido  │ unprotect │ Unprotect All btn   │    │
-│  2026-02-02 09:45:00 │ bt_data_ops_db   │ protect   │ Cascade from ENV    │    │
-│  2026-02-01 14:30:00 │ analytics_prod   │ protect   │ Manual edit         │    │
+│  Timestamp           │ Resource              │ Action    │ Source            │  │
+│  ────────────────────┼───────────────────────┼───────────┼───────────────────│  │
+│  2026-02-02 10:00:00 │ PRJ:sse_dm_fin_fido   │ unprotect │ Unprotect Project │  │
+│  2026-02-02 09:45:00 │ REPO:bt_data_ops_db   │ protect   │ Protect Repo+PREP │  │
+│  2026-02-01 14:30:00 │ PRJ:analytics_prod    │ protect   │ Manual edit       │  │
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Scope Column Values:**
+
+- **PRJ** = Project protection (independent)
+- **REPO** = Repository + PREP protection (paired, a single intent covers both TF resources)
 
 **Key features:**
 
 - Status summary cards at top (count by status)
 - Bulk action buttons (same pattern as Destroy page)
 - AG Grid for current intents with filters (same pattern as Destroy page)
+- **Scope filter**: Filter by PRJ (project only) or REPO (repository+prep)
 - Audit history table with expandable "View All"
 - Edit button on each row opens manual intent editor dialog
+
+**UI Behavior for Repo+PREP pairing:**
+
+When the user protects/unprotects a "REPO" scope item, the intent system automatically:
+
+1. Records a single intent for `REPO:{name}`
+2. When generating moves, creates TWO moved blocks:
+  - `dbtcloud_repository.{name}` to protected/unprotected module
+  - `dbtcloud_project_repository.{name}` to protected/unprotected module
 
 ### 5. Destroy Page Integration
 
@@ -811,6 +968,26 @@ UI shows: "Synced" (green) or mismatch removed
 
 ## Match Page Button Layout and Styling
 
+**Protection Scope Separation:**
+
+Since projects and repos+prep have independent protection, the UI needs to handle both:
+
+**Option A: Scope Dropdown (Recommended)**
+
+```
+Scope: [▼ Both]  [🛡 Protect All]  [🔓 Unprotect All]
+       ├─ Both
+       ├─ Projects Only  
+       └─ Repos Only (includes PREP)
+```
+
+**Option B: Separate Buttons**
+
+```
+Projects: [🛡 Protect All Projects]  [🔓 Unprotect All Projects]
+Repos:    [🛡 Protect All Repos]     [🔓 Unprotect All Repos]
+```
+
 **Button styling requirements:**
 
 - Consistent sizing: `props("size=sm")` with `style("min-width: 120px")`
@@ -847,17 +1024,23 @@ protect_btn = ui.button("Protect All", icon="shield").props("color=positive")
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  Protection Mismatch (3 resources)                          [Recent Changes]│
+│  Protection Mismatch (3 projects, 3 repos)                  [Recent Changes]│
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  Actions:                                                                   │
-│  [🛡 Protect All]  [🔓 Unprotect All]  [⚙ Generate Protection Changes]     │
+│  Scope: [▼ Both]  [🛡 Protect All]  [🔓 Unprotect All]                     │
+│         ├─ Both                                                             │
+│         ├─ Projects Only                                                    │
+│         └─ Repos Only (includes PREP)                                       │
 │                                                                             │
-│  Status: ┌─────────────────────────────────┐                               │
-│          │ Pending: Generate Protection    │ (orange badge)                 │
-│          │ Changes (3 resources)           │                               │
-│          └─────────────────────────────────┘                               │
+│  [⚙ Generate Protection Changes]                                           │
+│                                                                             │
+│  Status: ┌─────────────────────────────────────────────────┐               │
+│          │ Pending: Generate Protection Changes            │ (orange badge) │
+│          │ 2 projects, 1 repo                              │               │
+│          └─────────────────────────────────────────────────┘               │
 │                                                                             │
 │  Mismatched resources listed below...                                       │
+│  (Grid shows both project and repo mismatches with scope indicator)         │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -867,4 +1050,14 @@ protect_btn = ui.button("Protect All", icon="shield").props("color=positive")
 │  └── Warning tooltip: "Regenerates ALL TF files..."                         │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Important Note on Repo+PREP Behavior:**
+
+When "Repos Only" is selected and user clicks "Protect All" or "Unprotect All":
+
+- Intent is recorded for `REPO:{name}` (single key)
+- When Generate Protection Changes runs, it creates TWO moved blocks:
+  1. `moved { from = module.unprotected.dbtcloud_repository.{name} to = module.protected... }`
+  2. `moved { from = module.unprotected.dbtcloud_project_repository.{name} to = module.protected... }`
+- This ensures repo and PREP always move together as required by the TF module architecture
 

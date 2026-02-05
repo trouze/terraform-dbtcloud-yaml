@@ -1450,6 +1450,15 @@ async def _run_normalize(
         state.map.lookups_count = result.get("lookups_count", 0)
         state.map.exclusions_count = result.get("exclusions_count", 0)
         
+        # Store collision warnings for display in UI
+        collision_count = result.get("collision_count", 0)
+        collision_summary = result.get("collision_summary", {})
+        if collision_summary:
+            state.data_quality_warnings["source"] = {
+                "collisions": collision_summary,
+                "collision_count": collision_count,
+            }
+        
         save_state()
         
         # Update status
@@ -1460,6 +1469,14 @@ async def _run_normalize(
         
         # Show results
         ui.notify("Normalization complete!", type="positive")
+        
+        # Show collision warning if any
+        if collision_count > 0:
+            ui.notify(
+                f"⚠️ Data quality: {collision_count} duplicate key(s) found and auto-resolved",
+                type="warning",
+                timeout=10000,
+            )
         
         # Trigger page refresh to show results
         ui.navigate.reload()
@@ -1570,6 +1587,8 @@ def _do_normalize(
         "exclusions_file": str(artifacts.get("exclusions")) if artifacts.get("exclusions") else None,
         "lookups_count": len(context.placeholders),
         "exclusions_count": len(context.exclusions),
+        "collision_summary": context.get_collision_summary(),
+        "collision_count": context.get_collision_count(),
     }
 
 

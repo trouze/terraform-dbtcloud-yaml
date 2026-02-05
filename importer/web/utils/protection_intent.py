@@ -4,10 +4,24 @@ This module provides the ProtectionIntentManager class that tracks explicit user
 intent for resource protection, with full audit trail. Intent takes precedence
 over YAML configuration to prevent "flip-flopping" of protection flags.
 
+Protection Architecture (Two Independent Scopes):
+-------------------------------------------------
+1. PROJECT (PRJ:) - Protected independently
+   - Key format: "PRJ:{resource_name}"
+   - TF resource: dbtcloud_project.{name}
+   - Can be protected/unprotected without affecting repo
+
+2. REPOSITORY (REPO:) - Repository + PREP always protected together
+   - Key format: "REPO:{resource_name}"
+   - TF resources: dbtcloud_repository.{name} AND dbtcloud_project_repository.{name}
+   - A single REPO intent generates TWO moved blocks in TF
+   - These resources are architecturally paired - cannot exist separately
+
 Key Design Decisions:
 - Intent takes precedence: If intent file says "unprotected", ignore YAML `protected: true`
 - YAML as fallback: If no intent for a resource, fall back to YAML flag
 - History for audit: Full trail of who changed what and when
+- REPO consolidation: Single intent key covers both repository and project_repository_link
 
 IMPORTANT: Debug instrumentation in this module MUST NOT be removed.
 See tasks/prd-web-ui-12-debug-logging-standards.md for guidelines.
@@ -38,6 +52,7 @@ class ProtectionIntent:
         set_at: ISO timestamp when the intent was set
         set_by: Source of the intent (e.g., "user_click", "unprotect_all", "import")
         reason: Human-readable reason for the decision
+        resource_type: Resource type code (PRJ, REPO) for display purposes. REPO covers both repository and project_repository_link.
         applied_to_yaml: Whether this intent has been written to YAML config
         applied_to_tf_state: Whether TF state has been moved to match this intent
         tf_state_at_decision: Protection status in TF state when decision was made
@@ -47,6 +62,7 @@ class ProtectionIntent:
     set_at: str
     set_by: str
     reason: str
+    resource_type: Optional[str] = None  # PRJ, REP, PREP - added for display
     applied_to_yaml: bool = False
     applied_to_tf_state: bool = False
     tf_state_at_decision: Optional[str] = None  # "protected", "unprotected", or None
@@ -58,6 +74,7 @@ class ProtectionIntent:
             "set_at": self.set_at,
             "set_by": self.set_by,
             "reason": self.reason,
+            "resource_type": self.resource_type,
             "applied_to_yaml": self.applied_to_yaml,
             "applied_to_tf_state": self.applied_to_tf_state,
             "tf_state_at_decision": self.tf_state_at_decision,
@@ -71,6 +88,7 @@ class ProtectionIntent:
             set_at=data.get("set_at", ""),
             set_by=data.get("set_by", ""),
             reason=data.get("reason", ""),
+            resource_type=data.get("resource_type"),
             applied_to_yaml=data.get("applied_to_yaml", False),
             applied_to_tf_state=data.get("applied_to_tf_state", False),
             tf_state_at_decision=data.get("tf_state_at_decision"),
@@ -217,6 +235,7 @@ class ProtectionIntentManager:
         source: str,
         reason: str,
         *,
+        resource_type: Optional[str] = None,
         tf_state_at_decision: Optional[str] = None,
         yaml_state_before: Optional[bool] = None,
     ) -> ProtectionIntent:
@@ -230,12 +249,20 @@ class ProtectionIntentManager:
             protected: Whether the resource should be protected
             source: Source of the intent (e.g., "user_click", "unprotect_all")
             reason: Human-readable reason for the decision
+            resource_type: Resource type code (PRJ, REP, PREP) for display
             tf_state_at_decision: Current TF state protection status
             yaml_state_before: Current YAML protection status before this change
             
         Returns:
             The created/updated ProtectionIntent
         """
+        # Check if intent already exists with same protection value
+        # Skip recording duplicate history if nothing actually changed
+        existing_intent = self._intent.get(key)
+        if existing_intent is not None and existing_intent.protected == protected:
+            logger.debug(f"Intent for '{key}' already set to {protected}, skipping duplicate history entry")
+            return existing_intent
+        
         timestamp = datetime.utcnow().isoformat() + "Z"
         
         # Create new intent (resets applied flags)
@@ -244,12 +271,13 @@ class ProtectionIntentManager:
             set_at=timestamp,
             set_by=source,
             reason=reason,
+            resource_type=resource_type,
             applied_to_yaml=False,
             applied_to_tf_state=False,
             tf_state_at_decision=tf_state_at_decision,
         )
         
-        # Record history
+        # Record history (only when intent actually changes)
         action = "protect" if protected else "unprotect"
         history_entry = HistoryEntry(
             resource_key=key,

@@ -1,8 +1,8 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2026-02-02  
-**Current Importer Version:** 0.15.10  
-**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix + Match Diagnostics Improvements + AG Grid Standardization + Dialog Width Fix + Protection Mismatch Fix + Adoption Override Data Flow Fix + Debug Logging Standards + View Output Plan Dialog Fix
+**Current Importer Version:** 0.16.0  
+**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix + Match Diagnostics Improvements + AG Grid Standardization + Dialog Width Fix + Protection Mismatch Fix + Adoption Override Data Flow Fix + Debug Logging Standards + View Output Plan Dialog Fix + Independent Protection Architecture
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
 > 
@@ -1228,6 +1228,16 @@ The following items require API endpoint research before implementation can begi
   - API returns error string instead of expected array, which `jsondecode()` parses as a string
   - Caused "Inconsistent conditional result types" error in `modules/projects_v2/data_sources.tf`
   - Solution: Wrapped decode in `try(tolist(jsondecode(...)), [])` to ensure consistent list type
+
+### 2026-02-02 (v0.16.0)
+- **Version:** Incremented to 0.16.0 (minor release - new feature)
+- **Independent Protection Architecture**: Implemented separate protection scopes for projects vs repositories
+  - Project protection (PRJ:) is independent - protecting a project does not affect its repository or project-repository link
+  - Repository + PREP protection (REPO:) is paired - they are always protected/unprotected together
+  - Added `repository_protected` YAML field for explicit control
+  - Updated Terraform module with independent repository protection routing logic
+  - Consolidated Protection Intent keys from `REP:` + `PREP:` to single `REPO:` prefix
+- **Bug Fix**: Fixed `Moved object still exists` Terraform error when using independent protection
 
 ### 2026-01-29 (v0.15.2)
 - **Version:** Incremented to 0.15.2 (patch release)

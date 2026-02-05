@@ -727,6 +727,11 @@ class AppState:
     # Raw target account data from target fetch
     target_account_data: Optional[dict] = None
     
+    # Data quality warnings (collisions, duplicates, etc.) from normalization
+    # Structure: {"source": {...}, "target": {...}}
+    # Each contains: {"collisions": {namespace: [{"key": str, "count": int, "generated_keys": list}]}, ...}
+    data_quality_warnings: dict = field(default_factory=dict)
+    
     # Protection intent manager (not serialized - manages its own file)
     # This is a cached reference, initialized lazily via get_protection_intent_manager()
     _protection_intent_manager: Optional["ProtectionIntentManager"] = field(
