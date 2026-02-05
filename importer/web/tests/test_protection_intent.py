@@ -383,3 +383,209 @@ class TestProtectionIntentDataclass:
         assert restored.applied_to_yaml == intent.applied_to_yaml
         assert restored.applied_to_tf_state == intent.applied_to_tf_state
         assert restored.tf_state_at_decision == intent.tf_state_at_decision
+
+
+# =============================================================================
+# Edge Case Tests
+# =============================================================================
+
+class TestIntentEdgeCases:
+    """Edge case tests for ProtectionIntentManager."""
+    
+    def test_set_intent_with_very_long_reason(
+        self, manager: ProtectionIntentManager
+    ):
+        """Test that very long reasons are handled correctly."""
+        long_reason = "A" * 10000
+        
+        intent = manager.set_intent(
+            key="test",
+            protected=True,
+            source="test",
+            reason=long_reason,
+        )
+        
+        assert intent.reason == long_reason
+        
+        # Should persist through save/load
+        manager.save()
+        
+        new_manager = ProtectionIntentManager(manager._intent_file)
+        new_manager.load()
+        
+        assert new_manager.get_intent("test").reason == long_reason
+    
+    def test_set_intent_with_special_characters_in_reason(
+        self, manager: ProtectionIntentManager
+    ):
+        """Test that special characters in reason are handled."""
+        special_reason = 'Test with "quotes" and\nnewlines\tand\ttabs'
+        
+        intent = manager.set_intent(
+            key="test",
+            protected=True,
+            source="test",
+            reason=special_reason,
+        )
+        
+        assert intent.reason == special_reason
+        
+        # Should persist through JSON serialization
+        manager.save()
+        
+        new_manager = ProtectionIntentManager(manager._intent_file)
+        new_manager.load()
+        
+        assert new_manager.get_intent("test").reason == special_reason
+    
+    def test_set_intent_with_unicode_key(
+        self, manager: ProtectionIntentManager
+    ):
+        """Test that unicode keys are handled correctly."""
+        unicode_key = "项目_プロジェクト"
+        
+        manager.set_intent(
+            key=unicode_key,
+            protected=True,
+            source="test",
+            reason="Unicode test",
+        )
+        
+        assert manager.get_intent(unicode_key) is not None
+        
+        # Should persist
+        manager.save()
+        
+        new_manager = ProtectionIntentManager(manager._intent_file)
+        new_manager.load()
+        
+        assert new_manager.get_intent(unicode_key) is not None
+    
+    def test_clear_all_intents(
+        self, manager: ProtectionIntentManager
+    ):
+        """Test clearing all intents."""
+        # Add several intents
+        manager.set_intent("a", protected=True, source="test", reason="a")
+        manager.set_intent("b", protected=False, source="test", reason="b")
+        manager.set_intent("c", protected=True, source="test", reason="c")
+        
+        assert manager.intent_count == 3
+        
+        # Clear by resetting internal state
+        manager._intent = {}
+        manager.save()
+        
+        # Reload
+        new_manager = ProtectionIntentManager(manager._intent_file)
+        new_manager.load()
+        
+        assert new_manager.intent_count == 0
+    
+    def test_batch_mark_applied_to_yaml(
+        self, manager: ProtectionIntentManager
+    ):
+        """Test batch marking multiple intents as applied."""
+        # Add several intents
+        keys = [f"project_{i}" for i in range(10)]
+        for key in keys:
+            manager.set_intent(key, protected=True, source="test", reason="test")
+        
+        # Mark all as applied in one call
+        manager.mark_applied_to_yaml(set(keys))
+        
+        # All should be marked
+        for key in keys:
+            assert manager.get_intent(key).applied_to_yaml is True
+    
+    def test_get_pending_with_no_intents(
+        self, manager: ProtectionIntentManager
+    ):
+        """Test get_pending_yaml_updates with no intents."""
+        pending = manager.get_pending_yaml_updates()
+        assert len(pending) == 0
+    
+    def test_get_pending_after_all_applied(
+        self, manager: ProtectionIntentManager
+    ):
+        """Test get_pending_yaml_updates when all intents are applied."""
+        manager.set_intent("a", protected=True, source="test", reason="test")
+        manager.set_intent("b", protected=False, source="test", reason="test")
+        
+        manager.mark_applied_to_yaml({"a", "b"})
+        
+        pending = manager.get_pending_yaml_updates()
+        assert len(pending) == 0
+    
+    def test_history_count_matches_actual_changes(
+        self, manager: ProtectionIntentManager
+    ):
+        """Test that history_count accurately reflects all changes."""
+        # Make 5 changes
+        for i in range(5):
+            manager.set_intent(f"key_{i}", protected=True, source="test", reason=f"change {i}")
+        
+        assert manager.history_count == 5
+        
+        # Make 3 more changes (including overwrites)
+        manager.set_intent("key_0", protected=False, source="test", reason="overwrite")
+        manager.set_intent("key_1", protected=False, source="test", reason="overwrite")
+        manager.set_intent("new_key", protected=True, source="test", reason="new")
+        
+        assert manager.history_count == 8
+    
+    def test_intent_count_reflects_unique_keys(
+        self, manager: ProtectionIntentManager
+    ):
+        """Test that intent_count only counts unique keys."""
+        manager.set_intent("key_a", protected=True, source="test", reason="first")
+        manager.set_intent("key_a", protected=False, source="test", reason="second")
+        manager.set_intent("key_a", protected=True, source="test", reason="third")
+        
+        # Only 1 unique key even with 3 changes
+        assert manager.intent_count == 1
+    
+    def test_effective_protection_with_none_yaml_protected(
+        self, manager: ProtectionIntentManager
+    ):
+        """Test get_effective_protection when yaml_protected is None."""
+        # When no intent and yaml_protected is None, should return False
+        effective = manager.get_effective_protection("unknown", yaml_protected=None)
+        assert effective is None or effective is False
+    
+    def test_multiple_resource_types_same_base_name(
+        self, manager: ProtectionIntentManager
+    ):
+        """Test that different prefixes for same base name are treated separately."""
+        manager.set_intent("PRJ:resource", protected=True, source="test", reason="project")
+        manager.set_intent("REP:resource", protected=False, source="test", reason="repo")
+        
+        assert manager.get_intent("PRJ:resource").protected is True
+        assert manager.get_intent("REP:resource").protected is False
+        
+        # They're different keys
+        assert manager.intent_count == 2
+
+
+class TestIntentConcurrency:
+    """Tests for concurrent-like operations on intents."""
+    
+    def test_rapid_save_load_cycles(
+        self, temp_intent_file: Path
+    ):
+        """Test rapid save/load cycles don't corrupt data."""
+        for i in range(20):
+            manager = ProtectionIntentManager(temp_intent_file)
+            manager.load()
+            manager.set_intent(f"key_{i % 5}", protected=(i % 2 == 0), source="test", reason=f"cycle {i}")
+            manager.save()
+        
+        # Final state should be consistent
+        final_manager = ProtectionIntentManager(temp_intent_file)
+        final_manager.load()
+        
+        # Should have exactly 5 keys
+        assert final_manager.intent_count == 5
+        
+        # All history entries should be preserved
+        assert final_manager.history_count == 20
