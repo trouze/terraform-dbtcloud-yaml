@@ -1,0 +1,133 @@
+# Workflow for running pytest on pull requests
+name: Pytest
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'importer/**'
+      - 'test/**'
+      - 'requirements*.txt'
+      - '.github/workflows/pytest.yml'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+
+# Cancel in-progress runs for the same PR
+concurrency:
+  group: pytest-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  pytest:
+    name: Run Pytest
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.12']
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+      
+      - name: Create virtual environment
+        run: uv venv --python ${{ matrix.python-version }}
+      
+      - name: Install dependencies
+        run: |
+          # Install application dependencies
+          uv pip install -r importer/requirements.txt
+          # Install test dependencies
+          uv pip install -r test/requirements.txt
+          # Install pytest and test tools
+          uv pip install pytest pytest-cov pytest-asyncio pytest-mock
+      
+      - name: Run pytest (excluding Playwright/E2E)
+        run: |
+          uv run pytest \
+            importer/web/tests/ \
+            test/test_hierarchy_index.py \
+            test/test_normalizer.py \
+            test/test_web_workflow.py \
+            test/schema_validation_test.py \
+            --ignore=test/e2e/ \
+            --ignore=test/e2e_bt/ \
+            --ignore=test/e2e_dps/ \
+            --ignore=test/e2e_test/ \
+            -v \
+            --tb=short \
+            --color=yes
+      
+      - name: Run pytest with coverage
+        if: matrix.python-version == '3.12'
+        run: |
+          uv run pytest \
+            importer/web/tests/ \
+            test/test_hierarchy_index.py \
+            test/test_normalizer.py \
+            test/test_web_workflow.py \
+            test/schema_validation_test.py \
+            --ignore=test/e2e/ \
+            --ignore=test/e2e_bt/ \
+            --ignore=test/e2e_dps/ \
+            --ignore=test/e2e_test/ \
+            --cov=importer \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            -v
+      
+      - name: Upload coverage to Codecov
+        if: matrix.python-version == '3.12'
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+          verbose: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # Lint check (optional - can be enabled later)
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+      
+      - name: Set up Python
+        run: uv python install 3.12
+      
+      - name: Create virtual environment
+        run: uv venv
+      
+      - name: Install ruff
+        run: uv pip install ruff
+      
+      - name: Run ruff check
+        run: |
+          uv run ruff check importer/ test/ --output-format=github
+        continue-on-error: true  # Don't fail CI on lint errors initially
+      
+      - name: Run ruff format check
+        run: |
+          uv run ruff format --check importer/ test/
+        continue-on-error: true
