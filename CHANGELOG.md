@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.2] - 2026-02-05
+
+### Fixed
+- **Repository Key Prefix Matching**: Fixed bug where `apply_protection_from_set` and `apply_unprotection_from_set` failed to match repository keys with prefixes
+  - YAML repository keys often have prefixes like `dbt_ep_` (e.g., `dbt_ep_sse_dm_fin_fido`)
+  - Intent keys use base names (e.g., `REP:sse_dm_fin_fido`)
+  - Now uses flexible matching: exact match first, then checks if `repo_key.endswith(base_key)` or `base_key in repo_key`
+  - This fixes the "Moved object still exists" terraform error when protection intent repair failed to update YAML
+
+### Added
+- **Repository Key Prefix Tests**: Added 8 new tests for repository key prefix matching
+  - `TestRepositoryKeyPrefixMatching` (6 tests): Verifies flexible key matching for protection/unprotection
+  - `TestIntentYamlRepairWithPrefixedRepos` (2 tests): Integration tests for full repair flow
+
 ## [0.16.1] - 2026-02-05
 
 ### Added

@@ -1565,6 +1565,27 @@ async def _run_generate(
             import traceback
             terminal.warning(f"  {traceback.format_exc()[:500]}")
 
+        # CRITICAL FIX: Sync state.map.protected_resources from protection_intent_manager
+        # The Protection Management page uses intent manager, but deploy.py uses protected_resources
+        # Without this sync, protection from the UI is not applied during generation
+        protection_intent_manager = state.get_protection_intent_manager()
+        intent_protected_keys = {k for k, i in protection_intent_manager._intent.items() if i.protected}
+        intent_unprotected_keys = {k for k, i in protection_intent_manager._intent.items() if not i.protected}
+        
+        if intent_protected_keys:
+            # Merge intent-protected keys into state.map.protected_resources
+            if not state.map.protected_resources:
+                state.map.protected_resources = set()
+            state.map.protected_resources.update(intent_protected_keys)
+            terminal.info(f"Synced {len(intent_protected_keys)} protected resource(s) from intent manager")
+        
+        if intent_unprotected_keys:
+            # Merge intent-unprotected keys into state.map.unprotected_keys
+            if not state.map.unprotected_keys:
+                state.map.unprotected_keys = set()
+            state.map.unprotected_keys.update(intent_unprotected_keys)
+            terminal.info(f"Synced {len(intent_unprotected_keys)} unprotected resource(s) from intent manager")
+        
         # Apply protection changes from both protected_resources and unprotected_keys sets
         # protected_resources: resources that should have protected=True
         # unprotected_keys: resources that should have protected removed/False
@@ -1701,6 +1722,111 @@ async def _run_generate(
                     "hypothesisId": "HF",
                 }) + "\n")
             # #endregion
+            
+            # FIX: Apply pending protection intents to YAML BEFORE comparing to state
+            # This ensures the Deploy page respects intents just like the Match page does
+            protection_intent_manager = state.get_protection_intent_manager()
+            pending_yaml_updates = protection_intent_manager.get_pending_yaml_updates()
+            pending_tf_apply = {k: i for k, i in protection_intent_manager._intent.items()
+                               if i.applied_to_yaml and not i.applied_to_tf_state}
+            
+            all_pending = {**pending_yaml_updates, **pending_tf_apply}
+            
+            if all_pending:
+                terminal.info("")
+                terminal.info(f"Applying {len(all_pending)} pending protection intent(s) to YAML...")
+                
+                from importer.web.utils.adoption_yaml_updater import apply_protection_from_set, apply_unprotection_from_set
+                
+                # Find the YAML file to update
+                yaml_file_to_update = Path(current_yaml_path)
+                if not yaml_file_to_update.exists():
+                    # Try terraform directory
+                    if state.deploy.terraform_dir:
+                        yaml_file_to_update = Path(state.deploy.terraform_dir) / "dbt-cloud-config.yml"
+                
+                if yaml_file_to_update.exists():
+                    keys_to_protect = {k for k, i in all_pending.items() if i.protected}
+                    keys_to_unprotect = {k for k, i in all_pending.items() if not i.protected}
+                    
+                    if keys_to_protect:
+                        apply_protection_from_set(str(yaml_file_to_update), keys_to_protect)
+                        terminal.info(f"  Applied protection to {len(keys_to_protect)} resource(s)")
+                        for k in list(keys_to_protect)[:5]:
+                            terminal.info(f"    + {k}")
+                        if len(keys_to_protect) > 5:
+                            terminal.info(f"    ... and {len(keys_to_protect) - 5} more")
+                    
+                    if keys_to_unprotect:
+                        apply_unprotection_from_set(str(yaml_file_to_update), keys_to_unprotect)
+                        terminal.info(f"  Removed protection from {len(keys_to_unprotect)} resource(s)")
+                        for k in list(keys_to_unprotect)[:5]:
+                            terminal.info(f"    - {k}")
+                        if len(keys_to_unprotect) > 5:
+                            terminal.info(f"    ... and {len(keys_to_unprotect) - 5} more")
+                    
+                    # Mark intents as applied to YAML
+                    for key in all_pending:
+                        protection_intent_manager.mark_applied_to_yaml(key)
+                    protection_intent_manager.save()
+                    
+                    terminal.success("  Protection intents applied to YAML")
+                else:
+                    terminal.warning(f"  Could not find YAML file to update: {yaml_file_to_update}")
+            
+            # ADDITIONAL FIX: Validate that intent matches YAML reality
+            # Detect case where intent says applied_to_yaml=true but YAML doesn't actually have the protection status
+            yaml_to_check = Path(current_yaml_path) if Path(current_yaml_path).exists() else None
+            if not yaml_to_check and state.deploy.terraform_dir:
+                yaml_to_check = Path(state.deploy.terraform_dir) / "dbt-cloud-config.yml"
+            
+            if yaml_to_check and yaml_to_check.exists():
+                terminal.info("")
+                terminal.info("Validating protection intent vs YAML reality...")
+                
+                yaml_config = load_yaml_config(str(yaml_to_check))
+                
+                # Build set of actually protected projects in YAML
+                yaml_protected = set()
+                for proj in yaml_config.get("projects", []):
+                    if proj.get("protected"):
+                        key = proj.get("key", "")
+                        yaml_protected.add(f"PRJ:{key}")
+                        # Also check repositories
+                        if proj.get("repository"):
+                            yaml_protected.add(f"REPO:{key}")
+                
+                # Check each intent that claims applied_to_yaml=true
+                intent_yaml_mismatches = []
+                for key, intent in protection_intent_manager._intent.items():
+                    if intent.applied_to_yaml:
+                        # Intent claims YAML should have this protection status
+                        should_be_protected = intent.protected
+                        is_protected_in_yaml = key in yaml_protected
+                        
+                        if should_be_protected != is_protected_in_yaml:
+                            intent_yaml_mismatches.append({
+                                "key": key,
+                                "intent_says": "protected" if should_be_protected else "unprotected",
+                                "yaml_says": "protected" if is_protected_in_yaml else "unprotected",
+                            })
+                
+                if intent_yaml_mismatches:
+                    terminal.warning(f"  Found {len(intent_yaml_mismatches)} intent/YAML mismatch(es) - fixing...")
+                    for mismatch in intent_yaml_mismatches:
+                        terminal.warning(f"    {mismatch['key']}: intent={mismatch['intent_says']}, yaml={mismatch['yaml_says']}")
+                        # Fix by re-applying the intent to YAML
+                        key = mismatch["key"]
+                        intent = protection_intent_manager._intent[key]
+                        if intent.protected:
+                            from importer.web.utils.adoption_yaml_updater import apply_protection_from_set
+                            apply_protection_from_set(str(yaml_to_check), {key})
+                        else:
+                            from importer.web.utils.adoption_yaml_updater import apply_unprotection_from_set
+                            apply_unprotection_from_set(str(yaml_to_check), {key})
+                    terminal.success("  Intent/YAML mismatches repaired")
+                else:
+                    terminal.info("  Intent matches YAML - no repairs needed")
             
             if previous_yaml_path and Path(previous_yaml_path).exists():
                 terminal.info("")

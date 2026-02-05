@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "updated_at": "2026-02-04T00:00:00Z",
+  "intent": {
+    "PRJ:test_project": {
+      "protected": true,
+      "set_at": "2026-02-04T00:00:00Z",
+      "set_by": "test_fixture",
+      "reason": "Test protection intent",
+      "resource_type": "PRJ",
+      "applied_to_yaml": false,
+      "applied_to_tf_state": false,
+      "tf_state_at_decision": "unprotected"
+    }
+  },
+  "history": [
+    {
+      "resource_key": "PRJ:test_project",
+      "action": "protect",
+      "timestamp": "2026-02-04T00:00:00Z",
+      "source": "test_fixture",
+      "tf_state_before": "unprotected",
+      "yaml_state_before": false
+    }
+  ]
+}

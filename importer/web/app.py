@@ -106,7 +106,14 @@ def navigate_to_step(step: WorkflowStep) -> None:
     state = get_state()
     state.current_step = step
     save_state()
-    ui.navigate.to(f"/{step.name.lower()}" if step != WorkflowStep.HOME else "/")
+    # Map step to URL - handle special cases
+    if step == WorkflowStep.HOME:
+        url = "/"
+    elif step == WorkflowStep.UTILITIES:
+        url = "/protection-management"
+    else:
+        url = f"/{step.name.lower()}"
+    ui.navigate.to(url)
 
 
 def set_workflow(workflow: WorkflowType) -> None:
@@ -148,7 +155,14 @@ def set_workflow(workflow: WorkflowType) -> None:
     next_step = state.current_step if state.current_step in steps else steps[0]
     state.current_step = next_step
     save_state()
-    ui.navigate.to(f"/{next_step.name.lower()}" if next_step != WorkflowStep.HOME else "/")
+    # Map step to URL - handle special cases
+    if next_step == WorkflowStep.HOME:
+        url = "/"
+    elif next_step == WorkflowStep.UTILITIES:
+        url = "/protection-management"
+    else:
+        url = f"/{next_step.name.lower()}"
+    ui.navigate.to(url)
 
 
 def toggle_theme() -> None:
@@ -522,9 +536,9 @@ def destroy_page() -> None:
         create_page_content(state)
 
 
-@ui.page("/utilities")
-def utilities_page() -> None:
-    """Utilities page route."""
+@ui.page("/protection-management")
+def protection_management_page() -> None:
+    """Protection Management page route."""
     state = get_state()
     state.current_step = WorkflowStep.UTILITIES
     save_state()
