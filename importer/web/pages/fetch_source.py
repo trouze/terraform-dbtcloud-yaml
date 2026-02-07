@@ -754,14 +754,20 @@ async def _run_fetch(
 
         # Reset downstream state since source data has changed
         # This ensures Match, Configure, and Deploy steps reflect fresh data
-        state.map.confirmed_mappings = []
-        state.map.suggested_matches = []
-        state.map.rejected_suggestions = set()
-        state.map.mapping_file_valid = False
+        #
+        # PRESERVED per FR-14/FR-16/FR-19 (PRD 21.02):
+        #   - confirmed_mappings: kept for stale detection (may need review)
+        #   - rejected_suggestions: kept (user work)
+        #   - disable_job_triggers: kept (user setting, FR-14)
+        #   - import_mode: kept (user setting, FR-15)
+        #   - protected_resources: kept (FR-17)
+        #   - scope_mode, resource_filters, normalization_options: kept (FR-18)
+        #
+        # RESET (re-derivable or invalid after source change):
+        state.map.suggested_matches = []  # Tier 3: re-generated from new data
+        state.map.mapping_file_valid = False  # May be stale
         state.map.mapping_file_path = None
-        state.map.normalize_complete = False  # Re-scope needed
-        state.deploy.configure_complete = False
-        state.deploy.disable_job_triggers = False
+        state.map.normalize_complete = False  # Re-scope needed with new source data
 
         save_state()
         fetch_complete["value"] = True

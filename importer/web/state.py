@@ -252,6 +252,31 @@ class CloneConfig:
     include_triggers: bool = False  # Whether to copy job triggers/schedules
     include_credentials: bool = False  # Whether to copy connection credentials
 
+    def to_dict(self) -> dict:
+        """Convert to dictionary for serialization."""
+        return {
+            "source_key": self.source_key,
+            "new_name": self.new_name,
+            "include_dependents": list(self.include_dependents),
+            "dependent_names": dict(self.dependent_names),
+            "include_env_values": self.include_env_values,
+            "include_triggers": self.include_triggers,
+            "include_credentials": self.include_credentials,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "CloneConfig":
+        """Create from dictionary."""
+        return cls(
+            source_key=data.get("source_key", ""),
+            new_name=data.get("new_name", ""),
+            include_dependents=data.get("include_dependents", []),
+            dependent_names=data.get("dependent_names", {}),
+            include_env_values=data.get("include_env_values", True),
+            include_triggers=data.get("include_triggers", False),
+            include_credentials=data.get("include_credentials", False),
+        )
+
 
 @dataclass
 class EnvironmentCredentialConfig:
@@ -512,6 +537,31 @@ class ImportResult:
     error_message: Optional[str] = None
     duration_ms: Optional[int] = None
 
+    def to_dict(self) -> dict:
+        """Convert to dictionary for serialization."""
+        return {
+            "resource_address": self.resource_address,
+            "target_id": self.target_id,
+            "source_key": self.source_key,
+            "resource_type": self.resource_type,
+            "status": self.status,
+            "error_message": self.error_message,
+            "duration_ms": self.duration_ms,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ImportResult":
+        """Create from dictionary."""
+        return cls(
+            resource_address=data.get("resource_address", ""),
+            target_id=data.get("target_id", ""),
+            source_key=data.get("source_key", ""),
+            resource_type=data.get("resource_type", ""),
+            status=data.get("status", "pending"),
+            error_message=data.get("error_message"),
+            duration_ms=data.get("duration_ms"),
+        )
+
 
 @dataclass
 class DeployState:
@@ -618,6 +668,25 @@ class JACProjectMapping:
     target_id: Optional[int] = None
     target_name: str = ""
 
+    def to_dict(self) -> dict:
+        """Convert to dictionary for serialization."""
+        return {
+            "source_id": self.source_id,
+            "source_name": self.source_name,
+            "target_id": self.target_id,
+            "target_name": self.target_name,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "JACProjectMapping":
+        """Create from dictionary."""
+        return cls(
+            source_id=data.get("source_id", 0),
+            source_name=data.get("source_name", ""),
+            target_id=data.get("target_id"),
+            target_name=data.get("target_name", ""),
+        )
+
 
 @dataclass
 class JACEnvironmentMapping:
@@ -628,6 +697,27 @@ class JACEnvironmentMapping:
     source_project_id: int = 0
     target_id: Optional[int] = None
     target_name: str = ""
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for serialization."""
+        return {
+            "source_id": self.source_id,
+            "source_name": self.source_name,
+            "source_project_id": self.source_project_id,
+            "target_id": self.target_id,
+            "target_name": self.target_name,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "JACEnvironmentMapping":
+        """Create from dictionary."""
+        return cls(
+            source_id=data.get("source_id", 0),
+            source_name=data.get("source_name", ""),
+            source_project_id=data.get("source_project_id", 0),
+            target_id=data.get("target_id"),
+            target_name=data.get("target_name", ""),
+        )
 
 
 @dataclass
@@ -731,7 +821,11 @@ class AppState:
     # Structure: {"source": {...}, "target": {...}}
     # Each contains: {"collisions": {namespace: [{"key": str, "count": int, "generated_keys": list}]}, ...}
     data_quality_warnings: dict = field(default_factory=dict)
-    
+
+    # Project management fields (US-097)
+    active_project: Optional[str] = None  # Slug of the currently active project
+    project_path: Optional[str] = None  # Path to the active project folder (stored as str for serialization)
+
     # Protection intent manager (not serialized - manages its own file)
     # This is a cached reference, initialized lazily via get_protection_intent_manager()
     _protection_intent_manager: Optional["ProtectionIntentManager"] = field(
@@ -895,7 +989,14 @@ class AppState:
         return None
 
     def to_dict(self) -> dict:
-        """Convert state to dictionary for storage."""
+        """Convert state to dictionary for storage.
+        
+        Serialization tiers (per PRD 21.02 US-098):
+        - Tier 1: MUST serialize — user work, configuration, step completion
+        - Tier 2: SHOULD serialize — operation logs/outputs (large text stored as
+          separate files when using ProjectManager; inline otherwise)
+        - Tier 3: SKIP — runtime-only, transient, or re-derivable fields
+        """
         return {
             "current_step": self.current_step.value,
             "theme": self.theme,
@@ -905,10 +1006,14 @@ class AppState:
             "license_email": self.license_email,
             "license_message": self.license_message,
             "active_fetch_mode": self.active_fetch_mode.value,
+            # Project management (US-097)
+            "active_project": self.active_project,
+            "project_path": self.project_path,
             "source_credentials": {
                 "host_url": self.source_credentials.host_url,
                 "account_id": self.source_credentials.account_id,
                 # Don't persist token for security
+                "token_type": self.source_credentials.token_type,  # Tier 1: was missing (FR-52)
             },
             "target_credentials": {
                 "host_url": self.target_credentials.host_url,
@@ -939,6 +1044,8 @@ class AppState:
                 "last_report_items_file": self.fetch.last_report_items_file,
                 "account_name": self.fetch.account_name,
                 "resource_counts": self.fetch.resource_counts,
+                # Tier 3 SKIP: is_fetching (runtime flag, always starts False)
+                # Tier 3 SKIP: threads (runtime config, use default)
             },
             "target_fetch": {
                 "output_dir": self.target_fetch.output_dir,
@@ -950,11 +1057,17 @@ class AppState:
                 "last_report_items_file": self.target_fetch.last_report_items_file,
                 "account_name": self.target_fetch.account_name,
                 "resource_counts": self.target_fetch.resource_counts,
+                # Tier 3 SKIP: is_fetching (runtime flag)
+                # Tier 3 SKIP: threads (runtime config)
             },
             "explore": {
                 "visible_columns": self.explore.visible_columns,
+                # Tier 3 SKIP: report_items (loaded from last_report_items_file)
+                # Tier 3 SKIP: selected_type_filter (minor UI filter state)
+                # Tier 3 SKIP: search_query (minor UI filter state)
             },
             "map": {
+                # Existing serialized fields
                 "scope_mode": self.map.scope_mode,
                 "selected_project_ids": self.map.selected_project_ids,
                 "resource_filters": self.map.resource_filters,
@@ -971,23 +1084,77 @@ class AppState:
                 "mapping_file_path": self.map.mapping_file_path,
                 "mapping_file_valid": self.map.mapping_file_valid,
                 # Resource protection state
-                "protected_resources": list(self.map.protected_resources),
-                "unprotected_keys": list(self.map.unprotected_keys),
+                "protected_resources": sorted(self.map.protected_resources),
+                "unprotected_keys": sorted(self.map.unprotected_keys),
                 # Protection fix state
                 "protection_fix_pending": self.map.protection_fix_pending,
                 "protection_fix_file_path": self.map.protection_fix_file_path,
                 "protection_fix_action": self.map.protection_fix_action,
-                "protection_fix_backup_protected": list(self.map.protection_fix_backup_protected),
-                "protection_fix_backup_unprotected": list(self.map.protection_fix_backup_unprotected),
+                "protection_fix_backup_protected": sorted(self.map.protection_fix_backup_protected),
+                "protection_fix_backup_unprotected": sorted(self.map.protection_fix_backup_unprotected),
+                # Tier 1: User selections (FR-44)
+                "selected_entities": sorted(self.map.selected_entities),
+                "selections_loaded": self.map.selections_loaded,
+                "selection_counts": self.map.selection_counts,
+                # Tier 1: Resource type toggles (FR-45)
+                "include_groups": self.map.include_groups,
+                "include_notifications": self.map.include_notifications,
+                "include_service_tokens": self.map.include_service_tokens,
+                "include_webhooks": self.map.include_webhooks,
+                "include_privatelink": self.map.include_privatelink,
+                "auto_cascade_children": self.map.auto_cascade_children,
+                # Tier 1: Rejected suggestions and cloned resources (FR-46)
+                "rejected_suggestions": sorted(self.map.rejected_suggestions),
+                "cloned_resources": [c.to_dict() for c in self.map.cloned_resources],
+                # Tier 3 SKIP: normalize_running (runtime flag)
+                # Tier 3 SKIP: normalize_error (transient error)
+                # Tier 3 SKIP: type_filter (minor UI filter state)
+                # Tier 3 SKIP: selected_only_filter (minor UI filter state)
+                # Tier 3 SKIP: suggested_matches (re-generated from source+target data)
+                # Tier 3 SKIP: mapping_validation_errors (re-validated on load)
+                # Tier 3 SKIP: protection_fix_pending through protection_fix_backup_* (transient fix state)
+                #   Note: protection_fix fields ARE serialized above for undo support
+                # Tier 3 SKIP: protection_fix_previous_content (large, transient)
             },
             "deploy": {
+                # Previously serialized fields
                 "import_completed": self.deploy.import_completed,
                 "import_mode": self.deploy.import_mode,
                 "terraform_version": self.deploy.terraform_version,
                 "terraform_dir": self.deploy.terraform_dir,
                 "files_generated": self.deploy.files_generated,
-                # Adoption data - critical for re-applying target values on regenerate
+                # Tier 1: Step completion flags (FR-37)
+                "configure_complete": self.deploy.configure_complete,
+                "apply_complete": self.deploy.apply_complete,
+                "destroy_complete": self.deploy.destroy_complete,
+                "terraform_initialized": self.deploy.terraform_initialized,
+                # Tier 1: Operation success flags (FR-39)
+                "last_validate_success": self.deploy.last_validate_success,
+                "last_plan_success": self.deploy.last_plan_success,
+                # Tier 1: User settings
+                "disable_job_triggers": self.deploy.disable_job_triggers,
+                "connection_configs": self.deploy.connection_configs,
+                "previous_yaml_file": self.deploy.previous_yaml_file,
+                "imports_file_generated": self.deploy.imports_file_generated,
+                # Tier 1: Import results (FR-47)
+                "import_results": [r.to_dict() for r in self.deploy.import_results],
+                "apply_results": self.deploy.apply_results,
+                # Tier 1: Reconcile state (FR-48)
+                "reconcile_state_loaded": self.deploy.reconcile_state_loaded,
+                "reconcile_state_resources": self.deploy.reconcile_state_resources,
+                "reconcile_drift_results": self.deploy.reconcile_drift_results,
+                "reconcile_adopt_selections": self.deploy.reconcile_adopt_selections,
+                "reconcile_imports_generated": self.deploy.reconcile_imports_generated,
                 "reconcile_adopt_rows": self.deploy.reconcile_adopt_rows,
+                "reconcile_execution_logs": self.deploy.reconcile_execution_logs,
+                # Tier 2: Operation logs (FR-40) — stored inline here, ProjectManager
+                # will split to separate files in {project}/logs/ when saving to project
+                "last_generate_output": self.deploy.last_generate_output,
+                "last_init_output": self.deploy.last_init_output,
+                "last_validate_output": self.deploy.last_validate_output,
+                "last_plan_output": self.deploy.last_plan_output,
+                "last_apply_output": self.deploy.last_apply_output,
+                "last_import_output": self.deploy.last_import_output,
             },
             "env_credentials": self.env_credentials.to_dict(),
             "jobs_as_code": {
@@ -996,7 +1163,7 @@ class AppState:
                 "source_jobs": self.jobs_as_code.source_jobs,
                 "source_projects": self.jobs_as_code.source_projects,
                 "source_environments": self.jobs_as_code.source_environments,
-                "selected_job_ids": list(self.jobs_as_code.selected_job_ids),
+                "selected_job_ids": sorted(self.jobs_as_code.selected_job_ids),
                 "job_configs": [
                     {
                         "job_id": c.job_id,
@@ -1019,12 +1186,36 @@ class AppState:
                 "generation_complete": self.jobs_as_code.generation_complete,
                 "name_prefix": self.jobs_as_code.name_prefix,
                 "name_suffix": self.jobs_as_code.name_suffix,
+                # Tier 1: Target data and mappings (FR-49)
+                "target_jobs": self.jobs_as_code.target_jobs,
+                "target_projects": self.jobs_as_code.target_projects,
+                "target_environments": self.jobs_as_code.target_environments,
+                "project_mappings": [m.to_dict() for m in self.jobs_as_code.project_mappings],
+                "environment_mappings": [m.to_dict() for m in self.jobs_as_code.environment_mappings],
+                # Tier 2: Generated outputs (FR-50) — stored inline, ProjectManager
+                # will split to logs/jac_generated.yaml and logs/jac_generated_vars.yaml
+                "generated_yaml": self.jobs_as_code.generated_yaml,
+                "generated_vars_yaml": self.jobs_as_code.generated_vars_yaml,
+                # Tier 3 SKIP: is_fetching (runtime flag)
+                # Tier 3 SKIP: fetch_error (transient error)
+                # Tier 3 SKIP: validation_errors (re-validated on load)
+                # Tier 3 SKIP: identifier_warnings (re-validated on load)
             },
+            # Tier 1: Data quality warnings (FR-51)
+            "data_quality_warnings": self.data_quality_warnings,
+            # Tier 3 SKIP: account_data (huge raw API data; loaded from fetch.last_fetch_file)
+            # Tier 3 SKIP: target_account_data (huge raw API data; loaded from target_fetch.last_fetch_file)
+            # Tier 3 SKIP: _protection_intent_manager (runtime object, manages its own file)
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "AppState":
-        """Restore state from dictionary."""
+        """Restore state from dictionary.
+        
+        Handles missing keys gracefully — uses field defaults for any key not present
+        in the data dict. This ensures backward compatibility when loading state.json
+        from older versions that lack newer fields.
+        """
         state = cls()
 
         if "current_step" in data:
@@ -1050,12 +1241,23 @@ class AppState:
             except Exception:
                 state.active_fetch_mode = FetchMode.SOURCE
 
+        # Project management fields (US-097)
+        state.active_project = data.get("active_project")
+        state.project_path = data.get("project_path")
+
         if "source_credentials" in data:
             sc = data["source_credentials"]
             state.source_credentials.host_url = sc.get(
                 "host_url", "https://cloud.getdbt.com"
             )
             state.source_credentials.account_id = sc.get("account_id", "")
+            # Tier 1: Restore token_type for source credentials (FR-52)
+            token_type = sc.get("token_type", "service_token")
+            if isinstance(token_type, dict):
+                token_type = token_type.get("value", "service_token")
+            if token_type not in ("service_token", "user_token"):
+                token_type = "service_token"
+            state.source_credentials.token_type = token_type
 
         if "target_credentials" in data:
             tc = data["target_credentials"]
@@ -1144,6 +1346,24 @@ class AppState:
             state.map.protection_fix_action = m.get("protection_fix_action", "")
             state.map.protection_fix_backup_protected = set(m.get("protection_fix_backup_protected", []))
             state.map.protection_fix_backup_unprotected = set(m.get("protection_fix_backup_unprotected", []))
+            # Tier 1: User selections (FR-44)
+            state.map.selected_entities = set(m.get("selected_entities", []))
+            state.map.selections_loaded = m.get("selections_loaded", False)
+            state.map.selection_counts = m.get("selection_counts", {"selected": 0, "total": 0})
+            # Tier 1: Resource type toggles (FR-45)
+            state.map.include_groups = m.get("include_groups", False)
+            state.map.include_notifications = m.get("include_notifications", False)
+            state.map.include_service_tokens = m.get("include_service_tokens", False)
+            state.map.include_webhooks = m.get("include_webhooks", False)
+            state.map.include_privatelink = m.get("include_privatelink", False)
+            state.map.auto_cascade_children = m.get("auto_cascade_children", False)
+            # Tier 1: Rejected suggestions and cloned resources (FR-46)
+            state.map.rejected_suggestions = set(m.get("rejected_suggestions", []))
+            cloned_data = m.get("cloned_resources", [])
+            state.map.cloned_resources = [
+                CloneConfig.from_dict(c) if isinstance(c, dict) else c
+                for c in cloned_data
+            ]
 
         if "deploy" in data:
             d = data["deploy"]
@@ -1152,8 +1372,41 @@ class AppState:
             state.deploy.terraform_version = d.get("terraform_version")
             state.deploy.terraform_dir = d.get("terraform_dir", "")
             state.deploy.files_generated = d.get("files_generated", False)
-            # Restore adoption data - critical for re-applying target values on regenerate
+            # Tier 1: Step completion flags (FR-37)
+            state.deploy.configure_complete = d.get("configure_complete", False)
+            state.deploy.apply_complete = d.get("apply_complete", False)
+            state.deploy.destroy_complete = d.get("destroy_complete", False)
+            state.deploy.terraform_initialized = d.get("terraform_initialized", False)
+            # Tier 1: Operation success flags (FR-39)
+            state.deploy.last_validate_success = d.get("last_validate_success", False)
+            state.deploy.last_plan_success = d.get("last_plan_success", False)
+            # Tier 1: User settings
+            state.deploy.disable_job_triggers = d.get("disable_job_triggers", False)
+            state.deploy.connection_configs = d.get("connection_configs", {})
+            state.deploy.previous_yaml_file = d.get("previous_yaml_file")
+            state.deploy.imports_file_generated = d.get("imports_file_generated", False)
+            # Tier 1: Import results (FR-47)
+            import_results_data = d.get("import_results", [])
+            state.deploy.import_results = [
+                ImportResult.from_dict(r) if isinstance(r, dict) else r
+                for r in import_results_data
+            ]
+            state.deploy.apply_results = d.get("apply_results")
+            # Tier 1: Reconcile state (FR-48)
+            state.deploy.reconcile_state_loaded = d.get("reconcile_state_loaded", False)
+            state.deploy.reconcile_state_resources = d.get("reconcile_state_resources", [])
+            state.deploy.reconcile_drift_results = d.get("reconcile_drift_results", [])
+            state.deploy.reconcile_adopt_selections = d.get("reconcile_adopt_selections", [])
+            state.deploy.reconcile_imports_generated = d.get("reconcile_imports_generated", False)
             state.deploy.reconcile_adopt_rows = d.get("reconcile_adopt_rows", [])
+            state.deploy.reconcile_execution_logs = d.get("reconcile_execution_logs", [])
+            # Tier 2: Operation logs (FR-40)
+            state.deploy.last_generate_output = d.get("last_generate_output", "")
+            state.deploy.last_init_output = d.get("last_init_output", "")
+            state.deploy.last_validate_output = d.get("last_validate_output", "")
+            state.deploy.last_plan_output = d.get("last_plan_output", "")
+            state.deploy.last_apply_output = d.get("last_apply_output", "")
+            state.deploy.last_import_output = d.get("last_import_output", "")
 
         if "env_credentials" in data:
             state.env_credentials = EnvironmentCredentialsState.from_dict(data["env_credentials"])
@@ -1198,5 +1451,25 @@ class AppState:
             state.jobs_as_code.generation_complete = jac.get("generation_complete", False)
             state.jobs_as_code.name_prefix = jac.get("name_prefix", "")
             state.jobs_as_code.name_suffix = jac.get("name_suffix", "")
+            # Tier 1: Target data and mappings (FR-49)
+            state.jobs_as_code.target_jobs = jac.get("target_jobs", [])
+            state.jobs_as_code.target_projects = jac.get("target_projects", {})
+            state.jobs_as_code.target_environments = jac.get("target_environments", {})
+            project_mappings_data = jac.get("project_mappings", [])
+            state.jobs_as_code.project_mappings = [
+                JACProjectMapping.from_dict(m) if isinstance(m, dict) else m
+                for m in project_mappings_data
+            ]
+            environment_mappings_data = jac.get("environment_mappings", [])
+            state.jobs_as_code.environment_mappings = [
+                JACEnvironmentMapping.from_dict(m) if isinstance(m, dict) else m
+                for m in environment_mappings_data
+            ]
+            # Tier 2: Generated outputs (FR-50)
+            state.jobs_as_code.generated_yaml = jac.get("generated_yaml", "")
+            state.jobs_as_code.generated_vars_yaml = jac.get("generated_vars_yaml", "")
+
+        # Tier 1: Data quality warnings (FR-51)
+        state.data_quality_warnings = data.get("data_quality_warnings", {})
 
         return state

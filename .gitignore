@@ -90,3 +90,7 @@ venv/
 
 # Ralph config (may contain API key)
 .cursor/ralph-config.json
+
+# Project folders (contain credentials, state, logs — defense-in-depth)
+# Each project folder also has its own .gitignore as a second layer
+projects/

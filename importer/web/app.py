@@ -7,6 +7,7 @@ from nicegui import app, ui
 
 from importer.web.state import AppState, WorkflowStep, WorkflowType, STEP_NAMES
 from importer.web.components.stepper import create_nav_drawer, create_progress_header
+from importer.web.project_manager import ProjectManager, StateSaver
 from importer.web.pages.home import create_home_page
 from importer.web.pages.requirements import create_requirements_page
 from importer.web.pages.fetch_source import create_fetch_source_page
@@ -42,6 +43,51 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 # Global state - will be replaced with proper session management
 _app_state: Optional[AppState] = None
+
+# Project management (PRD 21.02)
+_project_manager: Optional[ProjectManager] = None
+_state_saver: Optional[StateSaver] = None
+
+
+def get_project_manager() -> ProjectManager:
+    """Get the singleton ProjectManager instance."""
+    global _project_manager
+    if _project_manager is None:
+        project_root = Path(__file__).parent.parent.parent.resolve()
+        _project_manager = ProjectManager(base_path=project_root)
+    return _project_manager
+
+
+def get_state_saver() -> StateSaver:
+    """Get the singleton StateSaver instance."""
+    global _state_saver
+    if _state_saver is None:
+        _state_saver = StateSaver(get_project_manager())
+    return _state_saver
+
+
+def load_project(slug: str) -> None:
+    """Load a project by slug — restores AppState from project state.json.
+
+    Updates global ``_app_state`` with the loaded project state and navigates
+    to the first workflow step (or HOME).
+    """
+    global _app_state
+    pm = get_project_manager()
+    try:
+        config, project_state = pm.load_project(slug)
+        if project_state is not None:
+            _app_state = project_state
+        else:
+            _app_state = AppState()
+            _app_state.workflow = config.workflow_type
+        _app_state.active_project = slug
+        _app_state.project_path = str(pm.get_project_path(slug))
+        save_state()
+        ui.notify(f"Loaded project: {config.name}", type="positive")
+        ui.navigate.to("/")
+    except Exception as exc:
+        ui.notify(f"Failed to load project: {exc}", type="negative")
 
 
 def get_state() -> AppState:
@@ -87,7 +133,11 @@ def _refresh_license_status(state: AppState) -> None:
 
 
 def save_state() -> None:
-    """Save the current state to storage."""
+    """Save the current state to storage.
+    
+    Persists to NiceGUI user storage and, if a project is active, schedules
+    a debounced save to the project's state.json (US-099).
+    """
     global _app_state
     if _app_state:
         try:
@@ -99,6 +149,17 @@ def save_state() -> None:
             # This is recoverable - state will be saved on next interaction
             import logging
             logging.getLogger(__name__).debug(f"Could not save state (session not ready): {e}")
+
+        # Auto-save to project if one is active (US-099)
+        if _app_state.active_project:
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                saver = get_state_saver()
+                loop.create_task(saver.schedule_save(_app_state))
+            except RuntimeError:
+                # No event loop — skip project auto-save (happens during tests)
+                pass
 
 
 def navigate_to_step(step: WorkflowStep) -> None:
@@ -298,7 +359,14 @@ def create_page_content(state: AppState) -> None:
     step = state.current_step
 
     if step == WorkflowStep.HOME:
-        create_home_page(state, navigate_to_step, set_workflow, save_state)
+        create_home_page(
+            state,
+            navigate_to_step,
+            set_workflow,
+            save_state,
+            project_manager=get_project_manager(),
+            on_project_load=load_project,
+        )
     elif step == WorkflowStep.FETCH_SOURCE:
         create_fetch_source_page(state, navigate_to_step, save_state)
     elif step == WorkflowStep.EXPLORE_SOURCE:

@@ -834,15 +834,18 @@ async def _run_fetch(
         
         # Reset match-related state since target data has changed
         # This ensures the Match page shows fresh data, not stale mappings
-        state.map.confirmed_mappings = []
-        state.map.suggested_matches = []
-        state.map.rejected_suggestions = set()
-        state.map.mapping_file_valid = False
+        #
+        # PRESERVED per FR-14/FR-16/FR-19 (PRD 21.02):
+        #   - confirmed_mappings: kept for stale detection (may need review)
+        #   - rejected_suggestions: kept (user work)
+        #   - disable_job_triggers: kept (user setting, FR-14)
+        #   - import_mode: kept (user setting, FR-15)
+        #   - protected_resources: kept (FR-17)
+        #
+        # RESET (re-derivable or invalid after target change):
+        state.map.suggested_matches = []  # Tier 3: re-generated from new data
+        state.map.mapping_file_valid = False  # May be stale
         state.map.mapping_file_path = None
-        
-        # Reset configure and deployment state - these depend on matching
-        state.deploy.configure_complete = False
-        state.deploy.disable_job_triggers = False
 
         save_state()
         fetch_complete["value"] = True
