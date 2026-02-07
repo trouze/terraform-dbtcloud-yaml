@@ -76,6 +76,7 @@ __pycache__/
 venv/
 *.egg-info/
 .cursor/debug.log
+.cursor/ui_actions.log
 
 # Nicegui preferences
 .nicegui/*

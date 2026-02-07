@@ -113,6 +113,10 @@ def _create_projects_section(
         """Re-render the project cards."""
         nonlocal projects
         projects = project_manager.list_projects()
+        # Update the count label if it exists
+        count_lbl = project_container_ref.get("count_label")
+        if count_lbl is not None:
+            count_lbl.set_text(f"{len(projects)} project{'s' if len(projects) != 1 else ''}")
         container = project_container_ref.get("ref")
         if container is None:
             return
@@ -193,7 +197,9 @@ def _create_projects_section(
                 ).props("dense outlined").style("min-width: 160px;")
 
                 if projects:
-                    ui.label(f"{len(projects)} project{'s' if len(projects) != 1 else ''}").classes("text-xs text-gray-500")
+                    project_container_ref["count_label"] = ui.label(
+                        f"{len(projects)} project{'s' if len(projects) != 1 else ''}"
+                    ).classes("text-xs text-gray-500")
 
         # Project cards container
         project_container_ref["ref"] = ui.column().classes("w-full mt-2")
@@ -239,11 +245,11 @@ def _project_card(
                 with ui.row().classes("items-center gap-2"):
                     ui.label(project.name).classes("font-semibold text-sm")
                     ui.badge(project.workflow_type.value.replace("_", " ").title(), color=wf_color).props("dense")
-                # Delete button — stops propagation so it doesn't trigger the card click
-                ui.button(
-                    icon="delete_outline",
-                    on_click=lambda e, s=project.slug, n=project.name: on_delete(s, n),
-                ).props("flat round dense size=xs").classes("text-gray-400 hover:text-red-400")
+                # Delete button — uses click.stop to prevent event from bubbling to card
+                delete_btn = ui.button(icon="delete_outline").props("flat round dense size=xs").classes(
+                    "text-gray-400 hover:text-red-400"
+                )
+                delete_btn.on("click.stop", lambda e, s=project.slug, n=project.name: on_delete(s, n))
 
             # Description
             if project.description:
