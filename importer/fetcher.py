@@ -125,7 +125,7 @@ def _should_include_resource(item: Dict[str, Any]) -> bool:
 def fetch_account_snapshot(
     client: DbtCloudClient,
     progress: Optional[FetchProgressCallback] = None,
-    threads: int = 25,
+    threads: int = 50,
     cancel_event: Optional[threading.Event] = None,
 ) -> AccountSnapshot:
     """
@@ -268,6 +268,9 @@ def fetch_account_snapshot(
         """Execute a fetch function with retry logic for transient errors."""
         last_exc: Optional[Exception] = None
         for attempt in range(max_retries):
+            # Check cancellation before each attempt so we don't keep
+            # retrying after the user clicked Cancel
+            _check_cancelled()
             try:
                 return fetch_fn()
             except TRANSIENT_ERRORS as e:
@@ -278,7 +281,11 @@ def fetch_account_snapshot(
                         "Transient error in %s (attempt %d/%d): %s. Retrying in %.1fs...",
                         fn_name, attempt + 1, max_retries, e, sleep_time
                     )
-                    time.sleep(sleep_time)
+                    # Sleep in small increments so cancellation is responsive
+                    _sleep_end = time.time() + sleep_time
+                    while time.time() < _sleep_end:
+                        _check_cancelled()
+                        time.sleep(min(0.25, _sleep_end - time.time()))
         log.error("All %d retries failed for %s: %s", max_retries, fn_name, last_exc)
         raise last_exc  # type: ignore[misc]
 
@@ -447,6 +454,18 @@ def fetch_account_snapshot(
             _check_cancelled()
 
             for fut in as_completed(list(pending.keys()), timeout=None):
+                # Check cancellation between each future completion so we
+                # don't keep processing hundreds of job-override results
+                # after the user clicks Cancel.
+                try:
+                    _check_cancelled()
+                except FetchCancelledException:
+                    # Cancel any futures that haven't started yet
+                    for p_fut in list(pending.keys()):
+                        p_fut.cancel()
+                    pending.clear()
+                    raise
+
                 kind, pid, job_id = pending.pop(fut)
                 
                 # Handle task completion with error resilience
@@ -572,7 +591,7 @@ def fetch_account_snapshot(
                     )
                     project_id = int(project.id or 0)
 
-                    # Extended attributes: collect unique IDs from environments and fetch each
+                    # Extended attributes: collect unique IDs from environments and fetch in parallel
                     env_items = env_raw_by_project.get(project_id, [])
                     ext_attr_ids = set()
                     for env_item in env_items:
@@ -581,36 +600,48 @@ def fetch_account_snapshot(
                             ext_attr_ids.add(eid)
                     extended_attributes_list: list[ExtendedAttributes] = []
                     ext_attr_id_to_key: dict[int, str] = {}
-                    for eid in sorted(ext_attr_ids):
-                        raw = _fetch_extended_attributes_raw(project_id, eid)
-                        if not raw:
-                            continue
-                        if progress:
-                            extended_attributes_total += 1
-                            progress.on_resource_item("extended_attributes", f"{project_id}_{eid}")
-                        ext_key = f"ext_attrs_{eid}"
-                        ext_attr_id_to_key[eid] = ext_key
-                        # API may return extended_attributes as JSON string or dict
-                        ext_attrs_val = raw.get("extended_attributes")
-                        if isinstance(ext_attrs_val, str):
-                            try:
-                                ext_attrs_dict = json.loads(ext_attrs_val)
-                            except Exception:
+                    if ext_attr_ids:
+                        # Fetch all extended attributes in parallel
+                        ext_raw_by_id: dict[int, dict] = {}
+                        with ThreadPoolExecutor(max_workers=min(len(ext_attr_ids), 20)) as ext_ex:
+                            ext_futures = {
+                                ext_ex.submit(_fetch_extended_attributes_raw, project_id, eid): eid
+                                for eid in sorted(ext_attr_ids)
+                            }
+                            for ext_fut in as_completed(ext_futures):
+                                eid = ext_futures[ext_fut]
+                                raw = ext_fut.result()
+                                if raw:
+                                    ext_raw_by_id[eid] = raw
+                        # Assemble in sorted order for deterministic output
+                        for eid in sorted(ext_raw_by_id.keys()):
+                            raw = ext_raw_by_id[eid]
+                            if progress:
+                                extended_attributes_total += 1
+                                progress.on_resource_item("extended_attributes", f"{project_id}_{eid}")
+                            ext_key = f"ext_attrs_{eid}"
+                            ext_attr_id_to_key[eid] = ext_key
+                            # API may return extended_attributes as JSON string or dict
+                            ext_attrs_val = raw.get("extended_attributes")
+                            if isinstance(ext_attrs_val, str):
+                                try:
+                                    ext_attrs_dict = json.loads(ext_attrs_val)
+                                except Exception:
+                                    ext_attrs_dict = {}
+                            elif isinstance(ext_attrs_val, dict):
+                                ext_attrs_dict = ext_attrs_val
+                            else:
                                 ext_attrs_dict = {}
-                        elif isinstance(ext_attrs_val, dict):
-                            ext_attrs_dict = ext_attrs_val
-                        else:
-                            ext_attrs_dict = {}
-                        extended_attributes_list.append(
-                            ExtendedAttributes(
-                                key=ext_key,
-                                id=raw.get("id") or eid,
-                                project_id=raw.get("project_id") or project_id,
-                                state=raw.get("state", 1),
-                                extended_attributes=ext_attrs_dict,
-                                metadata=raw,
+                            extended_attributes_list.append(
+                                ExtendedAttributes(
+                                    key=ext_key,
+                                    id=raw.get("id") or eid,
+                                    project_id=raw.get("project_id") or project_id,
+                                    state=raw.get("state", 1),
+                                    extended_attributes=ext_attrs_dict,
+                                    metadata=raw,
+                                )
                             )
-                        )
                     project.extended_attributes = extended_attributes_list
 
                     # Environments
@@ -825,57 +856,70 @@ def _fetch_connections(
     
     # First, list all connections to get IDs (list endpoint doesn't return full config)
     connection_list = list(client.paginate("/connections/", version="v3"))
-    log.info(f"Found {len(connection_list)} connections, fetching detailed config for each")
-    
-    for item in connection_list:
+    log.info(f"Found {len(connection_list)} connections, fetching detailed config in parallel")
+
+    # Fetch detailed config for each connection in parallel using per-thread clients
+    settings = client.settings
+
+    def _fetch_detail(item: dict) -> dict:
+        """Fetch detailed connection config with a dedicated client (thread-safe)."""
         conn_id = item.get("id")
-        key = item.get("name") or f"connection_{conn_id}"
-        connection_key = slug(key)
-
-        if progress:
-            progress.on_resource_item("connections", connection_key)
-
-        # Fetch detailed config from individual endpoint
-        # The individual GET /connections/{id}/ endpoint returns full config including
-        # connection_details with provider-specific fields (host, http_path, etc.)
+        c = DbtCloudClient.from_settings(settings)
         try:
-            detailed = client.get(
+            detailed = c.get(
                 f"/connections/{conn_id}/",
                 version="v3",
                 params={"include_related": '["connection_details"]'}
             )
             if detailed.get("data"):
-                # Merge detailed data into item, keeping original fields as fallback
-                item = {**item, **detailed["data"]}
-                log.debug(f"Fetched detailed config for connection {connection_key}")
+                return {**item, **detailed["data"]}
         except Exception as e:
             log.warning(f"Failed to fetch details for connection {conn_id}: {e}")
+        finally:
+            c.close()
+        return item
 
-        # Extract connection type: prefer API 'type' field, fall back to adapter_version
-        # According to API docs, 'type' is often null, so we derive it from adapter_version
-        conn_type = item.get("type")
-        adapter_version = item.get("adapter_version")
+    # Run detail fetches in parallel (bounded by number of connections, max 50)
+    detail_workers = min(len(connection_list), 50)
+    if detail_workers > 0:
+        with ThreadPoolExecutor(max_workers=detail_workers) as detail_ex:
+            future_to_item = {
+                detail_ex.submit(_fetch_detail, item): item
+                for item in connection_list
+            }
+            for fut in as_completed(future_to_item):
+                item = fut.result()
+                conn_id = item.get("id")
+                key = item.get("name") or f"connection_{conn_id}"
+                connection_key = slug(key)
 
-        if not conn_type and adapter_version:
-            conn_type = _extract_connection_type_from_adapter_version(adapter_version)
-            if conn_type:
-                log.debug(f"Derived connection type '{conn_type}' from adapter_version '{adapter_version}' for connection {connection_key}")
-            else:
-                log.warning(f"Could not extract connection type from adapter_version '{adapter_version}' for connection {connection_key}")
-        
-        # Log if we got connection_details with config
-        conn_details = item.get("connection_details")
-        if conn_details:
-            config = conn_details.get("config") if isinstance(conn_details, dict) else None
-            log.debug(f"Connection {connection_key} connection_details: keys={list(conn_details.keys()) if isinstance(conn_details, dict) else 'non-dict'}, config={config}")
+                if progress:
+                    progress.on_resource_item("connections", connection_key)
 
-        connections[connection_key] = Connection(
-            key=connection_key,
-            id=item.get("id"),
-            name=item.get("name"),
-            type=conn_type,
-            details=item,
-        )
+                # Extract connection type: prefer API 'type' field, fall back to adapter_version
+                conn_type = item.get("type")
+                adapter_version = item.get("adapter_version")
+
+                if not conn_type and adapter_version:
+                    conn_type = _extract_connection_type_from_adapter_version(adapter_version)
+                    if conn_type:
+                        log.debug(f"Derived connection type '{conn_type}' from adapter_version '{adapter_version}' for connection {connection_key}")
+                    else:
+                        log.warning(f"Could not extract connection type from adapter_version '{adapter_version}' for connection {connection_key}")
+                
+                conn_details = item.get("connection_details")
+                if conn_details:
+                    config = conn_details.get("config") if isinstance(conn_details, dict) else None
+                    log.debug(f"Connection {connection_key} connection_details: keys={list(conn_details.keys()) if isinstance(conn_details, dict) else 'non-dict'}, config={config}")
+
+                connections[connection_key] = Connection(
+                    key=connection_key,
+                    id=item.get("id"),
+                    name=item.get("name"),
+                    type=conn_type,
+                    details=item,
+                )
+
     if progress:
         progress.on_resource_done("connections", len(connections))
     return connections
@@ -889,53 +933,79 @@ def _fetch_repositories(
     if progress:
         progress.on_resource_start("repositories")
     repositories: Dict[str, Repository] = {}
-    for item in client.paginate("/repositories/"):
+
+    # First pass: list all repositories
+    repo_items = list(client.paginate("/repositories/"))
+    log.info(f"Found {len(repo_items)} repositories")
+
+    # Identify repos that need v3 detail fetches
+    settings = client.settings
+    needs_detail: list[dict] = []
+    for item in repo_items:
+        git_clone_strategy = item.get("git_clone_strategy")
+        if (
+            git_clone_strategy == "deploy_token"
+            or item.get("remote_backend") == "gitlab"
+            or git_clone_strategy == "github_app"
+        ):
+            repo_id = item.get("id")
+            project_id = item.get("project_id")
+            if repo_id and project_id:
+                needs_detail.append(item)
+
+    # Fetch v3 details in parallel for repos that need it
+    detail_results: dict[int, dict] = {}  # repo_id -> detailed data
+    if needs_detail:
+        log.info(f"Fetching v3 details for {len(needs_detail)} repositories in parallel")
+
+        def _fetch_repo_detail(item: dict) -> tuple[int, Optional[dict]]:
+            repo_id = item["id"]
+            project_id = item["project_id"]
+            repo_key = slug(item.get("name") or item.get("remote_url", "repo"))
+            c = DbtCloudClient.from_settings(settings)
+            try:
+                detailed = c.get(
+                    f"/projects/{project_id}/repositories/{repo_id}/",
+                    version="v3",
+                    params={"include_related": '["deploy_key","gitlab"]'},
+                )
+                if detailed and detailed.get("data"):
+                    return (repo_id, detailed["data"])
+            except Exception as exc:
+                log.warning(f"Failed to fetch detailed repository info for {repo_key}: {exc}")
+            finally:
+                c.close()
+            return (repo_id, None)
+
+        with ThreadPoolExecutor(max_workers=min(len(needs_detail), 20)) as detail_ex:
+            for repo_id, data in detail_ex.map(_fetch_repo_detail, needs_detail):
+                if data:
+                    detail_results[repo_id] = data
+
+    # Assemble Repository objects
+    for item in repo_items:
         name = item.get("remote_url", "repo")
         repo_key = slug(item.get("name") or name)
 
         if progress:
             progress.on_resource_item("repositories", repo_key)
 
-        # For GitLab and GitHub App repositories, fetch detailed info via v3
-        # - GitLab: to get gitlab_project_id
-        # - GitHub App: to get github_installation_id
-        # See: https://docs.getdbt.com/dbt-cloud/api-v3#/operations/Retrieve%20Repository
         metadata = item.copy()
-        git_clone_strategy = item.get("git_clone_strategy")
-        needs_v3_detail = (
-            git_clone_strategy == "deploy_token" or 
-            item.get("remote_backend") == "gitlab" or
-            git_clone_strategy == "github_app"
-        )
-        if needs_v3_detail:
-            repo_id = item.get("id")
-            project_id = item.get("project_id")
-            if repo_id and project_id:
-                try:
-                    log.info(f"Fetching detailed repository info for {repo_key} (v3, strategy={git_clone_strategy})")
-                    # Use include_related to get the gitlab object with gitlab_project_id (undocumented API feature)
-                    detailed = client.get(
-                        f"/projects/{project_id}/repositories/{repo_id}/",
-                        version="v3",
-                        params={"include_related": '["deploy_key","gitlab"]'}
-                    )
-                    if detailed and detailed.get("data"):
-                        repo_data = detailed["data"]
-                        # Merge the gitlab object into metadata (for GitLab repos)
-                        if repo_data.get("gitlab"):
-                            metadata["gitlab"] = repo_data["gitlab"]
-                            # Also extract gitlab_project_id to top level for easier access
-                            gitlab_project_id = repo_data["gitlab"].get("gitlab_project_id")
-                            if gitlab_project_id:
-                                metadata["gitlab_project_id"] = gitlab_project_id
-                                log.info(f"Found gitlab_project_id={gitlab_project_id} for {repo_key}")
-                        # Extract github_installation_id (for GitHub App repos)
-                        github_installation_id = repo_data.get("github_installation_id")
-                        if github_installation_id:
-                            metadata["github_installation_id"] = github_installation_id
-                            log.info(f"Found github_installation_id={github_installation_id} for {repo_key}")
-                except Exception as exc:
-                    log.warning(f"Failed to fetch detailed repository info for {repo_key}: {exc}")
+        repo_id = item.get("id")
+
+        # Merge in v3 detail data if available
+        if repo_id in detail_results:
+            repo_data = detail_results[repo_id]
+            if repo_data.get("gitlab"):
+                metadata["gitlab"] = repo_data["gitlab"]
+                gitlab_project_id = repo_data["gitlab"].get("gitlab_project_id")
+                if gitlab_project_id:
+                    metadata["gitlab_project_id"] = gitlab_project_id
+                    log.info(f"Found gitlab_project_id={gitlab_project_id} for {repo_key}")
+            github_installation_id = repo_data.get("github_installation_id")
+            if github_installation_id:
+                metadata["github_installation_id"] = github_installation_id
+                log.info(f"Found github_installation_id={github_installation_id} for {repo_key}")
 
         repositories[repo_key] = Repository(
             key=repo_key,

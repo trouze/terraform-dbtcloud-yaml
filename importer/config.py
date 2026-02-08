@@ -29,7 +29,7 @@ class Settings:
     host: str
     account_id: int
     api_token: str
-    fetch_threads: int = 15
+    fetch_threads: int = 50
     timeout: float = 90.0  # Increased from 30.0 to handle slower API responses
     max_retries: int = 5
     backoff_factor: float = 1.5
@@ -63,7 +63,7 @@ class Settings:
             raise RuntimeError(f"{SOURCE_PREFIX}ACCOUNT_ID must be an integer") from exc
 
         timeout = float(os.getenv(f"{SOURCE_PREFIX}API_TIMEOUT", "90"))
-        fetch_threads_raw = os.getenv(f"{SOURCE_PREFIX}FETCH_THREADS", "15")
+        fetch_threads_raw = os.getenv(f"{SOURCE_PREFIX}FETCH_THREADS", "50")
         max_retries = int(os.getenv(f"{SOURCE_PREFIX}API_MAX_RETRIES", "5"))
         backoff_factor = float(os.getenv(f"{SOURCE_PREFIX}API_BACKOFF_FACTOR", "1.5"))
         rate_limit_retry_after = os.getenv(f"{SOURCE_PREFIX}API_RETRY_AFTER", "true").lower() in {

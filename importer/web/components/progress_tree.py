@@ -129,16 +129,30 @@ class ProgressTree:
         self._resource_in_progress.clear()
         
         self._status_icon.props("name=sync")
-        self._status_icon.classes("text-blue-500 animate-spin", remove="text-slate-400")
+        self._status_icon.classes(
+            "text-blue-500 animate-spin",
+            remove="text-slate-400 text-green-500 text-red-500",
+        )
         self._status_label.set_text("Fetching...")
         
-        # Reset all resource rows
+        # Reset project counter and name
+        self._project_counter.set_text("")
+        self._project_name_label.set_text("")
+        
+        # Reset all resource rows — remove every possible state class
         for items in [self._global_items, self._project_items]:
             for row in items.values():
                 row["icon"].props("name=radio_button_unchecked")
-                row["icon"].classes("text-slate-400", remove="text-green-500 text-yellow-500")
-                row["label"].classes("text-slate-500", remove="text-slate-700 dark:text-slate-300 font-medium")
+                row["icon"].classes(
+                    "text-slate-400",
+                    remove="text-green-500 text-yellow-500 text-orange-400 animate-spin",
+                )
+                row["label"].classes(
+                    "text-slate-500",
+                    remove="text-slate-700 dark:text-slate-300 font-medium",
+                )
                 row["count"].set_text("")
+                row["count"].classes("text-slate-400", remove="text-green-600")
     
     def complete(self) -> None:
         """Mark fetch as complete."""
@@ -153,6 +167,14 @@ class ProgressTree:
         self._status_icon.props("name=error")
         self._status_icon.classes("text-red-500", remove="text-blue-500 animate-spin")
         self._status_label.set_text(message)
+        
+        # Stop all per-resource spinners that are still in progress
+        for items in [self._global_items, self._project_items]:
+            for resource_key, row in items.items():
+                if self._resource_in_progress.get(resource_key) and not self._resource_done.get(resource_key):
+                    row["icon"].props("name=cancel")
+                    row["icon"].classes("text-orange-400", remove="text-yellow-500 animate-spin")
+        self._resource_in_progress.clear()
     
     def on_phase(self, phase: str) -> None:
         """Update the current phase."""
@@ -167,7 +189,7 @@ class ProgressTree:
         row = self._global_items.get(resource_type) or self._project_items.get(resource_type)
         if row:
             row["icon"].props("name=sync")
-            row["icon"].classes("text-yellow-500 animate-spin", remove="text-slate-400 text-green-500")
+            row["icon"].classes("text-yellow-500 animate-spin", remove="text-slate-400 text-green-500 text-orange-400")
             row["label"].classes("text-slate-700 dark:text-slate-300 font-medium", remove="text-slate-500")
             if total is not None:
                 row["count"].set_text(f"0/{total}")
@@ -190,7 +212,7 @@ class ProgressTree:
         row = self._global_items.get(resource_type) or self._project_items.get(resource_type)
         if row:
             row["icon"].props("name=check_circle")
-            row["icon"].classes("text-green-500", remove="text-slate-400 text-yellow-500 animate-spin")
+            row["icon"].classes("text-green-500", remove="text-slate-400 text-yellow-500 text-orange-400 animate-spin")
             row["label"].classes("text-slate-700 dark:text-slate-300", remove="text-slate-500 font-medium")
             row["count"].set_text(str(count))
             row["count"].classes("text-green-600", remove="text-slate-400")
