@@ -191,7 +191,7 @@ class FetchState:
 
     output_dir: str = "dev_support/samples"
     auto_timestamp: bool = True
-    threads: int = 15
+    threads: int = 50
     is_fetching: bool = False
     fetch_complete: bool = False
     last_fetch_file: Optional[str] = None
@@ -208,7 +208,7 @@ class TargetFetchState:
 
     output_dir: str = "dev_support/samples/target"
     auto_timestamp: bool = True
-    threads: int = 15
+    threads: int = 50
     is_fetching: bool = False
     fetch_complete: bool = False
     last_fetch_file: Optional[str] = None
