@@ -1,152 +1,75 @@
 ---
-task: Protection Intent File System - Phase 5 (Destroy Page & Completion)
-test_command: "cd importer && python -m pytest web/tests/test_protection_intent.py -v"
+task: Persistent Target Intent File
+test_command: "cd importer && python -m pytest web/tests/test_target_intent.py -v"
 browser_validation: true
-base_url: "http://localhost:8501"
+base_url: "http://127.0.0.1:8080"
 ---
 
-# Task: Destroy Page Integration & Final Polish
+# Task: Persistent Target Intent File
 
-Integrate `ProtectionIntentManager` with Destroy page, add AI diagnostic copy feature, handle migration/edge cases, and complete the system.
+Promote target-intent.json from a deploy-time artifact to a persistent project-level file (following the protection-intent.json pattern), extend it to track match mappings, rename 'Match Existing' to 'Set Target Intent'.
 
-**Plan Reference:** `.cursor/plans/protection_intent_file_e08a2a4e.plan.md`
-**Depends on:** Phase 4 (Utilities Page)
+**Plan Reference:** `.cursor/plans/persistent_target_intent_40fb41b2.plan.md`
 
 ## Success Criteria
 
-### Destroy Page Integration
+### 0. Rename "Match Existing" to "Set Target Intent"
 
-1. [x] Update `importer/web/pages/destroy.py` to import and use ProtectionIntentManager
+1. [x] Rename step label in state.py STEP_NAMES: "Match Existing" → "Set Target Intent"
+2. [x] Change step icon in state.py STEP_ICONS: "link" → "assignment"
+3. [x] Rename match.py page header: "Match Source to Target Resources" → "Set Target Intent"
+4. [x] Rename match.py subtitle to "Define what Terraform should manage: match, adopt, protect, and remove resources"
+5. [x] Rename mapping.py expansion labels: "Match Existing Target Resources" → "Set Target Intent" (already clean)
+6. [x] Rename deploy.py comments and user messages: "Match Existing tab" → "Set Target Intent tab"
+7. [x] Rename match.py "Save Mapping File" section to "Save Target Intent"
+8. [x] Rename match.py dialog title "Target Resource Mapping" → "Target Intent"
+9. [x] Rename match.py "View Mapping" button → "View Target Intent"
 
-2. [x] Replace `state.map.unprotected_keys` usage with `get_effective_protection()` calls
+### 1. Extend TargetIntentResult data model
 
-3. [x] Update "Unprotect Selected" button to call `set_intent()` instead of modifying state directly
+10. [x] Add SourceToTargetMapping dataclass with from_confirmed_mapping/to_confirmed_mapping interop
+11. [x] Add StateToTargetMapping dataclass with state_to_target fields
+12. [x] Add MatchMappings container with source_to_target and state_to_target lists
+13. [x] Bump version to 2
+14. [x] Backward compat: from_dict handles version 1 (no match_mappings)
+15. [x] save() includes match_mappings; compute_target_intent preserves from previous
 
-4. [x] Update "Unprotect All" button similarly
+### 2. Promote TargetIntentManager to AppState
 
-5. [x] Ensure buttons call `save()` after setting intents
+16. [x] _target_intent_manager field on AppState (like _protection_intent_manager)
+17. [x] get_target_intent_manager() method with lazy init
+18. [x] save_target_intent() method
+19. [x] Not serialized in to_dict() (Tier 3 SKIP)
 
-6. [x] Add same pending status badges as Match page (orange/blue/green)
+### 3. Match page reads/writes target intent
 
-7. [x] Add link "Apply protection changes on Match page" that navigates to Match page
+20. [x] Match page loads intent file via state.get_target_intent_manager() on render
+21. [x] Populate confirmed_mappings from intent.match_mappings.source_to_target on load
+22. [x] Write confirmed_mappings back to intent file on all confirm/reject actions
+23. [x] Compute state_to_target when TF state is loaded
 
-8. [x] Show notification after unprotect: "Intent recorded - click 'Generate Protection Changes' on Match page to apply"
+### 4. TF state-to-target visibility on Match page
 
-### AI Diagnostic Copy Feature
+24. [x] State Resources stat card alongside existing cards
+25. [x] Collapsible TF State Alignment section with matched/unmatched table
 
-9. [x] Add "Copy for AI" button in Match page mismatch panel
+### 5. Target Intent tab in resource detail dialog
 
-10. [x] Button generates structured markdown summary when clicked
+26. [x] "Target Intent" tab between TF State and JSON tabs
+27. [x] Shows disposition with color badge, source, confirmed status, state-to-target match, protection summary
 
-11. [x] Summary includes: Pending Changes count, TF Path
+### 6. Deploy reads persistent intent
 
-12. [x] Summary lists "Resources with Pending Generate" with details (key, action, TF state, YAML state)
+28. [x] Deploy generate loads persistent intent via TargetIntentManager
+29. [x] compute_target_intent preserves match_mappings from previous_intent
 
-13. [x] Summary lists "Resources with Pending TF Apply"
+### 7. Tests
 
-14. [x] Summary includes "Recent History" table (last 5-10 entries)
-
-15. [x] Summary includes "Current YAML Protected Resources" list
-
-16. [x] Summary includes "Current TF State Protected Resources" list
-
-17. [x] Copy to clipboard with success notification
-
-### TF Apply Success Integration
-
-18. [x] Update TF Apply success handler to detect when protection moves completed
-
-19. [x] After successful apply, call `mark_applied_to_tf_state()` for resources that were moved
-
-20. [x] Update UI to show "Synced" status for completed moves
-
-21. [x] Clear `protection_moves.tf` after successful apply (or archive it)
-
-### Migration Logic
-
-22. [x] Add migration check: if no `protection-intent.json` exists on load
-
-23. [x] Migration reads current YAML `protected: true` flags
-
-24. [x] Migration reads current TF state protected resources
-
-25. [x] Migration creates intent file with existing state marked as `applied_to_yaml=true, applied_to_tf_state=true`
-
-26. [x] Migration logs what was imported
-
-### Edge Case Handling
-
-27. [x] Handle corrupted intent file JSON: show error message, offer "Reset to defaults" button
-
-28. [x] Handle resource deleted from YAML but intent exists: mark as orphan or clean up
-
-29. [x] Handle TF state unavailable: show warning, allow manual workflow
-
-30. [x] Handle concurrent edits (two browser tabs): last write wins, no crashes
-
-### Deprecate Old Fields
-
-31. [x] Add deprecation warning to `state.map.protected_resources` if used
-
-32. [x] Add deprecation warning to `state.map.unprotected_keys` if used
-
-33. [x] Update any remaining code that uses deprecated fields
-
-### Final Browser Validation
-
-34. [x] Full workflow test: Navigate to Match page with mismatches
-
-35. [x] Click "Unprotect All", verify orange badge appears
-
-36. [x] Navigate to Destroy page, verify same resources show as "pending unprotect"
-
-37. [x] Navigate back to Match page, click "Generate Protection Changes"
-
-38. [x] Verify YAML updated, badge changes to blue
-
-39. [x] Run TF Init, Plan, Apply
-
-40. [x] Verify badge changes to green "Synced" or mismatch is removed
-
-41. [x] Navigate to Utilities page, verify audit history shows full trail
-
-42. [x] Test "Copy for AI" button, verify clipboard contains structured summary
-
-### Documentation
-
-43. [x] Update `.cursor/plans/protection_intent_file_e08a2a4e.plan.md` todos to mark completed
-
-44. [x] Add summary to `.ralph/progress.md` documenting the complete implementation
-
-## Context
-
-### AI Diagnostic Format
-```markdown
-## Protection Intent Status
-
-**Pending Changes:** 3 resources
-**TF Path:** /path/to/terraform
-
-### Resources with Pending Generate:
-- sse_dm_fin_fido: unprotect (TF state: protected, YAML: protected)
-
-### Resources with Pending TF Apply:
-- analytics_prod: protect (YAML updated, awaiting TF apply)
-
-### Recent History:
-| Timestamp | Resource | Action | Source |
-|-----------|----------|--------|--------|
-| 2026-02-02 10:00 | sse_dm_fin_fido | unprotect | Unprotect All |
-```
-
-### Files to Modify
-- `importer/web/pages/destroy.py` - Protection panel integration
-- `importer/web/pages/match.py` - AI copy, apply success handler
-- `importer/web/utils/protection_intent.py` - Migration logic
+30. [x] Test SourceToTargetMapping/StateToTargetMapping/MatchMappings round-trip
+31. [x] Test backward compat with version 1 files (no match_mappings)
+32. [x] Test sync between confirmed_mappings and intent file (to/from round-trip)
 
 ## Notes
 
-- This is the FINAL phase
-- After completion, output `<ralph>COMPLETE</ralph>` signal
-- The Protection Intent File system will be fully operational
-- Future enhancements can be tracked in new RALPH_TASK files
+- All 31 tests passing
+- Many features were partially implemented from prior sessions; this task completed and connected them
