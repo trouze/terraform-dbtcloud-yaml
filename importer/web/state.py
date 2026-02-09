@@ -7,6 +7,7 @@ from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from importer.web.utils.protection_intent import ProtectionIntentManager
+    from importer.web.utils.target_intent import TargetIntentManager, TargetIntentResult
 
 
 class WorkflowStep(IntEnum):
@@ -834,6 +835,10 @@ class AppState:
     _protection_intent_manager: Optional["ProtectionIntentManager"] = field(
         default=None, repr=False, compare=False
     )
+    # Target intent manager (not serialized - manages target-intent.json in deployment dir)
+    _target_intent_manager: Optional["TargetIntentManager"] = field(
+        default=None, repr=False, compare=False
+    )
 
     def get_protection_intent_manager(self) -> "ProtectionIntentManager":
         """Get or create the ProtectionIntentManager.
@@ -867,13 +872,42 @@ class AppState:
     
     def save_protection_intent(self) -> None:
         """Save the protection intent file if it has been initialized.
-        
+
         This is a no-op if the manager hasn't been accessed yet.
         """
         if self._protection_intent_manager is not None:
             self._protection_intent_manager.save()
 
-    def step_is_complete(self, step: WorkflowStep) -> bool:
+    def get_target_intent_manager(self) -> "TargetIntentManager":
+        """Get or create the TargetIntentManager.
+
+        The manager is initialized lazily using the deployment directory path.
+        Intent file is stored at: {terraform_dir}/target-intent.json
+
+        Returns:
+            TargetIntentManager instance (cached after first call)
+        """
+        if self._target_intent_manager is None:
+            from importer.web.utils.target_intent import TargetIntentManager
+
+            tf_dir = self.deploy.terraform_dir or "deployments/migration"
+            tf_path = Path(tf_dir)
+            if not tf_path.is_absolute():
+                project_root = Path(__file__).parent.parent.parent.resolve()
+                tf_path = project_root / tf_dir
+            deployment_dir = tf_path
+            self._target_intent_manager = TargetIntentManager(deployment_dir)
+        return self._target_intent_manager
+
+    def save_target_intent(self, intent: "TargetIntentResult") -> None:
+        """Save the target intent to target-intent.json.
+
+        Uses the target intent manager (creates it if needed). Caller provides
+        the intent to persist (e.g. from Match page or Deploy generate).
+        """
+        self.get_target_intent_manager().save(intent)
+
+    def is_step_complete(self, step: WorkflowStep) -> bool:
         """Check if a workflow step has been completed."""
         if step != WorkflowStep.HOME and step not in self.workflow_steps():
             return False
@@ -1209,6 +1243,7 @@ class AppState:
             # Tier 3 SKIP: account_data (huge raw API data; loaded from fetch.last_fetch_file)
             # Tier 3 SKIP: target_account_data (huge raw API data; loaded from target_fetch.last_fetch_file)
             # Tier 3 SKIP: _protection_intent_manager (runtime object, manages its own file)
+            # Tier 3 SKIP: _target_intent_manager (runtime object, manages target-intent.json)
         }
 
     @classmethod
