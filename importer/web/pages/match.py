@@ -17,6 +17,11 @@ from importer.web.utils.mapping_file import (
 )
 from importer.web.utils.yaml_viewer import create_yaml_viewer_dialog
 from importer.web.utils.terraform_state_reader import read_terraform_state, StateReadResult
+from importer.web.utils.target_intent import (
+    TargetIntentResult,
+    MatchMappings,
+    StateToTargetMapping,
+)
 from importer.web.utils.terraform_import import (
     generate_adopt_imports_from_grid,
     generate_state_rm_commands,
@@ -238,6 +243,27 @@ def _load_report_items(state: AppState, target: bool = False) -> list:
     return []
 
 
+def _persist_target_intent_from_match(
+    state: AppState,
+    state_to_target: Optional[list] = None,
+) -> None:
+    """Persist confirmed_mappings (and optionally state_to_target) to target-intent.json."""
+    manager = state.get_target_intent_manager()
+    intent = manager.load()
+    if intent is None:
+        intent = TargetIntentResult(version=2)
+    new_mm = MatchMappings.from_confirmed_mappings(state.map.confirmed_mappings)
+    if state_to_target is not None:
+        if all(isinstance(x, dict) for x in state_to_target):
+            new_mm.state_to_target = [StateToTargetMapping.from_dict(x) for x in state_to_target]
+        else:
+            new_mm.state_to_target = list(state_to_target)
+    elif intent.match_mappings.state_to_target:
+        new_mm.state_to_target = list(intent.match_mappings.state_to_target)
+    intent.match_mappings = new_mm
+    state.save_target_intent(intent)
+
+
 def _create_matching_content(
     state: AppState,
     source_items: list,
@@ -266,7 +292,15 @@ def _create_matching_content(
     
     # Store target_items for callbacks (since it's a local variable)
     target_items_ref = {"items": target_items}
-    
+
+    # Load persistent target intent and seed confirmed_mappings from it (source of truth)
+    try:
+        intent = state.get_target_intent_manager().load()
+        if intent and intent.match_mappings.source_to_target:
+            state.map.confirmed_mappings = intent.match_mappings.to_confirmed_mappings()
+    except Exception as e:
+        logging.warning(f"Could not load target intent for match page: {e}")
+
     # Build hierarchy index for parent/child lookups (used for protection cascade)
     hierarchy_index = HierarchyIndex(source_items)
     
@@ -425,6 +459,7 @@ def _create_matching_content(
             state.map.mapping_file_path = None
         
         save_state()
+        _persist_target_intent_from_match(state)
         ui.notify("All mappings reset. Suggestions will be regenerated.", type="info")
         ui.navigate.reload()
     
@@ -450,6 +485,7 @@ def _create_matching_content(
                     "match_type": confidence if confidence in auto_match_types else "manual",
                 })
         save_state()
+        _persist_target_intent_from_match(state)
         ui.navigate.reload()
                     
     def reject_all_pending():
@@ -462,6 +498,7 @@ def _create_matching_content(
                     state.map.rejected_suggestions = set(state.map.rejected_suggestions)
                     state.map.rejected_suggestions.add(row.get("source_key"))
         save_state()
+        _persist_target_intent_from_match(state)
         ui.navigate.reload()
                     
     async def export_csv():
@@ -839,6 +876,7 @@ def _create_matching_content(
             state.map.removal_keys.discard(source_key)
 
         save_state()
+        _persist_target_intent_from_match(state)
     
     def on_accept(source_key: str):
         """Accept a single suggestion."""
@@ -857,6 +895,7 @@ def _create_matching_content(
                     row["status"] = "confirmed"
                     break
         save_state()
+        _persist_target_intent_from_match(state)
         ui.navigate.reload()
     
     def on_reject(source_key: str):
@@ -867,6 +906,7 @@ def _create_matching_content(
             state.map.rejected_suggestions = set(state.map.rejected_suggestions)
             state.map.rejected_suggestions.add(source_key)
         save_state()
+        _persist_target_intent_from_match(state)
         ui.navigate.reload()
     
     def find_source_item(source_key: str) -> Optional[dict]:
@@ -1080,6 +1120,7 @@ def _create_matching_content(
                         state.map.rejected_suggestions = [k for k in state.map.rejected_suggestions if k != source_key]
                 
                 save_state()
+                _persist_target_intent_from_match(state)
                 ui.notify(f"Matched to {target_name} (ID: {target_id}) with action '{action}'", type="positive")
                 ui.navigate.reload()  # Reload to update the grid
             
@@ -1116,6 +1157,7 @@ def _create_matching_content(
                 })
                 
                 save_state()
+                _persist_target_intent_from_match(state)
                 protection_msg = " (protected)" if protected else ""
                 ui.notify(f"Set {source_item.get('name', source_key)} to adopt{protection_msg}", type="positive")
                 ui.navigate.reload()
@@ -1214,7 +1256,32 @@ def _create_matching_content(
             for r in result.resources
         ]
         save_state()
-        
+
+        # Compute state-to-target alignment and persist to target-intent.json
+        target_items_list = target_items_ref.get("items", [])
+        state_to_target_list = []
+        for r in result.resources:
+            state_key = r.resource_index or r.address
+            target_id = ""
+            target_name = ""
+            match_type = "unmatched"
+            for t in target_items_list:
+                if t.get("dbt_id") == r.dbt_id and t.get("element_type_code") == r.element_code:
+                    target_id = str(t.get("dbt_id", ""))
+                    target_name = t.get("name", "")
+                    match_type = "auto"
+                    break
+            state_to_target_list.append({
+                "state_key": state_key,
+                "state_address": r.address,
+                "resource_type": r.element_code,
+                "target_id": target_id,
+                "target_name": target_name,
+                "match_type": match_type,
+                "confirmed": False,
+            })
+        _persist_target_intent_from_match(state, state_to_target=state_to_target_list)
+
         ui.notify(f"Loaded {len(result.resources)} resources from Terraform state", type="positive")
         ui.navigate.reload()
     
@@ -4706,6 +4773,7 @@ moved {{
                             state.map.mapping_file_valid = True
                             state.map.confirmed_mappings = mappings_to_save
                             save_state()
+                            _persist_target_intent_from_match(state)
                             ui.notify(f"Mapping saved to {output_path}", type="positive")
                             # Reload to update navigation button state
                             ui.navigate.reload()
