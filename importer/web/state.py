@@ -51,7 +51,7 @@ STEP_NAMES = {
     WorkflowStep.SCOPE: "Select Source",
     WorkflowStep.FETCH_TARGET: "Fetch Target",
     WorkflowStep.EXPLORE_TARGET: "Explore Target",
-    WorkflowStep.MATCH: "Match Existing",
+    WorkflowStep.MATCH: "Set Target Intent",
     WorkflowStep.CONFIGURE: "Configure Migration",
     WorkflowStep.TARGET_CREDENTIALS: "Target Credentials",
     WorkflowStep.DEPLOY: "Deploy",
@@ -75,7 +75,7 @@ STEP_ICONS = {
     WorkflowStep.SCOPE: "tune",
     WorkflowStep.FETCH_TARGET: "cloud_download",
     WorkflowStep.EXPLORE_TARGET: "manage_search",
-    WorkflowStep.MATCH: "link",
+    WorkflowStep.MATCH: "assignment",
     WorkflowStep.CONFIGURE: "settings",
     WorkflowStep.TARGET_CREDENTIALS: "key",
     WorkflowStep.DEPLOY: "rocket_launch",
@@ -484,6 +484,9 @@ class MapState:
     include_webhooks: bool = False
     include_privatelink: bool = False
     
+    # Removal intent: resource keys flagged for removal from TF state (future UI)
+    removal_keys: set = field(default_factory=set)
+
     # Normalization state
     normalize_running: bool = False
     normalize_complete: bool = False

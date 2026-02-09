@@ -131,7 +131,7 @@ def create_deploy_page(
         with ui.column().classes("w-full"):
             terminal.create(height="450px")
 
-        # Note: State reconciliation is now handled in the Match Existing tab
+        # Note: State reconciliation is now handled in the Set Target Intent tab
 
         # Navigation buttons
         _create_navigation_section(state, on_step_change)
@@ -1292,7 +1292,77 @@ async def _run_generate(
         terminal.info(f"Source YAML: {yaml_file}")
         terminal.info(f"Output directory: {output_path}")
         terminal.info("")
-        
+
+        # Target intent: TF state is the floor; merge source focus into baseline; persist artifact.
+        from importer.web.utils.target_intent import (
+            TargetIntentManager,
+            compute_target_intent,
+            validate_intent_coverage,
+            get_tf_state_project_keys,
+        )
+
+        existing_yaml_path = output_path / "dbt-cloud-config.yml"
+        tfstate_path = output_path / "terraform.tfstate"
+        removal_keys = set(getattr(state.map, "removal_keys", None) or [])
+        target_report_items = None
+        if getattr(state, "target_fetch", None) and getattr(state.target_fetch, "last_report_items_file", None):
+            _tr_path = Path(state.target_fetch.last_report_items_file)
+            if _tr_path.exists():
+                try:
+                    import json as _json_tr
+                    with open(_tr_path, "r") as f:
+                        target_report_items = _json_tr.load(f)
+                except Exception:
+                    pass
+        adopt_rows_early = getattr(state.deploy, "reconcile_adopt_rows", []) or []
+
+        try:
+            intent_manager = TargetIntentManager(output_path)
+            previous_intent = intent_manager.load()
+            baseline_yaml = str(existing_yaml_path) if existing_yaml_path.exists() else None
+
+            target_intent = compute_target_intent(
+                tfstate_path=tfstate_path,
+                source_focus_yaml=yaml_file,
+                baseline_yaml=baseline_yaml,
+                target_report_items=target_report_items,
+                adopt_rows=adopt_rows_early,
+                removal_keys=removal_keys,
+                previous_intent=previous_intent,
+            )
+
+            tf_state_keys = get_tf_state_project_keys(tfstate_path)
+            coverage_warnings = validate_intent_coverage(target_intent, tf_state_keys, removal_keys)
+            for w in coverage_warnings:
+                terminal.warning(f"  COVERAGE: {w}")
+            for w in target_intent.coverage_warnings:
+                terminal.warning(f"  COVERAGE: {w}")
+            if target_intent.orphan_flagged_keys:
+                for key in target_intent.orphan_flagged_keys:
+                    terminal.warning(f"  ORPHAN: '{key}' is in TF state but NOT in target account -- flagged for removal")
+                terminal.warning("  Review flagged orphans in Utilities > Removal Management. Confirm before state rm.")
+            if target_intent.orphan_retained_keys:
+                for key in target_intent.orphan_retained_keys:
+                    terminal.info(f"  ORPHAN (retained): '{key}' -- user chose to keep stale state entry")
+            for warn in target_intent.drift_warnings:
+                terminal.warning(f"  DRIFT: {warn}")
+
+            yaml_file = intent_manager.write_merged_yaml(target_intent)
+            intent_manager.save(target_intent)
+            terminal.success(
+                f"  Target intent: {len(target_intent.retained_keys)} retained, "
+                f"{len(target_intent.upserted_keys)} upserted, "
+                f"{len(target_intent.adopted_keys)} adopted, "
+                f"{len(target_intent.removed_keys)} removed, "
+                f"{len(target_intent.orphan_flagged_keys)} orphans flagged"
+            )
+            terminal.info(f"  Using merged YAML: {yaml_file}")
+        except Exception as e:
+            terminal.warning(f"  Target intent computation failed: {e}")
+            import traceback
+            terminal.warning(traceback.format_exc()[:400])
+            terminal.info("  Falling back to source YAML (may cause destroys!)")
+
         # Handle clone configurations if any
         cloned_resources = getattr(state.map, "cloned_resources", [])
         if cloned_resources:
@@ -1341,7 +1411,7 @@ async def _run_generate(
 
         # Apply adoption overrides - update YAML with target values for adopted resources
         # This ensures imported resources match their target configuration
-        # reconcile_adopt_rows is populated when user clicks "Generate Import Blocks" on Match Existing tab
+        # reconcile_adopt_rows is populated when user clicks "Generate Import Blocks" on Set Target Intent tab
         adopt_rows = getattr(state.deploy, "reconcile_adopt_rows", []) or []
         terminal.info(f"Checking adoption overrides: {len(adopt_rows)} row(s) in reconcile_adopt_rows")
         # #region agent log
@@ -1441,7 +1511,7 @@ async def _run_generate(
                     terminal.warning(f"  No target_fetch.last_report_items_file configured")
                 
                 if target_items:
-                    # Create a copy of the YAML in output dir for adoption updates
+                    # Copy the (already-merged) YAML into the output dir for adoption updates
                     adoption_yaml = output_path / "dbt-cloud-config.yml"
                     if Path(yaml_file) != adoption_yaml:
                         shutil.copy2(yaml_file, adoption_yaml)
@@ -1496,7 +1566,7 @@ async def _run_generate(
                 terminal.warning(f"  {traceback.format_exc()}")
                 terminal.info("  Proceeding with original YAML values")
         else:
-            terminal.info("  No adopt rows found - click 'Generate Import Blocks' on Match Existing tab first")
+            terminal.info("  No adopt rows found - click 'Generate Import Blocks' on Set Target Intent tab first")
 
         # Strip source account's github_installation_id from all repositories
         # This ID is invalid for the target account - the module should discover it via PAT
@@ -1510,9 +1580,9 @@ async def _run_generate(
             terminal.info(f"  Output YAML path: {yaml_output_path}")
             terminal.info(f"  Output path exists: {yaml_output_path.exists()}")
             
-            # Ensure YAML is copied to output directory
-            if not yaml_output_path.exists():
-                terminal.info(f"  Copying {yaml_file} to {yaml_output_path}")
+            # Ensure YAML is in output directory (already merged upstream)
+            if Path(yaml_file) != yaml_output_path:
+                terminal.info(f"  Copying (merged) YAML to {yaml_output_path}")
                 shutil.copy2(yaml_file, yaml_output_path)
             
             with open(yaml_output_path, "r") as f:
@@ -1571,14 +1641,22 @@ async def _run_generate(
         # The Protection Management page uses intent manager, but deploy.py uses protected_resources
         # Without this sync, protection from the UI is not applied during generation
         protection_intent_manager = state.get_protection_intent_manager()
+        # Intent keys are prefixed (TYPE:key). We pass them as-is to apply_protection_from_set
+        # which knows how to handle prefixed keys (routing to the correct type-specific set).
         intent_protected_keys = {k for k, i in protection_intent_manager._intent.items() if i.protected}
         intent_unprotected_keys = {k for k, i in protection_intent_manager._intent.items() if not i.protected}
         
         if intent_protected_keys:
             # Merge intent-protected keys into state.map.protected_resources
+            # Include BOTH prefixed keys (for apply_protection_from_set) and
+            # unprefixed keys (for grid row checks in match.py)
             if not state.map.protected_resources:
                 state.map.protected_resources = set()
             state.map.protected_resources.update(intent_protected_keys)
+            # Also add unprefixed base keys for backward compat with grid checks
+            for k in intent_protected_keys:
+                if ":" in k:
+                    state.map.protected_resources.add(k.split(":", 1)[1])
             terminal.info(f"Synced {len(intent_protected_keys)} protected resource(s) from intent manager")
         
         if intent_unprotected_keys:
@@ -1586,6 +1664,10 @@ async def _run_generate(
             if not state.map.unprotected_keys:
                 state.map.unprotected_keys = set()
             state.map.unprotected_keys.update(intent_unprotected_keys)
+            # Also add unprefixed base keys
+            for k in intent_unprotected_keys:
+                if ":" in k:
+                    state.map.unprotected_keys.add(k.split(":", 1)[1])
             terminal.info(f"Synced {len(intent_unprotected_keys)} unprotected resource(s) from intent manager")
         
         # Apply protection changes from both protected_resources and unprotected_keys sets
@@ -1603,6 +1685,8 @@ async def _run_generate(
                 
                 # CRITICAL FIX: Ensure the YAML exists in output directory before modifying
                 # If adoption overrides didn't run, the file might not be there yet
+                # Note: By this point, the strip section above should have already
+                # created/merged the file. This is a safety fallback only.
                 if not yaml_output_path.exists():
                     shutil.copy2(yaml_file, yaml_output_path)
                     terminal.info(f"  Copied YAML to output directory for protection updates")
@@ -1794,9 +1878,12 @@ async def _run_generate(
                     if proj.get("protected"):
                         key = proj.get("key", "")
                         yaml_protected.add(f"PRJ:{key}")
-                        # Also check repositories
+                        # Also check repositories — add both REPO: (current)
+                        # and REP: (legacy) prefixes so validation matches
+                        # intent entries regardless of which prefix was used.
                         if proj.get("repository"):
                             yaml_protected.add(f"REPO:{key}")
+                            yaml_protected.add(f"REP:{key}")
                 
                 # Check each intent that claims applied_to_yaml=true
                 intent_yaml_mismatches = []

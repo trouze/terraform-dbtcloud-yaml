@@ -139,11 +139,11 @@ def _create_header(state: AppState) -> None:
         with ui.row().classes("w-full items-center justify-between"):
             with ui.column().classes("gap-1"):
                 with ui.row().classes("items-center gap-2"):
-                    ui.icon("link", size="md").style(f"color: {DBT_TEAL};")
-                    ui.label("Match Source to Target Resources").classes("text-2xl font-bold")
+                    ui.icon("assignment", size="md").style(f"color: {DBT_TEAL};")
+                    ui.label("Set Target Intent").classes("text-2xl font-bold")
                 
                 ui.label(
-                    "Match source resources to existing target resources for Terraform import"
+                    "Define what Terraform should manage: match, adopt, protect, and remove resources"
                 ).classes("text-slate-600 dark:text-slate-400")
             
             # Show both account details with ID and URL
@@ -337,6 +337,7 @@ def _create_matching_content(
     create_new_derived = len(derived_rows)  # All derived resources are create_new
     create_new_total = create_new_primary + create_new_derived
     skipped = sum(1 for r in primary_rows if r.get("action") == "skip")
+    unadopted = sum(1 for r in primary_rows if r.get("action") == "unadopt")
     
     # Total rows in grid including overrides
     total_grid_rows = len(grid_row_data)
@@ -358,6 +359,7 @@ def _create_matching_content(
                 )
         
         _create_stat_card("Skip", skipped, "text-slate-500", "block")
+        _create_stat_card("Unadopt", unadopted, "text-purple-500", "link_off")
         
         # Selected source items with total count - shows primary resources + overrides
         with ui.card().classes("p-3 min-w-[120px]"):
@@ -576,10 +578,19 @@ def _create_matching_content(
         
         Records protection intent for each resource and updates the protected_resources set.
         Intent is recorded with source="protect_all_button" for bulk actions.
+        Keys are always prefixed with TYPE: before storing in intent manager.
         """
         from importer.web.utils.ui_logger import log_action, log_state_change
         before = set(state.map.protected_resources) if state.map.protected_resources else set()
         before_fix_pending = state.map.protection_fix_pending
+        
+        # Build a lookup from source_key -> source_type from grid data
+        key_to_type = {}
+        for row in grid_data_ref["data"]:
+            sk = row.get("source_key")
+            st = row.get("source_type", "")
+            if sk and st:
+                key_to_type[sk] = st
         
         # Get protection intent manager and record intent for each resource
         protection_intent = state.get_protection_intent_manager()
@@ -594,12 +605,17 @@ def _create_matching_content(
             else:
                 yaml_state_before = key in before
             
+            # Always use prefixed key (TYPE:key) for intent manager
+            source_type = key_to_type.get(key, "")
+            prefixed_key = f"{source_type}:{key}" if source_type and ":" not in key else key
+            
             # Record intent - this is the source of truth for user decisions
             protection_intent.set_intent(
-                key=key,
+                key=prefixed_key,
                 protected=True,
                 source="protect_all_button",
                 reason="Bulk protect from Match page",
+                resource_type=source_type or None,
                 tf_state_at_decision=tf_state_at_decision,
                 yaml_state_before=yaml_state_before,
             )
@@ -637,10 +653,19 @@ def _create_matching_content(
         
         Records unprotection intent for each resource and updates the protected_resources set.
         Intent is recorded with source="unprotect_all_button" for bulk actions.
+        Keys are always prefixed with TYPE: before storing in intent manager.
         """
         from importer.web.utils.ui_logger import log_action, log_state_change
         before = set(state.map.protected_resources) if state.map.protected_resources else set()
         before_fix_pending = state.map.protection_fix_pending
+        
+        # Build a lookup from source_key -> source_type from grid data
+        key_to_type = {}
+        for row in grid_data_ref["data"]:
+            sk = row.get("source_key")
+            st = row.get("source_type", "")
+            if sk and st:
+                key_to_type[sk] = st
         
         # Get protection intent manager and record intent for each resource
         protection_intent = state.get_protection_intent_manager()
@@ -655,12 +680,17 @@ def _create_matching_content(
             else:
                 yaml_state_before = key in before
             
+            # Always use prefixed key (TYPE:key) for intent manager
+            source_type = key_to_type.get(key, "")
+            prefixed_key = f"{source_type}:{key}" if source_type and ":" not in key else key
+            
             # Record intent - this is the source of truth for user decisions
             protection_intent.set_intent(
-                key=key,
+                key=prefixed_key,
                 protected=False,
                 source="unprotect_all_button",
                 reason="Bulk unprotect from Match page",
+                resource_type=source_type or None,
                 tf_state_at_decision=tf_state_at_decision,
                 yaml_state_before=yaml_state_before,
             )
@@ -795,13 +825,19 @@ def _create_matching_content(
         # to ensure dialogs always see the current state
         
         # If action is match and has valid target, it can be confirmed
-        # If action is skip or create_new, remove from confirmed if present
-        if action in ("skip", "create_new"):
+        # If action is skip, create_new, or unadopt, remove from confirmed if present
+        if action in ("skip", "create_new", "unadopt"):
             state.map.confirmed_mappings = [
-                m for m in state.map.confirmed_mappings 
+                m for m in state.map.confirmed_mappings
                 if m.get("source_key") != source_key
             ]
-        
+        if action == "unadopt":
+            if not isinstance(getattr(state.map, "removal_keys", None), set):
+                state.map.removal_keys = set(state.map.removal_keys or [])
+            state.map.removal_keys.add(source_key)
+        elif hasattr(state.map, "removal_keys") and state.map.removal_keys is not None:
+            state.map.removal_keys.discard(source_key)
+
         save_state()
     
     def on_accept(source_key: str):
@@ -1227,6 +1263,25 @@ def _create_matching_content(
                     "Clear all mappings and regenerate suggestions"
                 )
     
+    # Grid ref for type filter callback (grid is created after toolbar)
+    grid_ref: dict = {}
+    
+    def on_type_filter_change(type_value: str) -> None:
+        """Apply type filter to the match grid via AG Grid setFilterModel."""
+        g = grid_ref.get("grid")
+        if g is None:
+            return
+        import asyncio
+        async def apply() -> None:
+            if type_value == "all":
+                await g.run_grid_method("setFilterModel", {})
+            else:
+                await g.run_grid_method(
+                    "setFilterModel",
+                    {"source_type": {"filterType": "text", "type": "equals", "filter": type_value}},
+                )
+        asyncio.get_event_loop().create_task(apply())
+    
     # Grid toolbar
     create_grid_toolbar(
         grid_row_data,
@@ -1234,6 +1289,7 @@ def _create_matching_content(
         on_reject_all=reject_all_pending,
         on_reset_all=reset_all_mappings,
         on_export_csv=export_csv,
+        on_type_filter_change=on_type_filter_change,
     )
     
     # Main grid in a card - flex container that grows to fill available space
@@ -1241,6 +1297,11 @@ def _create_matching_content(
         # Get protection intent manager for effective protection lookup
         protection_intent = state.get_protection_intent_manager()
         
+        def on_unadopt(source_key: str) -> None:
+            """Called when user sets action to unadopt; state already updated in on_row_change."""
+            save_state()
+        
+        removal_keys_set = set(state.map.removal_keys or [])
         grid, _ = create_match_grid(
             source_items,
             target_items,
@@ -1253,9 +1314,12 @@ def _create_matching_content(
             clone_configs=clone_configs,
             on_configure_clone=on_configure_clone,
             state_result=state_ref["state_result"],
+            on_unadopt=on_unadopt,
+            removal_keys=removal_keys_set,
             protected_resources=state.map.protected_resources,
             protection_intent_manager=protection_intent,
         )
+        grid_ref["grid"] = grid
     
     # Adopt imports section - show when TF state is loaded so user can adopt resources
     # This section lets users generate import blocks for resources marked with action="adopt"
@@ -4577,7 +4641,7 @@ moved {{
                 ui.label("For protection changes: Skip Generate, just run Init → Plan → Apply").classes("text-xs text-slate-400")
                 ui.label("Generate regenerates ALL files which can cause conflicts").classes("text-xs text-amber-500")
     
-    # Save mapping file section (show if there are any confirmed or pending matches)
+    # Save target intent section (show if there are any confirmed or pending matches)
     has_matches = any(r.get("action") == "match" and r.get("target_id") for r in grid_row_data)
     confirmed_count = sum(1 for r in grid_row_data if r.get("status") == "confirmed")
     pending_match_count = sum(1 for r in grid_row_data if r.get("status") == "pending" and r.get("action") == "match" and r.get("target_id"))
@@ -4587,7 +4651,7 @@ moved {{
         with ui.card().classes("w-full p-4 mt-4").style(f"border: 2px solid {DBT_TEAL}; max-width: 100%; flex-shrink: 0; overflow: hidden;"):
             with ui.row().classes("w-full items-center justify-between"):
                 with ui.column().classes("gap-1"):
-                    ui.label("Save Mapping File").classes("font-semibold")
+                    ui.label("Save Target Intent").classes("font-semibold")
                     if confirmed_count > 0:
                         ui.label(
                             f"{confirmed_count} confirmed mappings"
@@ -4653,7 +4717,7 @@ moved {{
                     if state.map.mapping_file_path and Path(state.map.mapping_file_path).exists():
                         dialog = create_yaml_viewer_dialog(
                             state.map.mapping_file_path,
-                            title="Target Resource Mapping"
+                            title="Target Intent"
                         )
                         dialog.open()
                     else:
@@ -4661,7 +4725,7 @@ moved {{
                 
                 with ui.row().classes("gap-2"):
                     save_btn = ui.button(
-                        "Save Mapping File",
+                        "Save Target Intent",
                         icon="save",
                         on_click=save_mappings,
                     ).style(f"background-color: {DBT_TEAL};")
@@ -4672,7 +4736,7 @@ moved {{
                     
                     if state.map.mapping_file_path:
                         ui.button(
-                            "View Mapping",
+                            "View Target Intent",
                             icon="visibility",
                             on_click=view_mapping_file,
                         ).props("outline")
