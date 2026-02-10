@@ -343,6 +343,12 @@ def normalize_snapshot(
     if config.is_resource_included("projects"):
         v2_data["projects"] = _normalize_projects(snapshot, config, context)
     
+    # Post-processing: align repository keys to project keys.
+    # The TF module keys repository resources by project key in for_each,
+    # so the YAML repo key must match the project key for consistency with
+    # adoption, protection tracking, and Terraform state.
+    _align_repository_keys_to_projects(v2_data)
+    
     # Add metadata section if there are placeholders
     if context.placeholders:
         v2_data["metadata"] = {"placeholders": context.placeholders}
@@ -353,6 +359,74 @@ def normalize_snapshot(
     )
     
     return v2_data
+
+
+def _align_repository_keys_to_projects(v2_data: Dict[str, Any]) -> None:
+    """Rename global repository keys to match their associated project keys.
+
+    The Terraform module (``modules/projects_v2/projects.tf``) uses the
+    **project key** as the ``for_each`` key for repository resources, not the
+    global repository key.  If the normalizer-generated repo key differs from
+    the project key (e.g. ``dbt_ep_sse_dm_fin_fido`` vs ``sse_dm_fin_fido``),
+    the Terraform plan will try to destroy-and-recreate the resource, which
+    fails when ``lifecycle.prevent_destroy`` is set.
+
+    This function performs a post-processing pass that renames each global
+    repository key to the associated project key when a 1-to-1 mapping exists.
+    """
+    repos = v2_data.get("globals", {}).get("repositories", [])
+    projects = v2_data.get("projects", [])
+
+    if not repos or not projects:
+        return
+
+    # Build reverse map: repo_key -> list of (project_index, project_key)
+    repo_to_projects: Dict[str, list] = {}
+    for idx, project in enumerate(projects):
+        repo_ref = project.get("repository")
+        if repo_ref and isinstance(repo_ref, str):
+            repo_to_projects.setdefault(repo_ref, []).append(
+                (idx, project.get("key", ""))
+            )
+
+    # Build set of existing repo keys for collision detection
+    existing_repo_keys = {r.get("key") for r in repos}
+
+    for repo in repos:
+        repo_key = repo.get("key", "")
+        associations = repo_to_projects.get(repo_key, [])
+
+        # Only rename when there is exactly one associated project
+        if len(associations) != 1:
+            continue
+
+        _proj_idx, project_key = associations[0]
+
+        # Already aligned – nothing to do
+        if repo_key == project_key:
+            continue
+
+        # Skip if the target key already belongs to a different repo
+        if project_key in existing_repo_keys:
+            log.warning(
+                f"Cannot rename repo key '{repo_key}' -> '{project_key}': "
+                f"target key already exists as another repo"
+            )
+            continue
+
+        log.info(
+            f"Aligning repository key '{repo_key}' -> '{project_key}' "
+            f"(matches project key)"
+        )
+
+        # Update the global repo entry
+        existing_repo_keys.discard(repo_key)
+        existing_repo_keys.add(project_key)
+        repo["key"] = project_key
+
+        # Update every project that references this repo
+        for pidx, _ in associations:
+            projects[pidx]["repository"] = project_key
 
 
 def _normalize_account(snapshot: AccountSnapshot, config: MappingConfig) -> Dict[str, Any]:
@@ -1195,6 +1269,10 @@ def _normalize_jobs(
         job_data["run_generate_sources"] = job.settings.get("run_generate_sources", False)
         job_data["run_compare_changes"] = job.settings.get("run_compare_changes", False)
         job_data["compare_changes_flags"] = job.settings.get("compare_changes_flags") or None
+
+        # job_type: Preserve the API value so Terraform doesn't flip it on plan.
+        # Common values: "scheduled", "ci", "merge", "other".
+        job_data["job_type"] = job.settings.get("job_type") or None
 
         # SAO (State-Aware Orchestration) fields
         # Detect CI/Merge jobs: force_node_selection must be omitted for these job types

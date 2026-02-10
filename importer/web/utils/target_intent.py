@@ -44,6 +44,14 @@ class ResourceDisposition:
     tf_state_address: Optional[str] = None
     confirmed: bool = False
     confirmed_at: Optional[str] = None
+    # Protection fields — explicit intent per resource
+    protected: bool = False
+    protection_set_by: Optional[str] = None  # "default_unprotected", "tf_state_default", "protection_intent", "user"
+    protection_set_at: Optional[str] = None
+    # Config preference: which value source to use when generating YAML
+    # "target" = use target/TF state values (for retained, adopted/matched resources)
+    # "source" = use source YAML values (for upserted/new resources)
+    config_preference: str = "target"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -55,6 +63,10 @@ class ResourceDisposition:
             "tf_state_address": self.tf_state_address,
             "confirmed": self.confirmed,
             "confirmed_at": self.confirmed_at,
+            "protected": self.protected,
+            "protection_set_by": self.protection_set_by,
+            "protection_set_at": self.protection_set_at,
+            "config_preference": self.config_preference,
         }
 
     @classmethod
@@ -68,6 +80,10 @@ class ResourceDisposition:
             tf_state_address=data.get("tf_state_address"),
             confirmed=data.get("confirmed", False),
             confirmed_at=data.get("confirmed_at"),
+            protected=data.get("protected", False),
+            protection_set_by=data.get("protection_set_by"),
+            protection_set_at=data.get("protection_set_at"),
+            config_preference=data.get("config_preference", "target"),
         )
 
 
@@ -335,8 +351,9 @@ class TargetIntentResult:
 def get_tf_state_project_keys(tfstate_path: Path) -> set[str]:
     """Parse terraform.tfstate JSON and return all managed project keys.
 
-    Looks for resources with type=dbtcloud_project, name=projects and
-    collects index_key from each instance. Fast JSON parse, no subprocess.
+    Looks for resources with type=dbtcloud_project, name=projects or
+    name=protected_projects and collects index_key from each instance.
+    Fast JSON parse, no subprocess.
     """
     keys: set[str] = set()
     if not tfstate_path.exists():
@@ -351,7 +368,32 @@ def get_tf_state_project_keys(tfstate_path: Path) -> set[str]:
 
     resources = state.get("resources", [])
     for res in resources:
-        if res.get("type") != "dbtcloud_project" or res.get("name") != "projects":
+        if res.get("type") != "dbtcloud_project":
+            continue
+        if res.get("name") not in ("projects", "protected_projects"):
+            continue
+        for inst in res.get("instances", []):
+            idx = inst.get("index_key")
+            if idx is not None:
+                keys.add(str(idx))
+    return keys
+
+
+def get_tf_state_protected_project_keys(tfstate_path: Path) -> set[str]:
+    """Return project keys that are protected in TF state (name=protected_projects)."""
+    keys: set[str] = set()
+    if not tfstate_path.exists():
+        return keys
+    try:
+        with open(tfstate_path, "r") as f:
+            state = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(f"Failed to read Terraform state for protection: {e}")
+        return keys
+
+    resources = state.get("resources", [])
+    for res in resources:
+        if res.get("type") != "dbtcloud_project" or res.get("name") != "protected_projects":
             continue
         for inst in res.get("instances", []):
             idx = inst.get("index_key")
@@ -384,8 +426,18 @@ def compute_target_intent(
     adopt_rows: list[dict],
     removal_keys: set[str],
     previous_intent: Optional[TargetIntentResult] = None,
+    protection_intent_manager: Optional[Any] = None,
+    included_globals: Optional[set[str]] = None,
 ) -> TargetIntentResult:
     """Compute the complete target intent.
+
+    Args:
+        included_globals: Explicit set of global section keys to include in output_config.
+            Only these sections will be kept under ``globals`` in the merged YAML.
+            Default (None) keeps only ``connections`` and ``repositories`` (project
+            dependencies).  Other sections (``groups``, ``service_tokens``,
+            ``notifications``, ``privatelink_endpoints``, ``webhooks``) are stripped
+            unless explicitly listed here.
 
     Algorithm:
     1. Read all project keys from terraform.tfstate -> default disposition retained.
@@ -396,7 +448,8 @@ def compute_target_intent(
     6. Add adopted project keys from adopt_rows -> adopted.
     7. Preserve confirmed dispositions from previous_intent.
     8. Build output_config via merge_yaml_configs(baseline, source_focus).
-    9. Validate coverage.
+    9. Apply protection priority chain (default -> TF state -> protection intent -> user edit).
+    10. Validate coverage.
     """
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     tf_state_keys = get_tf_state_project_keys(tfstate_path)
@@ -445,6 +498,7 @@ def compute_target_intent(
                 resource_type="PRJ",
                 disposition=DISP_REMOVED,
                 source="removal_intent",
+                config_preference="target",
             )
         elif orphan_detection_active and key not in target_project_keys:
             dispositions[key] = ResourceDisposition(
@@ -453,14 +507,19 @@ def compute_target_intent(
                 disposition=DISP_ORPHAN_FLAGGED,
                 source="orphan_detection",
                 config_source=baseline_yaml,
+                config_preference="target",
             )
         elif key in source_focus_project_keys:
+            # Project is in both TF state AND source focus -- it's being upserted
+            # but since it already exists on target, prefer target values for
+            # sub-resources (repos, envs) unless user explicitly overrides
             dispositions[key] = ResourceDisposition(
                 key=key,
                 resource_type="PRJ",
                 disposition=DISP_UPSERTED,
                 source="source_focus",
                 config_source=source_focus_yaml,
+                config_preference="source",
             )
         else:
             dispositions[key] = ResourceDisposition(
@@ -469,6 +528,7 @@ def compute_target_intent(
                 disposition=DISP_RETAINED,
                 source="tf_state_default",
                 config_source=baseline_yaml,
+                config_preference="target",
             )
 
     # Add source focus projects not in TF state (new)
@@ -480,6 +540,7 @@ def compute_target_intent(
                 disposition=DISP_UPSERTED,
                 source="source_focus",
                 config_source=source_focus_yaml,
+                config_preference="source",
             )
 
     # Adopted (from adopt_rows, usually already in source_focus; mark as adopted if not in state)
@@ -490,6 +551,7 @@ def compute_target_intent(
                 resource_type="PRJ",
                 disposition=DISP_ADOPTED,
                 source="adopt_rows",
+                config_preference="target",
             )
 
     # Preserve confirmed dispositions from previous intent
@@ -505,7 +567,40 @@ def compute_target_intent(
                     tf_state_address=d.tf_state_address,
                     confirmed=True,
                     confirmed_at=d.confirmed_at,
+                    config_preference=d.config_preference,
                 )
+
+    # Protection priority chain: default < TF state < protection intent < user edit
+    # Level 1: Default - all unprotected
+    for key, disp in dispositions.items():
+        disp.protected = False
+        disp.protection_set_by = "default_unprotected"
+
+    # Level 2: TF state override - protected_projects resource name means protected
+    tf_state_protected_keys = get_tf_state_protected_project_keys(tfstate_path)
+    for key in tf_state_protected_keys:
+        if key in dispositions:
+            dispositions[key].protected = True
+            dispositions[key].protection_set_by = "tf_state_default"
+
+    # Level 3: Protection intent file override
+    if protection_intent_manager:
+        for key, disp in dispositions.items():
+            # Try both unprefixed and PRJ-prefixed keys
+            intent = protection_intent_manager.get_intent(key)
+            if intent is None:
+                intent = protection_intent_manager.get_intent(f"PRJ:{key}")
+            if intent is not None:
+                disp.protected = intent.protected
+                disp.protection_set_by = "protection_intent"
+
+    # Level 4: User edits from previous target intent (highest priority)
+    if previous_intent:
+        for k, prev_disp in previous_intent.dispositions.items():
+            if k in dispositions and prev_disp.protection_set_by == "user":
+                dispositions[k].protected = prev_disp.protected
+                dispositions[k].protection_set_by = prev_disp.protection_set_by
+                dispositions[k].protection_set_at = prev_disp.protection_set_at
 
     # Merged config: baseline + source focus (source wins). Exclude removed and orphan_flagged from output.
     include_keys = {
@@ -516,6 +611,19 @@ def compute_target_intent(
     # Filter projects to only those we intend to keep
     all_projects = merged.get("projects", [])
     merged["projects"] = [p for p in all_projects if (p.get("key") or "") in include_keys]
+
+    # Filter globals to only explicitly included sections.
+    # Connections and repositories are kept by default (project dependencies).
+    # Other global objects (groups, service_tokens, notifications, etc.) are
+    # excluded unless the caller explicitly opts them in via included_globals.
+    _default_globals = {"connections", "repositories"}
+    _allowed_globals = included_globals if included_globals is not None else _default_globals
+    if "globals" in merged and isinstance(merged["globals"], dict):
+        stripped_keys = [k for k in merged["globals"] if k not in _allowed_globals]
+        for k in stripped_keys:
+            count = len(merged["globals"][k]) if isinstance(merged["globals"][k], list) else 1
+            logger.info("Stripping globals.%s (%d item(s)) from output_config — not in included_globals", k, count)
+            del merged["globals"][k]
 
     coverage_warnings: list[str] = []
     for key in tf_state_keys:
@@ -558,6 +666,51 @@ def validate_intent_coverage(
     return warnings
 
 
+def normalize_target_fetch(state: Any) -> Optional[str]:
+    """Lazily normalize target fetch data to produce a full-account baseline YAML.
+
+    Uses the same normalizer as the Scope step but applied to the target fetch snapshot.
+    Result is cached in state.target_fetch.target_baseline_yaml.
+
+    Args:
+        state: AppState instance with target_fetch.last_fetch_file populated.
+
+    Returns:
+        Path to the normalized YAML, or None if target fetch data is unavailable.
+    """
+    # Check if already cached and file still exists
+    cached = getattr(state.target_fetch, "target_baseline_yaml", None)
+    if cached and Path(cached).exists():
+        return cached
+
+    fetch_file = getattr(state.target_fetch, "last_fetch_file", None)
+    if not fetch_file or not Path(fetch_file).exists():
+        logger.warning("Cannot normalize target fetch: no last_fetch_file available")
+        return None
+
+    try:
+        # Import the normalizer function (same one used by Scope step)
+        from importer.web.pages.mapping import _do_normalize
+
+        output_dir = getattr(state.target_fetch, "output_dir", "dev_support/samples/target")
+        result = _do_normalize(
+            input_file=fetch_file,
+            exclude_by_type={},  # No exclusions — include everything
+            output_dir=output_dir,
+        )
+        yaml_path = result.get("yaml_file")
+        if yaml_path:
+            state.target_fetch.target_baseline_yaml = yaml_path
+            logger.info(f"Normalized target fetch data -> {yaml_path}")
+            return yaml_path
+        else:
+            logger.warning("Target fetch normalization produced no YAML file")
+            return None
+    except Exception as e:
+        logger.warning(f"Failed to normalize target fetch data: {e}")
+        return None
+
+
 class TargetIntentManager:
     """Load/save target intent artifact and write merged YAML."""
 
@@ -567,25 +720,29 @@ class TargetIntentManager:
         self.merged_path = self.deployment_dir / "dbt-cloud-config-merged.yml"
 
     def load(self) -> Optional[TargetIntentResult]:
-        """Load target intent from target-intent.json if it exists."""
+        """Load target intent from target-intent.json if it exists.
+
+        output_config is restored from the file (self-contained state file).
+        """
         if not self.intent_path.exists():
             return None
         try:
             with open(self.intent_path, "r") as f:
                 data = json.load(f)
-            # Don't restore output_config from file (recompute); keep dispositions for confirmed
             result = TargetIntentResult.from_dict(data)
-            result.output_config = {}
             return result
         except (json.JSONDecodeError, OSError) as e:
             logger.warning(f"Failed to load target intent: {e}")
             return None
 
     def save(self, intent: TargetIntentResult) -> None:
-        """Persist target intent to target-intent.json (metadata only; output_config lives in merged YAML)."""
+        """Persist target intent to target-intent.json (self-contained: includes output_config)."""
         data = intent.to_dict()
-        data.pop("output_config", None)
+        # Include output_config for self-contained state file
+        if intent.output_config:
+            data["output_config"] = intent.output_config
         try:
+            self.deployment_dir.mkdir(parents=True, exist_ok=True)
             with open(self.intent_path, "w") as f:
                 json.dump(data, f, indent=2, sort_keys=False)
         except OSError as e:
@@ -602,3 +759,41 @@ class TargetIntentManager:
                 allow_unicode=True,
             )
         return str(self.merged_path)
+
+    def sync_protection_to_disposition(
+        self,
+        resource_key: str,
+        protected: bool,
+    ) -> bool:
+        """Update a disposition's protected field after a protection intent edit.
+
+        Called AFTER ProtectionIntentManager.set_intent() writes to protection-intent.json.
+        Loads the persisted target intent, updates the matching disposition, and saves.
+
+        Args:
+            resource_key: The resource key (may be prefixed like "PRJ:key" or unprefixed).
+            protected: The new protection value.
+
+        Returns:
+            True if a disposition was found and updated, False otherwise.
+        """
+        intent = self.load()
+        if intent is None:
+            return False
+
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # Try unprefixed key first, then strip prefix
+        bare_key = resource_key.split(":", 1)[1] if ":" in resource_key else resource_key
+        updated = False
+
+        for key in (bare_key, resource_key):
+            if key in intent.dispositions:
+                intent.dispositions[key].protected = protected
+                intent.dispositions[key].protection_set_by = "user"
+                intent.dispositions[key].protection_set_at = now
+                updated = True
+                break
+
+        if updated:
+            self.save(intent)
+        return updated

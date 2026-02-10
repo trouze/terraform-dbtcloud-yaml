@@ -17,6 +17,7 @@ from importer.web.utils.adoption_yaml_updater import (
     apply_protection_from_set,
     apply_unprotection_from_set,
     apply_adoption_overrides,
+    merge_yaml_configs,
 )
 
 
@@ -531,3 +532,172 @@ class TestEdgeCases:
         
         dashed = next(p for p in result["projects"] if p["key"] == "project-with-dashes")
         assert "protected" not in dashed
+
+
+# =============================================================================
+# Tests: merge_yaml_configs
+# =============================================================================
+
+class TestMergeYamlConfigs:
+    """Tests for merge_yaml_configs function.
+    
+    This function is critical for deploy generate: it merges source-selected
+    projects into an existing deployment YAML without destroying already-managed
+    resources.
+    """
+    
+    @pytest.fixture
+    def base_yaml(self) -> Dict[str, Any]:
+        """Base YAML representing existing deployment with 3 managed projects."""
+        return {
+            "version": 2,
+            "account": {"id": 11, "name": "Target Account"},
+            "projects": [
+                {"key": "project_alpha", "name": "Project Alpha", "protected": True},
+                {"key": "project_beta", "name": "Project Beta", "protected": False},
+                {"key": "project_gamma", "name": "Project Gamma"},
+            ],
+            "globals": {
+                "repositories": [
+                    {"key": "repo_alpha", "remote_url": "https://github.com/alpha"},
+                    {"key": "repo_beta", "remote_url": "https://github.com/beta"},
+                ],
+                "connections": [
+                    {"key": "conn_snowflake", "type": "snowflake"},
+                ],
+            },
+        }
+    
+    @pytest.fixture
+    def source_yaml(self) -> Dict[str, Any]:
+        """Source YAML representing newly selected project to add."""
+        return {
+            "version": 2,
+            "projects": [
+                {"key": "project_delta", "name": "Project Delta", "protected": False},
+            ],
+            "globals": {
+                "repositories": [
+                    {"key": "repo_delta", "remote_url": "https://github.com/delta"},
+                ],
+            },
+        }
+    
+    def test_preserves_existing_projects(self, base_yaml, source_yaml):
+        """Base has 3 projects, source has 1 new, result has 4."""
+        result = merge_yaml_configs(base_yaml, source_yaml)
+        
+        assert len(result["projects"]) == 4
+        keys = {p["key"] for p in result["projects"]}
+        assert keys == {"project_alpha", "project_beta", "project_gamma", "project_delta"}
+    
+    def test_adds_new_projects_from_source(self, base_yaml, source_yaml):
+        """New project key not in base gets added."""
+        result = merge_yaml_configs(base_yaml, source_yaml)
+        
+        delta = next(p for p in result["projects"] if p["key"] == "project_delta")
+        assert delta["name"] == "Project Delta"
+    
+    def test_updates_matched_projects(self, base_yaml):
+        """Source project with same key updates base values."""
+        source = {
+            "projects": [
+                {"key": "project_alpha", "name": "Alpha UPDATED", "protected": False},
+            ],
+        }
+        result = merge_yaml_configs(base_yaml, source)
+        
+        alpha = next(p for p in result["projects"] if p["key"] == "project_alpha")
+        assert alpha["name"] == "Alpha UPDATED"
+        assert alpha["protected"] is False
+        # Other projects preserved
+        assert len(result["projects"]) == 3
+    
+    def test_preserves_globals_repositories(self, base_yaml, source_yaml):
+        """globals.repositories from base preserved after merge."""
+        result = merge_yaml_configs(base_yaml, source_yaml)
+        
+        repo_keys = {r["key"] for r in result["globals"]["repositories"]}
+        assert "repo_alpha" in repo_keys
+        assert "repo_beta" in repo_keys
+        assert "repo_delta" in repo_keys
+        assert len(result["globals"]["repositories"]) == 3
+    
+    def test_merges_globals_repositories(self, base_yaml, source_yaml):
+        """New source repo added, existing preserved."""
+        result = merge_yaml_configs(base_yaml, source_yaml)
+        
+        delta_repo = next(
+            r for r in result["globals"]["repositories"] if r["key"] == "repo_delta"
+        )
+        assert delta_repo["remote_url"] == "https://github.com/delta"
+    
+    def test_preserves_globals_connections(self, base_yaml, source_yaml):
+        """globals.connections from base preserved (source has no connections)."""
+        result = merge_yaml_configs(base_yaml, source_yaml)
+        
+        assert "connections" in result["globals"]
+        assert len(result["globals"]["connections"]) == 1
+        assert result["globals"]["connections"][0]["key"] == "conn_snowflake"
+    
+    def test_fresh_migration_uses_source_as_is(self, source_yaml):
+        """Empty/None base returns source unchanged."""
+        result = merge_yaml_configs(None, source_yaml)
+        assert result == source_yaml
+        
+        result2 = merge_yaml_configs({}, source_yaml)
+        assert result2 == source_yaml
+    
+    def test_empty_source_returns_base(self, base_yaml):
+        """Empty/None source returns base unchanged."""
+        result = merge_yaml_configs(base_yaml, None)
+        assert result == base_yaml
+        
+        result2 = merge_yaml_configs(base_yaml, {})
+        assert result2 == base_yaml
+    
+    def test_preserves_top_level_fields(self, base_yaml, source_yaml):
+        """version, account, etc. from base preserved."""
+        result = merge_yaml_configs(base_yaml, source_yaml)
+        
+        assert result["version"] == 2
+        assert result["account"] == {"id": 11, "name": "Target Account"}
+    
+    def test_both_empty_returns_empty(self):
+        """Both empty inputs returns empty dict."""
+        assert merge_yaml_configs(None, None) == {}
+        assert merge_yaml_configs({}, {}) == {}
+        assert merge_yaml_configs(None, {}) == {}
+        assert merge_yaml_configs({}, None) == {}
+    
+    def test_merge_with_protection_flags(self, base_yaml):
+        """Protected: true/false flags preserved correctly during merge."""
+        source = {
+            "projects": [
+                {"key": "project_new", "name": "New Project", "protected": True},
+            ],
+        }
+        result = merge_yaml_configs(base_yaml, source)
+        
+        # Existing protected project preserved
+        alpha = next(p for p in result["projects"] if p["key"] == "project_alpha")
+        assert alpha["protected"] is True
+        
+        # Existing unprotected project preserved
+        beta = next(p for p in result["projects"] if p["key"] == "project_beta")
+        assert beta["protected"] is False
+        
+        # New protected project added
+        new_proj = next(p for p in result["projects"] if p["key"] == "project_new")
+        assert new_proj["protected"] is True
+    
+    def test_does_not_mutate_inputs(self, base_yaml, source_yaml):
+        """Merge should not modify the input dicts."""
+        import copy
+        base_copy = copy.deepcopy(base_yaml)
+        source_copy = copy.deepcopy(source_yaml)
+        
+        merge_yaml_configs(base_yaml, source_yaml)
+        
+        assert base_yaml == base_copy
+        assert source_yaml == source_copy

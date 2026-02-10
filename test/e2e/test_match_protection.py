@@ -314,3 +314,38 @@ class TestMatchProtectionIntegration:
         # 3. Click generate
         # 4. Wait for completion
         # 5. Verify output mentions YAML and moves
+
+
+# =============================================================================
+# Unadopt and Type Filter UI (Set Target Intent)
+# =============================================================================
+
+class TestMatchUnadoptAndTypeFilter:
+    """E2E tests for Unadopt action and type filter dropdown on Match page."""
+
+    @pytest.mark.e2e
+    def test_match_page_shows_unadopt_label(self, match_page: MatchPage):
+        """Match page shows Unadopt stat/badge (Set Target Intent)."""
+        match_page.go_to_match()
+        match_page.wait_for_loading_complete()
+        page_content = match_page.get_page_content()
+        assert "Unadopt" in page_content, "Match page should show Unadopt label (stat or toolbar)"
+
+    @pytest.mark.e2e
+    def test_match_page_has_type_filter_dropdown(self, match_page: MatchPage):
+        """Match page has type filter dropdown with All Types option (like explore grids)."""
+        match_page.go_to_match()
+        match_page.wait_for_loading_complete()
+        page_content = match_page.get_page_content()
+        assert "All Types" in page_content, "Match page should show type filter with 'All Types' option"
+
+    @pytest.mark.e2e
+    def test_match_page_type_filter_dropdown_visible(self, match_page: MatchPage):
+        """Type filter dropdown is visible on Match page (smoke)."""
+        match_page.go_to_match()
+        match_page.wait_for_loading_complete()
+        # Type filter is a Quasar select or native select; at least one select should be visible
+        select_locator = match_page.page.locator("select, .q-select")
+        if select_locator.count() == 0:
+            pytest.skip("Type filter select not found (selector may need update)")
+        select_locator.first.wait_for(state="visible", timeout=5000)

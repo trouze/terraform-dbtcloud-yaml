@@ -21,6 +21,10 @@ from importer.web.utils.target_intent import (
     TargetIntentResult,
     MatchMappings,
     StateToTargetMapping,
+    compute_target_intent,
+    normalize_target_fetch,
+    get_tf_state_project_keys,
+    validate_intent_coverage,
 )
 from importer.web.utils.terraform_import import (
     generate_adopt_imports_from_grid,
@@ -247,20 +251,90 @@ def _persist_target_intent_from_match(
     state: AppState,
     state_to_target: Optional[list] = None,
 ) -> None:
-    """Persist confirmed_mappings (and optionally state_to_target) to target-intent.json."""
+    """Compute and persist the full target intent from Match page data.
+
+    This is the primary entry point for building the authoritative target-intent.json.
+    It normalizes target fetch data (lazily), computes dispositions + output_config +
+    protection via priority chain, merges match_mappings, and saves everything.
+    """
+    logger = logging.getLogger(__name__)
     manager = state.get_target_intent_manager()
-    intent = manager.load()
-    if intent is None:
-        intent = TargetIntentResult(version=2)
+    previous_intent = manager.load()
+
+    # Build match_mappings from current grid state
     new_mm = MatchMappings.from_confirmed_mappings(state.map.confirmed_mappings)
     if state_to_target is not None:
         if all(isinstance(x, dict) for x in state_to_target):
             new_mm.state_to_target = [StateToTargetMapping.from_dict(x) for x in state_to_target]
         else:
             new_mm.state_to_target = list(state_to_target)
-    elif intent.match_mappings.state_to_target:
-        new_mm.state_to_target = list(intent.match_mappings.state_to_target)
-    intent.match_mappings = new_mm
+    elif previous_intent and previous_intent.match_mappings.state_to_target:
+        new_mm.state_to_target = list(previous_intent.match_mappings.state_to_target)
+
+    # Gather inputs for compute_target_intent
+    tf_dir = state.deploy.terraform_dir or "deployments/migration"
+    tf_path = Path(tf_dir)
+    if not tf_path.is_absolute():
+        # match.py is at importer/web/pages/match.py — 4 levels to project root
+        project_root = Path(__file__).parent.parent.parent.parent.resolve()
+        tf_path = project_root / tf_dir
+    tfstate_path = tf_path / "terraform.tfstate"
+
+    source_focus_yaml = getattr(state.map, "last_yaml_file", None)
+    removal_keys = set(getattr(state.map, "removal_keys", None) or [])
+    adopt_rows = getattr(state.deploy, "reconcile_adopt_rows", []) or []
+
+    # Load target report items
+    target_report_items = None
+    if getattr(state, "target_fetch", None) and getattr(state.target_fetch, "last_report_items_file", None):
+        _tr_path = Path(state.target_fetch.last_report_items_file)
+        if _tr_path.exists():
+            try:
+                with open(_tr_path, "r") as f:
+                    target_report_items = json.load(f)
+            except Exception:
+                pass
+
+    # Normalize target fetch to get baseline YAML (lazy, cached)
+    baseline_yaml = normalize_target_fetch(state)
+    # Also check for existing dbt-cloud-config.yml as alternative baseline
+    existing_yaml_path = tf_path / "dbt-cloud-config.yml"
+    if not baseline_yaml and existing_yaml_path.exists():
+        baseline_yaml = str(existing_yaml_path)
+
+    # Get protection intent manager for priority chain
+    protection_intent_mgr = None
+    try:
+        protection_intent_mgr = state.get_protection_intent_manager()
+    except Exception:
+        pass
+
+    # Compute full target intent
+    try:
+        intent = compute_target_intent(
+            tfstate_path=tfstate_path,
+            source_focus_yaml=source_focus_yaml,
+            baseline_yaml=baseline_yaml,
+            target_report_items=target_report_items,
+            adopt_rows=adopt_rows,
+            removal_keys=removal_keys,
+            previous_intent=previous_intent,
+            protection_intent_manager=protection_intent_mgr,
+        )
+        # Override match_mappings with current grid state
+        intent.match_mappings = new_mm
+        logger.info(
+            f"Computed target intent: {len(intent.retained_keys)} retained, "
+            f"{len(intent.upserted_keys)} upserted, "
+            f"{len(intent.adopted_keys)} adopted, "
+            f"{len(intent.removed_keys)} removed"
+        )
+    except Exception as e:
+        logger.warning(f"Failed to compute full target intent: {e}")
+        # Fallback: save match_mappings only (backward compat)
+        intent = previous_intent if previous_intent else TargetIntentResult(version=2)
+        intent.match_mappings = new_mm
+
     state.save_target_intent(intent)
 
 
@@ -280,6 +354,7 @@ def _create_matching_content(
         export_mappings_to_csv,
         DRIFT_ID_MISMATCH,
         DRIFT_NOT_IN_STATE,
+        DRIFT_ATTR_MISMATCH,
     )
     from importer.web.components.clone_dialog import show_clone_dialog
     from importer.web.state import CloneConfig
@@ -394,20 +469,6 @@ def _create_matching_content(
         
         _create_stat_card("Skip", skipped, "text-slate-500", "block")
         _create_stat_card("Unadopt", unadopted, "text-purple-500", "link_off")
-
-        # State resources count (from persisted target intent)
-        _state_to_target_count = 0
-        try:
-            _intent_for_stats = state.get_target_intent_manager().load()
-            if _intent_for_stats and _intent_for_stats.match_mappings.state_to_target:
-                _state_to_target_count = len(_intent_for_stats.match_mappings.state_to_target)
-        except Exception:
-            pass
-        with ui.card().classes("p-3 min-w-[100px]"):
-            with ui.row().classes("items-center gap-2"):
-                ui.icon("account_tree", size="sm").classes("text-slate-500")
-                ui.label(str(_state_to_target_count)).classes("text-2xl font-bold text-slate-600")
-            ui.label("State Resources").classes("text-xs text-slate-500")
         
         # Selected source items with total count - shows primary resources + overrides
         with ui.card().classes("p-3 min-w-[120px]"):
@@ -434,7 +495,7 @@ def _create_matching_content(
         # Drift stats (only show if state is loaded)
         drift_count = sum(
             1 for r in grid_row_data 
-            if r.get("drift_status") in [DRIFT_ID_MISMATCH, DRIFT_NOT_IN_STATE]
+            if r.get("drift_status") in [DRIFT_ID_MISMATCH, DRIFT_NOT_IN_STATE, DRIFT_ATTR_MISMATCH]
         )
         if state_ref["state_loaded"]:
             with ui.card().classes("p-3 min-w-[100px]"):
@@ -1402,37 +1463,6 @@ def _create_matching_content(
         )
         grid_ref["grid"] = grid
 
-    # TF state-to-target alignment section (from persisted intent)
-    try:
-        _intent_for_table = state.get_target_intent_manager().load()
-        _state_to_target_rows = (
-            _intent_for_table.match_mappings.state_to_target
-            if _intent_for_table and _intent_for_table.match_mappings.state_to_target
-            else []
-        )
-    except Exception:
-        _state_to_target_rows = []
-    if _state_to_target_rows:
-        with ui.expansion("TF state alignment", icon="account_tree").classes("w-full mb-4").props("default-expanded"):
-            with ui.card().classes("w-full p-4"):
-                columns = [
-                    {"name": "state_key", "label": "State Key", "field": "state_key"},
-                    {"name": "state_address", "label": "State Address", "field": "state_address"},
-                    {"name": "target_match", "label": "Target Match", "field": "target_match"},
-                    {"name": "status", "label": "Status", "field": "status"},
-                ]
-                rows = []
-                for m in _state_to_target_rows:
-                    target_match = f"{m.target_name} (ID: {m.target_id})" if m.target_id else "—"
-                    status = "matched" if m.target_id and m.match_type == "auto" else ("unmatched" if not m.target_id else m.match_type)
-                    rows.append({
-                        "state_key": m.state_key,
-                        "state_address": m.state_address,
-                        "target_match": target_match,
-                        "status": status,
-                    })
-                ui.table(columns=columns, rows=rows, row_key="state_key").classes("w-full")
-    
     # Adopt imports section - show when TF state is loaded so user can adopt resources
     # This section lets users generate import blocks for resources marked with action="adopt"
     adopt_count = sum(1 for r in grid_row_data if r.get("action") == "adopt" and r.get("target_id"))
@@ -4753,49 +4783,8 @@ moved {{
                 ui.label("For protection changes: Skip Generate, just run Init → Plan → Apply").classes("text-xs text-slate-400")
                 ui.label("Generate regenerates ALL files which can cause conflicts").classes("text-xs text-amber-500")
     
-    # TF State-to-Target Alignment section (collapsible)
-    _intent_for_alignment = None
-    try:
-        _intent_for_alignment = state.get_target_intent_manager().load()
-    except Exception:
-        pass
-    _stt_mappings = (_intent_for_alignment.match_mappings.state_to_target if _intent_for_alignment else [])
-    if _stt_mappings:
-        matched_stt = [m for m in _stt_mappings if m.match_type != "unmatched"]
-        unmatched_stt = [m for m in _stt_mappings if m.match_type == "unmatched"]
-        with ui.expansion(
-            f"TF State Alignment ({len(matched_stt)} matched, {len(unmatched_stt)} unmatched)",
-            icon="account_tree",
-        ).classes("w-full mt-4").props("dense"):
-            with ui.card().classes("w-full p-3"):
-                # Summary badges
-                with ui.row().classes("gap-2 mb-2"):
-                    ui.badge(f"{len(matched_stt)} matched", color="green").props("outline")
-                    if unmatched_stt:
-                        ui.badge(f"{len(unmatched_stt)} unmatched", color="orange").props("outline")
-                # Table
-                columns = [
-                    {"name": "state_key", "label": "State Key", "field": "state_key", "align": "left", "sortable": True},
-                    {"name": "state_address", "label": "State Address", "field": "state_address", "align": "left"},
-                    {"name": "resource_type", "label": "Type", "field": "resource_type", "align": "left"},
-                    {"name": "target_name", "label": "Target Match", "field": "target_name", "align": "left"},
-                    {"name": "status", "label": "Status", "field": "status", "align": "center"},
-                ]
-                rows = []
-                for m in _stt_mappings:
-                    status = "matched" if m.match_type != "unmatched" else "unmatched"
-                    rows.append({
-                        "state_key": m.state_key,
-                        "state_address": m.state_address,
-                        "resource_type": m.resource_type,
-                        "target_name": m.target_name or "—",
-                        "status": status,
-                    })
-                ui.table(columns=columns, rows=rows, row_key="state_key").classes(
-                    "w-full"
-                ).props("dense flat bordered")
-
     # Save target intent section (show if there are any confirmed or pending matches)
+    # State-only rows are now counted as regular confirmed/matched rows
     has_matches = any(r.get("action") == "match" and r.get("target_id") for r in grid_row_data)
     confirmed_count = sum(1 for r in grid_row_data if r.get("status") == "confirmed")
     pending_match_count = sum(1 for r in grid_row_data if r.get("status") == "pending" and r.get("action") == "match" and r.get("target_id"))
@@ -4824,9 +4813,11 @@ moved {{
                         auto_match_types = {
                             "exact_match", "state_id_match", "url_match", "github_match", "env_match"
                         }
-                        # Build confirmed mappings from grid data
+                        # Build confirmed mappings from grid data (skip state-only rows)
                         mappings_to_save = []
                         for row in grid_data_ref["data"]:
+                            if row.get("is_state_only"):
+                                continue  # State-only rows are in state_to_target, not source_to_target
                             if row.get("status") == "confirmed" and row.get("target_id"):
                                 confidence = row.get("confidence", "manual")
                                 mappings_to_save.append({

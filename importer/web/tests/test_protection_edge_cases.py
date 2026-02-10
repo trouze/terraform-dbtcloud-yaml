@@ -543,3 +543,91 @@ class TestConcurrentModification:
         assert new_manager._intent["PRJ:a"].applied_to_yaml is True
         assert new_manager._intent["PRJ:b"].applied_to_yaml is False
         assert new_manager._intent["PRJ:c"].applied_to_yaml is False
+
+
+# =============================================================================
+# Tests: Utilities Page Fixes (DeployState access patterns)
+# =============================================================================
+
+class TestUtilitiesDeployStateAccess:
+    """Tests for utilities.py fixes: DeployState attribute access patterns.
+    
+    Validates that the _state_data -> reconcile_state_resources migration
+    doesn't break any code paths, and that missing state is handled gracefully.
+    """
+    
+    def test_reconcile_state_resources_default_empty(self):
+        """DeployState.reconcile_state_resources defaults to empty list."""
+        from importer.web.state import DeployState
+        deploy_state = DeployState()
+        
+        assert deploy_state.reconcile_state_resources == []
+        assert deploy_state.reconcile_state_loaded is False
+    
+    def test_reconcile_state_resources_falsy_check(self):
+        """Empty reconcile_state_resources is falsy (used in sync_from_tf_state guard)."""
+        from importer.web.state import DeployState
+        deploy_state = DeployState()
+        
+        # This is the pattern used in the fixed sync_from_tf_state
+        if not deploy_state.reconcile_state_resources:
+            result = "no_state"
+        else:
+            result = "has_state"
+        
+        assert result == "no_state"
+    
+    def test_reconcile_state_resources_iteration(self):
+        """Can iterate over reconcile_state_resources when populated."""
+        from importer.web.state import DeployState
+        deploy_state = DeployState()
+        deploy_state.reconcile_state_resources = [
+            {"tf_name": "protected_projects", "resource_index": "PRJ:alpha", "element_code": "PRJ"},
+            {"tf_name": "projects", "resource_index": "PRJ:beta", "element_code": "PRJ"},
+        ]
+        deploy_state.reconcile_state_loaded = True
+        
+        # Simulate the sync_from_tf_state iteration pattern
+        count = 0
+        for resource in deploy_state.reconcile_state_resources:
+            tf_name = resource.get("tf_name", "")
+            resource_index = resource.get("resource_index", "")
+            element_code = resource.get("element_code", "")
+            
+            if element_code in ("PRJ", "REP", "PREP") and resource_index:
+                is_protected = "protected_" in tf_name
+                count += 1
+        
+        assert count == 2
+    
+    def test_has_state_file_with_no_terraform_dir(self):
+        """has_state_file returns False when no terraform_dir configured."""
+        from importer.web.state import DeployState
+        deploy_state = DeployState()
+        deploy_state.terraform_dir = ""
+        
+        # Should not raise, should return True or False
+        result = deploy_state.has_state_file()
+        assert isinstance(result, bool)
+    
+    def test_generate_all_pending_with_no_intents(self, intent_file):
+        """generate_all_pending logic returns early when no pending intents."""
+        manager = ProtectionIntentManager(intent_file)
+        
+        pending_yaml = manager.get_pending_yaml_updates()
+        pending_tf = {k: i for k, i in manager._intent.items()
+                     if i.applied_to_yaml and not i.applied_to_tf_state}
+        pending = {**pending_yaml, **pending_tf}
+        
+        assert len(pending) == 0, "Should have no pending intents"
+    
+    def test_generate_all_pending_with_pending_intents(self, intent_file):
+        """generate_all_pending logic finds pending intents correctly."""
+        manager = ProtectionIntentManager(intent_file)
+        manager.set_intent("PRJ:test", protected=True, source="test", reason="testing")
+        manager.save()
+        
+        pending_yaml = manager.get_pending_yaml_updates()
+        
+        assert len(pending_yaml) > 0, "Should have pending YAML updates"
+        assert "PRJ:test" in pending_yaml

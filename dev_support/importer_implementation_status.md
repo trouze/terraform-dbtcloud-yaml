@@ -1,8 +1,8 @@
 # Importer Implementation Status & Tracking
 
-**Last Updated:** 2026-01-27  
-**Current Importer Version:** 0.17.0  
-**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix + Match Diagnostics Improvements + AG Grid Standardization + Dialog Width Fix + Protection Mismatch Fix + Adoption Override Data Flow Fix + Debug Logging Standards + View Output Plan Dialog Fix + Independent Protection Architecture + Comprehensive Protection Unit Tests + Repository Key Prefix Matching Fix + Extended Attributes (EXTATTR) Support
+**Last Updated:** 2026-02-10  
+**Current Importer Version:** 0.19.0  
+**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix + Match Diagnostics Improvements + AG Grid Standardization + Dialog Width Fix + Protection Mismatch Fix + Adoption Override Data Flow Fix + Debug Logging Standards + View Output Plan Dialog Fix + Independent Protection Architecture + Comprehensive Protection Unit Tests + Repository Key Prefix Matching Fix + Extended Attributes (EXTATTR) Support + Target Intent State File + Protection as Disposition Property + Explicit Global Intent Filtering + Drift Detection + TF State Repo Identity Fixup
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
 > 
@@ -420,9 +420,9 @@ Before starting end-to-end testing with a real account, verify:
 ## Version Tracking
 
 ### Importer Version
-- **Current:** 0.17.0
+- **Current:** 0.18.0
 - **File:** `importer/VERSION`
-- **Last Updated:** 2026-01-27
+- **Last Updated:** 2026-02-09
 
 ### Terraform Module Version
 - **Current:** Supports v1 and v2 schemas
@@ -666,6 +666,27 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2026-02-10 (v0.19.0)
+- **Version:** Incremented to 0.19.0 (minor release - Explicit Global Intent Filtering + Drift Detection + TF State Repo Identity Fixup)
+- Explicit `included_globals` parameter on `compute_target_intent()` to control which global sections (groups, service_tokens, etc.) appear in output config
+- `config_preference` field on `ResourceDisposition` for target vs source value tracking
+- TF state repo identity fixup prevents protected repository destruction from attribute drift
+- `job_type` serialized in normalizer; `compare_changes_flags` always passed through in TF module
+- Provider-side fixes for `cost_optimization_features`, `job_type`, `compare_changes_flags` `(known after apply)` noise
+
+### 2026-02-09 (v0.18.0)
+- **Version:** Incremented to 0.18.0 (minor release - Target Intent State File + Protection as Disposition Property)
+- **Target Intent as Authoritative State File**: `target-intent.json` is now the single, self-contained source of truth for deployment
+  - `output_config` (merged YAML dict) persisted directly inside `target-intent.json`
+  - Match page computes full target intent (dispositions + output_config + protection) and persists it
+  - Deploy page loads persisted intent, re-validates against current TF state, uses `output_config` directly
+  - `normalize_target_fetch()` utility lazily normalizes target fetch data for retained project config
+- **Protection as a Disposition Property**: Per-resource `protected` field on `ResourceDisposition`
+  - 4-level priority chain: default false < TF state override < protection-intent.json < user edit
+  - Write-through sync: UI protection edits automatically update target intent dispositions
+  - Deploy sources protection from dispositions instead of separate `ProtectionIntentManager`
+- **New Tests**: 17 new unit tests for protection defaults, output_config round-trip, retained project config, disposition sync
 
 ### 2026-01-27 (v0.17.0)
 - **Version:** Incremented to 0.17.0 (minor release - Extended Attributes Support)

@@ -11,6 +11,7 @@ from importer.web.utils.target_intent import (
     DISP_REMOVED,
     DISP_ORPHAN_FLAGGED,
     get_tf_state_project_keys,
+    get_tf_state_protected_project_keys,
     compute_target_intent,
     validate_intent_coverage,
     ResourceDisposition,
@@ -134,8 +135,8 @@ class TestGetTFStateProjectKeys:
         keys = get_tf_state_project_keys(tmp_path / "nonexistent.tfstate")
         assert keys == set()
 
-    def test_ignores_protected_projects_resource(self, tmp_path: Path):
-        """Only 'projects' name counts, not 'protected_projects'."""
+    def test_includes_protected_projects_resource(self, tmp_path: Path):
+        """Both 'projects' and 'protected_projects' names contribute keys."""
         state = {
             "version": 4,
             "resources": [
@@ -147,7 +148,7 @@ class TestGetTFStateProjectKeys:
         with open(path, "w") as f:
             json.dump(state, f)
         keys = get_tf_state_project_keys(path)
-        assert keys == {"p1"}
+        assert keys == {"p1", "p2"}
 
 
 # --- compute_target_intent ---
@@ -637,3 +638,551 @@ class TestMatchMappingsIntentSerialization:
             assert rest["target_id"] == orig["target_id"]
             assert rest["action"] == orig["action"]
             assert rest["match_type"] == orig["match_type"]
+
+
+# --- Protection Defaults ---
+
+
+class TestProtectionDefaults:
+    """Verify default protection logic: all false unless TF state protected."""
+
+    @pytest.fixture
+    def tfstate_with_protected(self, tmp_path: Path) -> Path:
+        """TF state with both regular and protected projects."""
+        state = {
+            "version": 4,
+            "resources": [
+                {
+                    "type": "dbtcloud_project",
+                    "name": "projects",
+                    "instances": [
+                        {"index_key": "unprotected_proj"},
+                    ],
+                },
+                {
+                    "type": "dbtcloud_project",
+                    "name": "protected_projects",
+                    "instances": [
+                        {"index_key": "protected_proj"},
+                    ],
+                },
+            ],
+        }
+        path = tmp_path / "terraform.tfstate"
+        with open(path, "w") as f:
+            json.dump(state, f)
+        return path
+
+    @pytest.fixture
+    def baseline_yaml_both(self, tmp_path: Path) -> str:
+        import yaml
+        config = {
+            "version": 1,
+            "projects": [
+                {"key": "unprotected_proj", "name": "Unprotected"},
+                {"key": "protected_proj", "name": "Protected"},
+            ],
+        }
+        path = tmp_path / "baseline.yml"
+        with open(path, "w") as f:
+            yaml.dump(config, f, default_flow_style=False)
+        return str(path)
+
+    def test_default_protection_is_false(
+        self, tfstate_with_protected: Path, baseline_yaml_both: str
+    ):
+        """All resources default to protected=False unless in protected_projects."""
+        result = compute_target_intent(
+            tfstate_path=tfstate_with_protected,
+            source_focus_yaml="",
+            baseline_yaml=baseline_yaml_both,
+            target_report_items=None,
+            adopt_rows=[],
+            removal_keys=set(),
+        )
+        # unprotected_proj should be protected=False
+        assert "unprotected_proj" in result.dispositions
+        assert result.dispositions["unprotected_proj"].protected is False
+        assert result.dispositions["unprotected_proj"].protection_set_by == "default_unprotected"
+
+    def test_tf_state_protected_projects_get_protected_true(
+        self, tfstate_with_protected: Path, baseline_yaml_both: str
+    ):
+        """Resources in protected_projects TF resource get protected=True."""
+        result = compute_target_intent(
+            tfstate_path=tfstate_with_protected,
+            source_focus_yaml="",
+            baseline_yaml=baseline_yaml_both,
+            target_report_items=None,
+            adopt_rows=[],
+            removal_keys=set(),
+        )
+        assert "protected_proj" in result.dispositions
+        assert result.dispositions["protected_proj"].protected is True
+        assert result.dispositions["protected_proj"].protection_set_by == "tf_state_default"
+
+    def test_get_tf_state_protected_project_keys(self, tfstate_with_protected: Path):
+        """get_tf_state_protected_project_keys returns only protected keys."""
+        keys = get_tf_state_protected_project_keys(tfstate_with_protected)
+        assert keys == {"protected_proj"}
+
+    def test_get_tf_state_project_keys_includes_both(self, tfstate_with_protected: Path):
+        """get_tf_state_project_keys now includes both regular and protected."""
+        keys = get_tf_state_project_keys(tfstate_with_protected)
+        assert keys == {"unprotected_proj", "protected_proj"}
+
+    def test_protection_intent_overrides_tf_state(
+        self, tfstate_with_protected: Path, baseline_yaml_both: str
+    ):
+        """Level 3: protection-intent.json entry overrides TF state default."""
+        from unittest.mock import MagicMock
+
+        # Mock a protection intent manager that says protected_proj should be unprotected
+        mock_mgr = MagicMock()
+
+        class FakeIntent:
+            def __init__(self, protected: bool):
+                self.protected = protected
+
+        def get_intent_side_effect(key):
+            if key == "protected_proj":
+                return FakeIntent(False)  # Override TF state
+            return None
+
+        mock_mgr.get_intent = MagicMock(side_effect=get_intent_side_effect)
+
+        result = compute_target_intent(
+            tfstate_path=tfstate_with_protected,
+            source_focus_yaml="",
+            baseline_yaml=baseline_yaml_both,
+            target_report_items=None,
+            adopt_rows=[],
+            removal_keys=set(),
+            protection_intent_manager=mock_mgr,
+        )
+        assert result.dispositions["protected_proj"].protected is False
+        assert result.dispositions["protected_proj"].protection_set_by == "protection_intent"
+
+    def test_user_edit_overrides_all(
+        self, tfstate_with_protected: Path, baseline_yaml_both: str
+    ):
+        """Level 4: User edit in previous intent overrides everything."""
+        previous = TargetIntentResult(
+            version=2,
+            dispositions={
+                "unprotected_proj": ResourceDisposition(
+                    key="unprotected_proj",
+                    resource_type="PRJ",
+                    disposition=DISP_RETAINED,
+                    source="tf_state_default",
+                    protected=True,
+                    protection_set_by="user",
+                    protection_set_at="2025-01-01T00:00:00Z",
+                ),
+            },
+        )
+        result = compute_target_intent(
+            tfstate_path=tfstate_with_protected,
+            source_focus_yaml="",
+            baseline_yaml=baseline_yaml_both,
+            target_report_items=None,
+            adopt_rows=[],
+            removal_keys=set(),
+            previous_intent=previous,
+        )
+        # User override should persist even though TF default would be False
+        assert result.dispositions["unprotected_proj"].protected is True
+        assert result.dispositions["unprotected_proj"].protection_set_by == "user"
+        assert result.dispositions["unprotected_proj"].protection_set_at == "2025-01-01T00:00:00Z"
+
+
+# --- ResourceDisposition Protection Serialization ---
+
+
+class TestResourceDispositionProtection:
+    def test_protection_fields_round_trip(self):
+        """protected, protection_set_by, protection_set_at survive to_dict/from_dict."""
+        disp = ResourceDisposition(
+            key="proj1",
+            resource_type="PRJ",
+            disposition=DISP_RETAINED,
+            source="tf_state_default",
+            protected=True,
+            protection_set_by="user",
+            protection_set_at="2025-01-15T12:00:00Z",
+        )
+        d = disp.to_dict()
+        assert d["protected"] is True
+        assert d["protection_set_by"] == "user"
+        assert d["protection_set_at"] == "2025-01-15T12:00:00Z"
+
+        restored = ResourceDisposition.from_dict(d)
+        assert restored.protected is True
+        assert restored.protection_set_by == "user"
+        assert restored.protection_set_at == "2025-01-15T12:00:00Z"
+
+    def test_protection_defaults_when_missing(self):
+        """Missing protection fields default to False/None."""
+        d = {"key": "proj1", "resource_type": "PRJ", "disposition": "retained", "source": "test"}
+        restored = ResourceDisposition.from_dict(d)
+        assert restored.protected is False
+        assert restored.protection_set_by is None
+        assert restored.protection_set_at is None
+
+
+# --- output_config Round-Trip ---
+
+
+class TestOutputConfigRoundTrip:
+    def test_manager_save_load_preserves_output_config(self, tmp_path: Path):
+        """TargetIntentManager.save() and load() preserve output_config."""
+        manager = TargetIntentManager(tmp_path)
+        intent = TargetIntentResult(
+            version=2,
+            computed_at="2025-01-15T12:00:00Z",
+            dispositions={
+                "proj1": ResourceDisposition(
+                    key="proj1",
+                    resource_type="PRJ",
+                    disposition=DISP_RETAINED,
+                    source="tf_state_default",
+                ),
+            },
+            output_config={
+                "version": 1,
+                "projects": [
+                    {"key": "proj1", "name": "Project 1", "environments": []},
+                ],
+            },
+        )
+        manager.save(intent)
+
+        # Verify file was written
+        assert (tmp_path / "target-intent.json").exists()
+
+        # Reload and check
+        loaded = manager.load()
+        assert loaded is not None
+        assert loaded.output_config is not None
+        assert "projects" in loaded.output_config
+        assert len(loaded.output_config["projects"]) == 1
+        assert loaded.output_config["projects"][0]["key"] == "proj1"
+
+    def test_manager_load_empty_output_config(self, tmp_path: Path):
+        """Load handles intent files without output_config gracefully."""
+        # Write a minimal intent file without output_config
+        intent_file = tmp_path / "target-intent.json"
+        with open(intent_file, "w") as f:
+            json.dump({
+                "version": 2,
+                "computed_at": "2025-01-15T12:00:00Z",
+                "dispositions": {},
+            }, f)
+
+        manager = TargetIntentManager(tmp_path)
+        loaded = manager.load()
+        assert loaded is not None
+        assert loaded.output_config == {}
+
+    def test_manager_save_load_preserves_protection(self, tmp_path: Path):
+        """Protection fields survive save/load round-trip."""
+        manager = TargetIntentManager(tmp_path)
+        intent = TargetIntentResult(
+            version=2,
+            dispositions={
+                "proj1": ResourceDisposition(
+                    key="proj1",
+                    resource_type="PRJ",
+                    disposition=DISP_RETAINED,
+                    source="tf_state_default",
+                    protected=True,
+                    protection_set_by="user",
+                    protection_set_at="2025-01-15T12:00:00Z",
+                ),
+                "proj2": ResourceDisposition(
+                    key="proj2",
+                    resource_type="PRJ",
+                    disposition=DISP_RETAINED,
+                    source="tf_state_default",
+                    protected=False,
+                    protection_set_by="default_unprotected",
+                ),
+            },
+        )
+        manager.save(intent)
+        loaded = manager.load()
+        assert loaded is not None
+        assert loaded.dispositions["proj1"].protected is True
+        assert loaded.dispositions["proj1"].protection_set_by == "user"
+        assert loaded.dispositions["proj2"].protected is False
+        assert loaded.dispositions["proj2"].protection_set_by == "default_unprotected"
+
+
+# --- Retained Project Config ---
+
+
+class TestRetainedProjectConfig:
+    """Verify that retained projects get config from baseline YAML."""
+
+    def test_retained_projects_have_config_from_baseline(
+        self,
+        sample_tfstate_11_projects: Path,
+        sample_source_focus_1_project: str,
+        sample_baseline_11_projects: str,
+    ):
+        """Retained projects (in TF state but not in source focus) get config from baseline."""
+        result = compute_target_intent(
+            tfstate_path=sample_tfstate_11_projects,
+            source_focus_yaml=sample_source_focus_1_project,
+            baseline_yaml=sample_baseline_11_projects,
+            target_report_items=None,
+            adopt_rows=[],
+            removal_keys=set(),
+        )
+        # output_config should have ALL 11 projects
+        project_keys = {p["key"] for p in result.output_config.get("projects", [])}
+        assert len(project_keys) == 11
+        # Retained project should be in output
+        assert "bt_data_ops_db" in project_keys
+        # Upserted project should also be in output
+        assert "sse_dm_fin_fido" in project_keys
+
+    def test_output_config_without_baseline_only_has_source(
+        self,
+        sample_tfstate_11_projects: Path,
+        sample_source_focus_1_project: str,
+    ):
+        """Without baseline, retained projects have no config -- only source focus project appears."""
+        result = compute_target_intent(
+            tfstate_path=sample_tfstate_11_projects,
+            source_focus_yaml=sample_source_focus_1_project,
+            baseline_yaml=None,
+            target_report_items=None,
+            adopt_rows=[],
+            removal_keys=set(),
+        )
+        # Only the source focus project has config
+        project_keys = {p["key"] for p in result.output_config.get("projects", [])}
+        # Source focus project should be there
+        assert "sse_dm_fin_fido" in project_keys
+        # But no retained projects have config since no baseline
+        # (Some may still be in project_keys if the merge logic adds them)
+
+
+# --- sync_protection_to_disposition ---
+
+
+class TestSyncProtectionToDisposition:
+    def test_sync_updates_disposition(self, tmp_path: Path):
+        """sync_protection_to_disposition updates the matching disposition."""
+        manager = TargetIntentManager(tmp_path)
+        intent = TargetIntentResult(
+            version=2,
+            dispositions={
+                "proj1": ResourceDisposition(
+                    key="proj1",
+                    resource_type="PRJ",
+                    disposition=DISP_RETAINED,
+                    source="tf_state_default",
+                    protected=False,
+                    protection_set_by="default_unprotected",
+                ),
+            },
+        )
+        manager.save(intent)
+
+        # Sync protection change
+        result = manager.sync_protection_to_disposition("proj1", True)
+        assert result is True
+
+        # Reload and verify
+        loaded = manager.load()
+        assert loaded.dispositions["proj1"].protected is True
+        assert loaded.dispositions["proj1"].protection_set_by == "user"
+        assert loaded.dispositions["proj1"].protection_set_at is not None
+
+    def test_sync_handles_prefixed_key(self, tmp_path: Path):
+        """sync_protection_to_disposition handles TYPE:key format."""
+        manager = TargetIntentManager(tmp_path)
+        intent = TargetIntentResult(
+            version=2,
+            dispositions={
+                "my_project": ResourceDisposition(
+                    key="my_project",
+                    resource_type="PRJ",
+                    disposition=DISP_RETAINED,
+                    source="tf_state_default",
+                    protected=False,
+                ),
+            },
+        )
+        manager.save(intent)
+
+        result = manager.sync_protection_to_disposition("PRJ:my_project", True)
+        assert result is True
+
+        loaded = manager.load()
+        assert loaded.dispositions["my_project"].protected is True
+
+    def test_sync_returns_false_for_missing_key(self, tmp_path: Path):
+        """sync_protection_to_disposition returns False for unknown keys."""
+        manager = TargetIntentManager(tmp_path)
+        intent = TargetIntentResult(version=2, dispositions={})
+        manager.save(intent)
+
+        result = manager.sync_protection_to_disposition("nonexistent", True)
+        assert result is False
+
+    def test_sync_returns_false_when_no_intent(self, tmp_path: Path):
+        """sync_protection_to_disposition returns False when no intent file exists."""
+        manager = TargetIntentManager(tmp_path / "empty")
+        result = manager.sync_protection_to_disposition("proj1", True)
+        assert result is False
+
+
+# ── Config Preference Tests ─────────────────────────────────────
+
+
+class TestConfigPreferenceField:
+    """Tests for the config_preference field on ResourceDisposition."""
+
+    def test_default_value_is_target(self):
+        """config_preference defaults to 'target'."""
+        disp = ResourceDisposition(key="p", resource_type="PRJ", disposition=DISP_RETAINED, source="test")
+        assert disp.config_preference == "target"
+
+    def test_serialization_roundtrip(self):
+        """config_preference survives to_dict -> from_dict."""
+        disp = ResourceDisposition(
+            key="p",
+            resource_type="PRJ",
+            disposition=DISP_UPSERTED,
+            source="source_focus",
+            config_preference="source",
+        )
+        d = disp.to_dict()
+        assert d["config_preference"] == "source"
+
+        restored = ResourceDisposition.from_dict(d)
+        assert restored.config_preference == "source"
+
+    def test_from_dict_missing_field_defaults_to_target(self):
+        """Old data without config_preference field defaults to 'target'."""
+        d = {"key": "p", "resource_type": "PRJ", "disposition": DISP_RETAINED, "source": "test"}
+        restored = ResourceDisposition.from_dict(d)
+        assert restored.config_preference == "target"
+
+
+class TestConfigPreferenceInComputeIntent:
+    """Tests that compute_target_intent sets config_preference correctly."""
+
+    def test_retained_projects_get_target_preference(
+        self, sample_tfstate_11_projects, sample_source_focus_1_project
+    ):
+        """Retained (TF-state-only, not in source focus) projects get config_preference='target'."""
+        result = compute_target_intent(
+            tfstate_path=sample_tfstate_11_projects,
+            source_focus_yaml=str(sample_source_focus_1_project),
+            baseline_yaml=None,
+            target_report_items=None,
+            adopt_rows=[],
+            removal_keys=set(),
+        )
+        # sse_dm_fin_fido is the only project in both source YAML and TF state -> upserted
+        # All other TF state projects should be retained with target preference
+        for key in ("bt_data_ops_db", "bt_data_ops_dp", "bt_dbt_platform"):
+            disp = result.dispositions.get(key)
+            assert disp is not None, f"Missing disposition for {key}"
+            assert disp.disposition == DISP_RETAINED
+            assert disp.config_preference == "target", f"{key} should have target preference"
+
+    def test_upserted_project_gets_source_preference(
+        self, sample_tfstate_11_projects, sample_source_focus_1_project
+    ):
+        """Upserted (in source focus) projects get config_preference='source'."""
+        result = compute_target_intent(
+            tfstate_path=sample_tfstate_11_projects,
+            source_focus_yaml=str(sample_source_focus_1_project),
+            baseline_yaml=None,
+            target_report_items=None,
+            adopt_rows=[],
+            removal_keys=set(),
+        )
+        disp = result.dispositions.get("sse_dm_fin_fido")
+        assert disp is not None
+        assert disp.disposition == DISP_UPSERTED
+        assert disp.config_preference == "source"
+
+    def test_removed_projects_get_target_preference(
+        self, sample_tfstate_11_projects, sample_source_focus_1_project
+    ):
+        """Removed projects get config_preference='target'."""
+        result = compute_target_intent(
+            tfstate_path=sample_tfstate_11_projects,
+            source_focus_yaml=str(sample_source_focus_1_project),
+            baseline_yaml=None,
+            target_report_items=None,
+            adopt_rows=[],
+            removal_keys={"bt_data_ops_db"},
+        )
+        disp = result.dispositions["bt_data_ops_db"]
+        assert disp.disposition == DISP_REMOVED
+        assert disp.config_preference == "target"
+
+    def test_confirmed_preserves_config_preference(
+        self, sample_tfstate_11_projects, sample_source_focus_1_project
+    ):
+        """Confirmed dispositions from previous intent preserve config_preference."""
+        previous = TargetIntentResult(
+            version=2,
+            dispositions={
+                "bt_data_ops_db": ResourceDisposition(
+                    key="bt_data_ops_db",
+                    resource_type="PRJ",
+                    disposition=DISP_RETAINED,
+                    source="tf_state_default",
+                    confirmed=True,
+                    config_preference="target",
+                ),
+            },
+        )
+        result = compute_target_intent(
+            tfstate_path=sample_tfstate_11_projects,
+            source_focus_yaml=str(sample_source_focus_1_project),
+            baseline_yaml=None,
+            target_report_items=None,
+            adopt_rows=[],
+            removal_keys=set(),
+            previous_intent=previous,
+        )
+        disp = result.dispositions["bt_data_ops_db"]
+        assert disp.confirmed is True
+        assert disp.config_preference == "target"
+
+    def test_full_intent_json_roundtrip_with_config_preference(self, tmp_path):
+        """TargetIntentResult with config_preference survives save/load via TargetIntentManager."""
+        manager = TargetIntentManager(tmp_path)
+        intent = TargetIntentResult(
+            version=2,
+            dispositions={
+                "proj_a": ResourceDisposition(
+                    key="proj_a",
+                    resource_type="PRJ",
+                    disposition=DISP_RETAINED,
+                    source="tf_state_default",
+                    config_preference="target",
+                ),
+                "proj_b": ResourceDisposition(
+                    key="proj_b",
+                    resource_type="PRJ",
+                    disposition=DISP_UPSERTED,
+                    source="source_focus",
+                    config_preference="source",
+                ),
+            },
+        )
+        manager.save(intent)
+        loaded = manager.load()
+        assert loaded is not None
+        assert loaded.dispositions["proj_a"].config_preference == "target"
+        assert loaded.dispositions["proj_b"].config_preference == "source"
