@@ -4,7 +4,7 @@ import asyncio
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from nicegui import ui
 
@@ -1168,6 +1168,154 @@ def _create_navigation_section(
                 ui.label("Deployment Complete!").classes("text-green-500 font-semibold")
 
 
+def _apply_tf_state_repo_values(yaml_file: str, tfstate_path: Path, terminal: Any) -> int:
+    """Overlay TF state repository identity attributes onto the merged YAML.
+
+    For every repository resource in TF state, find the matching repo entry
+    in ``globals.repositories`` (by project key) and overwrite the identity-
+    critical attributes: ``remote_url``, ``git_clone_strategy``, and
+    ``github_installation_id``.  This prevents Terraform from planning a
+    destroy+recreate when the source YAML has different values than the
+    target/TF state.
+
+    Returns the number of repos updated.
+    """
+    import json as _json_tf
+    import yaml as _yaml_tf
+
+    # #region agent log
+    _debug_log_path = "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log"
+    def _dlog(msg, data=None, hyp="H1"):
+        import time as _t
+        try:
+            import json as _jl
+            with open(_debug_log_path, "a") as _f:
+                _f.write(_jl.dumps({"hypothesisId": hyp, "location": "deploy.py:_apply_tf_state_repo_values", "message": msg, "data": data or {}, "timestamp": int(_t.time() * 1000)}) + "\n")
+        except Exception:
+            pass
+    # #endregion
+
+    if not tfstate_path.exists():
+        terminal.info("  TF state not found — skipping repo identity fixup")
+        _dlog("TF state not found", {"path": str(tfstate_path)}, "H1")
+        return 0
+
+    # 1. Read TF state repos keyed by project (index_key)
+    try:
+        with open(tfstate_path, "r") as f:
+            state_data = _json_tf.load(f)
+    except Exception as e:
+        terminal.warning(f"  Failed to read TF state for repo fixup: {e}")
+        return 0
+
+    # Collect repo resources from TF state: {project_key -> attrs}
+    state_repos: dict[str, dict] = {}
+    for res in state_data.get("resources", []):
+        if res.get("type") != "dbtcloud_repository":
+            continue
+        if res.get("name") not in ("repositories", "protected_repositories"):
+            continue
+        for inst in res.get("instances", []):
+            idx = inst.get("index_key")
+            attrs = inst.get("attributes", {})
+            if idx and attrs:
+                state_repos[str(idx)] = {
+                    "remote_url": attrs.get("remote_url"),
+                    "git_clone_strategy": attrs.get("git_clone_strategy"),
+                    "github_installation_id": attrs.get("github_installation_id"),
+                    "protected": res.get("name") == "protected_repositories",
+                }
+
+    # #region agent log
+    _dlog("TF state repos found", {"count": len(state_repos), "keys": list(state_repos.keys())}, "H1")
+    for k, v in state_repos.items():
+        _dlog(f"TF state repo: {k}", {"remote_url": v.get("remote_url"), "git_clone_strategy": v.get("git_clone_strategy"), "github_installation_id": v.get("github_installation_id")}, "H1")
+    # #endregion
+
+    if not state_repos:
+        terminal.info("  No repo resources in TF state — skipping repo identity fixup")
+        return 0
+
+    # 2. Load the YAML
+    yaml_path = Path(yaml_file)
+    if not yaml_path.exists():
+        return 0
+    with open(yaml_path, "r") as f:
+        config = _yaml_tf.safe_load(f)
+    if not config:
+        return 0
+
+    # 3. Build project_key -> repo_key map from YAML projects section
+    project_to_repo_key: dict[str, str] = {}
+    for project in config.get("projects", []):
+        pkey = project.get("key")
+        repo_ref = project.get("repository")
+        if pkey and repo_ref:
+            project_to_repo_key[pkey] = repo_ref
+
+    # #region agent log
+    _dlog("Project->repo key map", {"map": project_to_repo_key}, "H2")
+    # #endregion
+
+    # 4. Match TF state repos to YAML repos and overlay identity attributes
+    globals_repos = config.get("globals", {}).get("repositories", [])
+    repos_by_key = {r.get("key"): r for r in globals_repos}
+
+    # #region agent log
+    _dlog("YAML repos by key", {"keys": list(repos_by_key.keys())}, "H2")
+    # #endregion
+
+    updated = 0
+
+    for project_key, state_attrs in state_repos.items():
+        repo_key = project_to_repo_key.get(project_key, project_key)
+        repo = repos_by_key.get(repo_key)
+        if not repo:
+            # Try project key directly as repo key
+            repo = repos_by_key.get(project_key)
+        if not repo:
+            # #region agent log
+            _dlog(f"No YAML repo found for project {project_key}", {"tried_keys": [repo_key, project_key]}, "H2")
+            # #endregion
+            continue
+
+        # #region agent log
+        _dlog(f"Matched TF state repo to YAML", {"project_key": project_key, "repo_key": repo_key, "yaml_remote_url": repo.get("remote_url"), "state_remote_url": state_attrs.get("remote_url")}, "H3")
+        # #endregion
+
+        changed = False
+        for attr in ("remote_url", "git_clone_strategy", "github_installation_id"):
+            state_val = state_attrs.get(attr)
+            if state_val is not None and repo.get(attr) != state_val:
+                old_val = repo.get(attr)
+                repo[attr] = state_val
+                terminal.info(f"    {repo_key}: {attr}: {old_val} -> {state_val}")
+                # #region agent log
+                _dlog(f"Updated {attr}", {"repo_key": repo_key, "old": str(old_val), "new": str(state_val)}, "H3")
+                # #endregion
+                changed = True
+            elif state_val is not None and attr not in repo:
+                repo[attr] = state_val
+                terminal.info(f"    {repo_key}: {attr}: (missing) -> {state_val}")
+                # #region agent log
+                _dlog(f"Added {attr}", {"repo_key": repo_key, "new": str(state_val)}, "H3")
+                # #endregion
+                changed = True
+
+        if changed:
+            updated += 1
+
+    if updated > 0:
+        with open(yaml_path, "w") as f:
+            _yaml_tf.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+    # #region agent log
+    _dlog("Repo fixup complete", {"updated_count": updated}, "H3")
+    # #endregion
+
+    return updated
+
+
 def _disable_job_triggers_in_yaml(yaml_file: str, output_dir: str) -> str:
     """Disable all job triggers in a YAML file.
     
@@ -1293,50 +1441,114 @@ async def _run_generate(
         terminal.info(f"Output directory: {output_path}")
         terminal.info("")
 
-        # Target intent: TF state is the floor; merge source focus into baseline; persist artifact.
+        # Target intent: load persisted target-intent.json (computed on Match page).
+        # Re-validate against current TF state; use persisted output_config if available.
         from importer.web.utils.target_intent import (
             TargetIntentManager,
             compute_target_intent,
             validate_intent_coverage,
             get_tf_state_project_keys,
+            normalize_target_fetch,
         )
 
         existing_yaml_path = output_path / "dbt-cloud-config.yml"
         tfstate_path = output_path / "terraform.tfstate"
         removal_keys = set(getattr(state.map, "removal_keys", None) or [])
-        target_report_items = None
-        if getattr(state, "target_fetch", None) and getattr(state.target_fetch, "last_report_items_file", None):
-            _tr_path = Path(state.target_fetch.last_report_items_file)
-            if _tr_path.exists():
-                try:
-                    import json as _json_tr
-                    with open(_tr_path, "r") as f:
-                        target_report_items = _json_tr.load(f)
-                except Exception:
-                    pass
-        adopt_rows_early = getattr(state.deploy, "reconcile_adopt_rows", []) or []
 
         try:
             intent_manager = TargetIntentManager(output_path)
-            previous_intent = intent_manager.load()
-            baseline_yaml = str(existing_yaml_path) if existing_yaml_path.exists() else None
+            persisted_intent = intent_manager.load()
 
-            target_intent = compute_target_intent(
-                tfstate_path=tfstate_path,
-                source_focus_yaml=yaml_file,
-                baseline_yaml=baseline_yaml,
-                target_report_items=target_report_items,
-                adopt_rows=adopt_rows_early,
-                removal_keys=removal_keys,
-                previous_intent=previous_intent,
-            )
+            if persisted_intent and persisted_intent.output_config:
+                # Use persisted target intent (computed on Match page)
+                terminal.info("  Using persisted target intent from Match page")
+                target_intent = persisted_intent
 
-            tf_state_keys = get_tf_state_project_keys(tfstate_path)
-            coverage_warnings = validate_intent_coverage(target_intent, tf_state_keys, removal_keys)
-            for w in coverage_warnings:
-                terminal.warning(f"  COVERAGE: {w}")
-            for w in target_intent.coverage_warnings:
-                terminal.warning(f"  COVERAGE: {w}")
+                # Re-validate: check TF state hasn't changed since intent was computed
+                tf_state_keys = get_tf_state_project_keys(tfstate_path)
+                intent_keys = set(target_intent.dispositions.keys())
+                new_keys = tf_state_keys - intent_keys
+                missing_keys = {k for k in intent_keys if target_intent.dispositions.get(k) and target_intent.dispositions[k].tf_state_address} - tf_state_keys
+                if new_keys:
+                    terminal.warning(f"  STALE: {len(new_keys)} new TF state key(s) not in persisted intent: {', '.join(sorted(new_keys)[:5])}")
+                if missing_keys:
+                    terminal.warning(f"  STALE: {len(missing_keys)} intent key(s) no longer in TF state: {', '.join(sorted(missing_keys)[:5])}")
+
+                coverage_warnings = validate_intent_coverage(target_intent, tf_state_keys, removal_keys)
+                for w in coverage_warnings:
+                    terminal.warning(f"  COVERAGE: {w}")
+                for w in target_intent.coverage_warnings:
+                    terminal.warning(f"  COVERAGE: {w}")
+
+                # Build protection sets from dispositions for downstream YAML application
+                state.map.protected_resources = set()
+                state.map.unprotected_keys = set()
+                for key, disp in target_intent.dispositions.items():
+                    prefixed = f"{disp.resource_type}:{key}"
+                    if disp.protected:
+                        state.map.protected_resources.add(prefixed)
+                        state.map.protected_resources.add(key)
+                    else:
+                        state.map.unprotected_keys.add(prefixed)
+                        state.map.unprotected_keys.add(key)
+
+            else:
+                # Fallback: recompute from scratch (backward compatibility or first-time)
+                terminal.info("  No persisted output_config; recomputing target intent...")
+                target_report_items = None
+                if getattr(state, "target_fetch", None) and getattr(state.target_fetch, "last_report_items_file", None):
+                    _tr_path = Path(state.target_fetch.last_report_items_file)
+                    if _tr_path.exists():
+                        try:
+                            import json as _json_tr
+                            with open(_tr_path, "r") as f:
+                                target_report_items = _json_tr.load(f)
+                        except Exception:
+                            pass
+                adopt_rows_early = getattr(state.deploy, "reconcile_adopt_rows", []) or []
+
+                # Try to use target baseline YAML as fallback baseline
+                baseline_yaml = str(existing_yaml_path) if existing_yaml_path.exists() else None
+                if not baseline_yaml:
+                    baseline_yaml = normalize_target_fetch(state)
+
+                protection_intent_mgr = None
+                try:
+                    protection_intent_mgr = state.get_protection_intent_manager()
+                except Exception:
+                    pass
+
+                target_intent = compute_target_intent(
+                    tfstate_path=tfstate_path,
+                    source_focus_yaml=yaml_file,
+                    baseline_yaml=baseline_yaml,
+                    target_report_items=target_report_items,
+                    adopt_rows=adopt_rows_early,
+                    removal_keys=removal_keys,
+                    previous_intent=persisted_intent,
+                    protection_intent_manager=protection_intent_mgr,
+                )
+
+                tf_state_keys = get_tf_state_project_keys(tfstate_path)
+                coverage_warnings = validate_intent_coverage(target_intent, tf_state_keys, removal_keys)
+                for w in coverage_warnings:
+                    terminal.warning(f"  COVERAGE: {w}")
+                for w in target_intent.coverage_warnings:
+                    terminal.warning(f"  COVERAGE: {w}")
+
+                # Build protection sets from dispositions
+                state.map.protected_resources = set()
+                state.map.unprotected_keys = set()
+                for key, disp in target_intent.dispositions.items():
+                    prefixed = f"{disp.resource_type}:{key}"
+                    if disp.protected:
+                        state.map.protected_resources.add(prefixed)
+                        state.map.protected_resources.add(key)
+                    else:
+                        state.map.unprotected_keys.add(prefixed)
+                        state.map.unprotected_keys.add(key)
+
+            # Report orphans and drift
             if target_intent.orphan_flagged_keys:
                 for key in target_intent.orphan_flagged_keys:
                     terminal.warning(f"  ORPHAN: '{key}' is in TF state but NOT in target account -- flagged for removal")
@@ -1356,9 +1568,40 @@ async def _run_generate(
                 f"{len(target_intent.removed_keys)} removed, "
                 f"{len(target_intent.orphan_flagged_keys)} orphans flagged"
             )
+            # Report protection summary
+            prot_count = sum(1 for d in target_intent.dispositions.values() if d.protected)
+            unprot_count = sum(1 for d in target_intent.dispositions.values() if not d.protected)
+            terminal.info(f"  Protection: {prot_count} protected, {unprot_count} unprotected")
+
+            # Config preference summary
+            target_pref = sum(1 for d in target_intent.dispositions.values() if d.config_preference == "target")
+            source_pref = sum(1 for d in target_intent.dispositions.values() if d.config_preference == "source")
+            terminal.info(f"  Config preference: {target_pref} target, {source_pref} source")
+
+            # #region agent log
+            try:
+                import json as _jl5; import time as _t5
+                pref_data = {k: {"disposition": d.disposition, "config_preference": d.config_preference, "protected": d.protected} for k, d in target_intent.dispositions.items()}
+                with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as _f5:
+                    _f5.write(_jl5.dumps({"hypothesisId": "H5", "location": "deploy.py:config_preference_summary", "message": "Config preference per disposition", "data": pref_data, "timestamp": int(_t5.time() * 1000)}) + "\n")
+            except Exception:
+                pass
+            # #endregion
+
+            # Apply TF state repo identity values to prevent destroy+recreate of repos
+            # Repositories are identity-critical: changing remote_url or git_clone_strategy
+            # forces destroy+recreate. Always prefer TF state values for repos that exist
+            # in state, regardless of project-level config_preference.
+            terminal.info("  Applying TF state repo identity fixup...")
+            repo_fixup_count = _apply_tf_state_repo_values(yaml_file, tfstate_path, terminal)
+            if repo_fixup_count > 0:
+                terminal.info(f"  Fixed {repo_fixup_count} repo(s) with TF state identity values")
+            else:
+                terminal.info("  No repo identity fixups needed")
+
             terminal.info(f"  Using merged YAML: {yaml_file}")
         except Exception as e:
-            terminal.warning(f"  Target intent computation failed: {e}")
+            terminal.warning(f"  Target intent processing failed: {e}")
             import traceback
             terminal.warning(traceback.format_exc()[:400])
             terminal.info("  Falling back to source YAML (may cause destroys!)")
@@ -1568,13 +1811,15 @@ async def _run_generate(
         else:
             terminal.info("  No adopt rows found - click 'Generate Import Blocks' on Set Target Intent tab first")
 
-        # Strip source account's github_installation_id from all repositories
-        # This ID is invalid for the target account - the module should discover it via PAT
-        # For adopted repos, the adoption updater has already set the correct target ID
+        # Strip source account's github_installation_id from repositories that are
+        # NOT in TF state (new repos being created via deploy_key).
+        # Repos already in TF state were fixed by _apply_tf_state_repo_values above
+        # and should keep their TF-state-sourced github_installation_id.
         terminal.info("")
-        terminal.info("Stripping source account github_installation_id from non-adopted repos...")
+        terminal.info("Stripping source account github_installation_id from non-state repos...")
         try:
             import yaml as yaml_strip
+            import json as _json_state
             
             yaml_output_path = output_path / "dbt-cloud-config.yml"
             terminal.info(f"  Output YAML path: {yaml_output_path}")
@@ -1588,14 +1833,48 @@ async def _run_generate(
             with open(yaml_output_path, "r") as f:
                 yaml_config = yaml_strip.safe_load(f)
             
-            # Build set of adopted repo keys (these should keep their installation ID)
-            adopted_repo_keys = set()
+            # Build set of repo keys that are in TF state (these have correct values
+            # from _apply_tf_state_repo_values and should not be stripped)
+            tf_state_repo_keys: set[str] = set()
+            if tfstate_path.exists():
+                try:
+                    with open(tfstate_path, "r") as f:
+                        _state_data = _json_state.load(f)
+                    for res in _state_data.get("resources", []):
+                        if res.get("type") != "dbtcloud_repository":
+                            continue
+                        if res.get("name") not in ("repositories", "protected_repositories"):
+                            continue
+                        for inst in res.get("instances", []):
+                            idx = inst.get("index_key")
+                            if idx:
+                                tf_state_repo_keys.add(str(idx))
+                except Exception:
+                    pass
+
+            # Also build adopted repo keys from adopt_rows (both source_key and project_name)
+            adopted_repo_keys: set[str] = set()
             for row in adopt_rows:
                 if row.get("source_type") == "REP":
-                    adopted_repo_keys.add(row.get("source_key"))
+                    adopted_repo_keys.add(row.get("source_key", ""))
+                    if row.get("project_name"):
+                        adopted_repo_keys.add(row["project_name"])
+
+            # Combine: repos to keep are those in TF state OR adopted
+            keep_keys = tf_state_repo_keys | adopted_repo_keys
+            terminal.info(f"  TF state repo keys: {tf_state_repo_keys}")
             terminal.info(f"  Adopted repo keys: {adopted_repo_keys}")
+
+            # #region agent log
+            try:
+                import json as _jl4; import time as _t4
+                with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as _f4:
+                    _f4.write(_jl4.dumps({"hypothesisId": "H4", "location": "deploy.py:stripping", "message": "Stripping decision sets", "data": {"tf_state_repo_keys": sorted(tf_state_repo_keys), "adopted_repo_keys": sorted(adopted_repo_keys), "keep_keys": sorted(keep_keys)}, "timestamp": int(_t4.time() * 1000)}) + "\n")
+            except Exception:
+                pass
+            # #endregion
             
-            # Strip github_installation_id from non-adopted repositories
+            # Strip github_installation_id from repos not in the keep set
             repos_stripped = 0
             globals_repos = yaml_config.get("globals", {}).get("repositories", [])
             terminal.info(f"  Found {len(globals_repos)} repos in globals.repositories")
@@ -1603,12 +1882,12 @@ async def _run_generate(
             for repo in globals_repos:
                 repo_key = repo.get("key")
                 has_install_id = "github_installation_id" in repo
-                if repo_key not in adopted_repo_keys and has_install_id:
+                if repo_key not in keep_keys and has_install_id:
                     terminal.info(f"    Stripping from: {repo_key}")
                     del repo["github_installation_id"]
                     repos_stripped += 1
-                elif repo_key in adopted_repo_keys:
-                    terminal.info(f"    Keeping for adopted: {repo_key} (github_installation_id={repo.get('github_installation_id')})")
+                elif repo_key in keep_keys and has_install_id:
+                    terminal.info(f"    Keeping for: {repo_key} (github_installation_id={repo.get('github_installation_id')})")
             
             # Also check top-level repositories (old schema)
             top_level_repos = yaml_config.get("repositories", [])
@@ -1617,7 +1896,7 @@ async def _run_generate(
             for repo in top_level_repos:
                 repo_key = repo.get("key")
                 has_install_id = "github_installation_id" in repo
-                if repo_key not in adopted_repo_keys and has_install_id:
+                if repo_key not in keep_keys and has_install_id:
                     terminal.info(f"    Stripping from: {repo_key}")
                     del repo["github_installation_id"]
                     repos_stripped += 1
@@ -1637,39 +1916,9 @@ async def _run_generate(
             import traceback
             terminal.warning(f"  {traceback.format_exc()[:500]}")
 
-        # CRITICAL FIX: Sync state.map.protected_resources from protection_intent_manager
-        # The Protection Management page uses intent manager, but deploy.py uses protected_resources
-        # Without this sync, protection from the UI is not applied during generation
-        protection_intent_manager = state.get_protection_intent_manager()
-        # Intent keys are prefixed (TYPE:key). We pass them as-is to apply_protection_from_set
-        # which knows how to handle prefixed keys (routing to the correct type-specific set).
-        intent_protected_keys = {k for k, i in protection_intent_manager._intent.items() if i.protected}
-        intent_unprotected_keys = {k for k, i in protection_intent_manager._intent.items() if not i.protected}
-        
-        if intent_protected_keys:
-            # Merge intent-protected keys into state.map.protected_resources
-            # Include BOTH prefixed keys (for apply_protection_from_set) and
-            # unprefixed keys (for grid row checks in match.py)
-            if not state.map.protected_resources:
-                state.map.protected_resources = set()
-            state.map.protected_resources.update(intent_protected_keys)
-            # Also add unprefixed base keys for backward compat with grid checks
-            for k in intent_protected_keys:
-                if ":" in k:
-                    state.map.protected_resources.add(k.split(":", 1)[1])
-            terminal.info(f"Synced {len(intent_protected_keys)} protected resource(s) from intent manager")
-        
-        if intent_unprotected_keys:
-            # Merge intent-unprotected keys into state.map.unprotected_keys
-            if not state.map.unprotected_keys:
-                state.map.unprotected_keys = set()
-            state.map.unprotected_keys.update(intent_unprotected_keys)
-            # Also add unprefixed base keys
-            for k in intent_unprotected_keys:
-                if ":" in k:
-                    state.map.unprotected_keys.add(k.split(":", 1)[1])
-            terminal.info(f"Synced {len(intent_unprotected_keys)} unprotected resource(s) from intent manager")
-        
+        # Protection is now sourced from target intent dispositions (built above).
+        # The protected_resources and unprotected_keys sets were populated from
+        # disposition.protected when loading or computing target intent.
         # Apply protection changes from both protected_resources and unprotected_keys sets
         # protected_resources: resources that should have protected=True
         # unprotected_keys: resources that should have protected removed/False

@@ -522,6 +522,15 @@ def apply_protection_from_set(
                 project_keys_to_protect.add(resource_key)
             elif prefix == "REP":
                 repo_keys_to_protect.add(resource_key)
+                # REP: uses the project key — also protect the project itself
+                # so the TF module sees repository_protected via project.protected
+                project_keys_to_protect.add(resource_key)
+            elif prefix == "REPO":
+                # REPO: is the consolidated repo+project-repo-link intent key.
+                # It uses the project key, so protect both repo and project.
+                repo_keys_to_protect.add(resource_key)
+                prep_keys_to_protect.add(resource_key)
+                project_keys_to_protect.add(resource_key)
             elif prefix == "PREP":
                 prep_keys_to_protect.add(resource_key)
             elif prefix == "ENV":
@@ -607,9 +616,6 @@ def apply_protection_from_set(
             logger.info(f"  Set protected=True for connection {conn_key}")
     
     # Process global repositories
-    # NOTE: Repository keys in YAML often have prefixes like "dbt_ep_" 
-    # (e.g., "dbt_ep_sse_dm_fin_fido") while intent keys use the base name
-    # (e.g., "sse_dm_fin_fido"). We need flexible matching.
     for repo in globals_section.get("repositories", []):
         repo_key = repo.get("key", "")
         # Check exact match first
@@ -618,13 +624,20 @@ def apply_protection_from_set(
             updated_count += 1
             logger.info(f"  Set protected=True for global repository {repo_key}")
         else:
-            # Check if repo_key contains or ends with any protected key
-            # Common pattern: dbt_ep_{project_key} -> {project_key}
+            # Fuzzy fallback: check if repo_key contains or ends with any
+            # protected key.  This handles legacy cases where the normalizer
+            # produced a prefixed repo key (e.g. dbt_ep_{project_key}).
+            # With the key-alignment fix in the normalizer this path should
+            # rarely trigger; log a warning when it does.
             for prot_key in repo_keys_to_protect | all_unprefixed:
                 if prot_key and (prot_key in repo_key or repo_key.endswith(prot_key)):
                     repo["protected"] = True
                     updated_count += 1
-                    logger.info(f"  Set protected=True for global repository {repo_key} (matched {prot_key})")
+                    logger.warning(
+                        f"  Set protected=True for global repository {repo_key} "
+                        f"via fuzzy match on '{prot_key}' — consider aligning "
+                        f"the repository key to the project key"
+                    )
                     break
     
     # Save updated YAML
@@ -691,6 +704,12 @@ def apply_unprotection_from_set(
                 project_keys_to_unprotect.add(resource_key)
             elif prefix == "REP":
                 repo_keys_to_unprotect.add(resource_key)
+                # REP: uses the project key — also unprotect the project itself
+                project_keys_to_unprotect.add(resource_key)
+            elif prefix == "REPO":
+                # REPO: is the consolidated repo+project-repo-link intent key.
+                repo_keys_to_unprotect.add(resource_key)
+                project_keys_to_unprotect.add(resource_key)
             else:
                 all_unprefixed.add(resource_key)
         else:
@@ -724,31 +743,36 @@ def apply_unprotection_from_set(
     globals_section = config.get("globals", {})
     
     # Process global repositories
-    # NOTE: Repository keys in YAML often have prefixes like "dbt_ep_"
-    # (e.g., "dbt_ep_sse_dm_fin_fido") while intent keys use the base name
-    # (e.g., "sse_dm_fin_fido"). We need flexible matching.
     for repo in globals_section.get("repositories", []):
         repo_key = repo.get("key", "")
         should_unprotect = False
         matched_key = None
+        fuzzy = False
         
         # Check exact match first
         if repo_key in repo_keys_to_unprotect or repo_key in all_unprefixed:
             should_unprotect = True
             matched_key = repo_key
         else:
-            # Check if repo_key contains or ends with any unprotected key
-            # Common pattern: dbt_ep_{project_key} -> {project_key}
+            # Fuzzy fallback (legacy prefixed repo keys)
             for unprot_key in repo_keys_to_unprotect | all_unprefixed:
                 if unprot_key and (unprot_key in repo_key or repo_key.endswith(unprot_key)):
                     should_unprotect = True
                     matched_key = unprot_key
+                    fuzzy = True
                     break
         
         if should_unprotect and "protected" in repo:
             del repo["protected"]
             updated_count += 1
-            logger.info(f"  Removed protection from global repository {repo_key} (matched {matched_key})")
+            if fuzzy:
+                logger.warning(
+                    f"  Removed protection from global repository {repo_key} "
+                    f"via fuzzy match on '{matched_key}' — consider aligning "
+                    f"the repository key to the project key"
+                )
+            else:
+                logger.info(f"  Removed protection from global repository {repo_key} (matched {matched_key})")
     
     # Save updated YAML
     output = output_path or yaml_file
@@ -758,3 +782,148 @@ def apply_unprotection_from_set(
     logger.info(f"Removed protection from {updated_count} resources in {output}")
     
     return output
+
+
+def merge_yaml_configs(base_yaml: dict, source_yaml: dict) -> dict:
+    """Merge source-selected resources into existing base YAML.
+    
+    This is the critical function that prevents deploy generate from
+    overwriting an existing deployment YAML (with all managed projects)
+    with a source-selected subset YAML (containing only cherry-picked projects).
+    
+    Merge rules:
+    - Projects in source that aren't in base: ADD
+    - Projects in source that ARE in base: UPDATE (source values win)
+    - Projects in base that aren't in source: PRESERVE (critical!)
+    - Same logic for globals sections (repositories, connections, etc.)
+    - Top-level fields (version, account, etc.) preserved from base
+    
+    Args:
+        base_yaml: The existing deployment YAML (full set of managed resources).
+                   Can be None or empty for fresh migrations.
+        source_yaml: The source-selected YAML (subset being added/updated).
+                     Can be None or empty if no new selections.
+    
+    Returns:
+        Merged dict ready to be written as YAML.
+    """
+    if not base_yaml and not source_yaml:
+        return {}
+    if not base_yaml:
+        return dict(source_yaml) if source_yaml else {}
+    if not source_yaml:
+        return dict(base_yaml) if base_yaml else {}
+    
+    import copy
+    merged = copy.deepcopy(base_yaml)
+    
+    # Merge projects by key
+    _merge_list_by_key(merged, source_yaml, "projects")
+    
+    # Merge globals sections
+    base_globals = merged.get("globals", {})
+    source_globals = source_yaml.get("globals", {})
+    
+    if source_globals:
+        if not base_globals:
+            merged["globals"] = copy.deepcopy(source_globals)
+        else:
+            # Merge each globals sub-section that is a list of keyed items
+            for section_key in ("repositories", "connections", "service_tokens",
+                                "notification_configs", "webhooks"):
+                if section_key in source_globals:
+                    if section_key not in base_globals:
+                        base_globals[section_key] = []
+                    _merge_list_by_key_inline(
+                        base_globals[section_key],
+                        source_globals[section_key],
+                    )
+            
+            # Preserve any scalar/dict globals fields from source that aren't lists
+            for gk, gv in source_globals.items():
+                if gk not in base_globals and not isinstance(gv, list):
+                    base_globals[gk] = copy.deepcopy(gv)
+            
+            merged["globals"] = base_globals
+    
+    # Preserve top-level scalar fields from source if not in base
+    # (e.g., version, account fields that source might update)
+    for key in source_yaml:
+        if key not in ("projects", "globals") and key not in merged:
+            merged[key] = copy.deepcopy(source_yaml[key])
+    
+    logger.info(
+        f"Merged YAML: base had {len(base_yaml.get('projects', []))} projects, "
+        f"source had {len(source_yaml.get('projects', []))} projects, "
+        f"merged has {len(merged.get('projects', []))} projects"
+    )
+    
+    return merged
+
+
+def _merge_list_by_key(target: dict, source: dict, list_key: str) -> None:
+    """Merge a list of keyed dicts from source into target.
+    
+    Items are matched by 'key' field. Existing items are updated,
+    new items are appended. Items only in target are preserved.
+    """
+    import copy
+    
+    target_list = target.get(list_key, [])
+    source_list = source.get(list_key, [])
+    
+    if not source_list:
+        return
+    
+    # Build lookup of existing items by key
+    existing_by_key = {}
+    for i, item in enumerate(target_list):
+        item_key = item.get("key")
+        if item_key:
+            existing_by_key[item_key] = i
+    
+    # Merge source items
+    for source_item in source_list:
+        source_key = source_item.get("key")
+        if not source_key:
+            continue
+        
+        if source_key in existing_by_key:
+            # UPDATE: source item replaces existing (source values win)
+            idx = existing_by_key[source_key]
+            target_list[idx] = copy.deepcopy(source_item)
+        else:
+            # ADD: new item from source
+            target_list.append(copy.deepcopy(source_item))
+    
+    target[list_key] = target_list
+
+
+def _merge_list_by_key_inline(target_list: list, source_list: list) -> None:
+    """Merge source keyed items into target list in-place.
+    
+    Same logic as _merge_list_by_key but operates directly on lists.
+    """
+    import copy
+    
+    if not source_list:
+        return
+    
+    existing_by_key = {}
+    for i, item in enumerate(target_list):
+        item_key = item.get("key") if isinstance(item, dict) else None
+        if item_key:
+            existing_by_key[item_key] = i
+    
+    for source_item in source_list:
+        if not isinstance(source_item, dict):
+            continue
+        source_key = source_item.get("key")
+        if not source_key:
+            continue
+        
+        if source_key in existing_by_key:
+            idx = existing_by_key[source_key]
+            target_list[idx] = copy.deepcopy(source_item)
+        else:
+            target_list.append(copy.deepcopy(source_item))

@@ -164,6 +164,11 @@ class ProtectionIntentManager:
         self._intent_file = intent_file
         self._intent: dict[str, ProtectionIntent] = {}
         self._history: list[HistoryEntry] = []
+        # Callback fired after save() writes to protection-intent.json for each dirty key.
+        # Signature: (resource_key: str, protected: bool) -> None
+        self._on_intent_changed: Optional[callable] = None
+        # Keys modified since last save, for syncing to target intent
+        self._dirty_keys: set[str] = set()
     
     @traced
     def load(self) -> None:
@@ -196,6 +201,27 @@ class ProtectionIntentManager:
             
             logger.info(f"Loaded {len(self._intent)} intent(s) and {len(self._history)} history entries")
             
+            # CLEANUP: Remove unprefixed keys when a prefixed equivalent exists
+            # This handles stale entries from older code that didn't always prefix keys
+            unprefixed_to_remove = []
+            prefixed_base_keys = {}
+            for key in self._intent:
+                if ":" in key:
+                    _, base = key.split(":", 1)
+                    prefixed_base_keys[base] = key
+            for key in self._intent:
+                if ":" not in key and key in prefixed_base_keys:
+                    logger.warning(
+                        f"Removing stale unprefixed intent key '{key}' "
+                        f"(superseded by '{prefixed_base_keys[key]}')"
+                    )
+                    unprefixed_to_remove.append(key)
+            if unprefixed_to_remove:
+                for key in unprefixed_to_remove:
+                    del self._intent[key]
+                self.save()
+                logger.info(f"Cleaned up {len(unprefixed_to_remove)} stale unprefixed intent(s)")
+            
         except json.JSONDecodeError as e:
             raise ValueError(f"Corrupted intent file: {e}")
     
@@ -226,6 +252,17 @@ class ProtectionIntentManager:
             data={"intent_count": len(self._intent), "history_count": len(self._history)},
         )
         logger.info(f"Saved intent file: {self._intent_file}")
+
+        # After writing protection-intent.json, sync dirty keys to target intent dispositions
+        if self._on_intent_changed and self._dirty_keys:
+            for key in self._dirty_keys:
+                intent_entry = self._intent.get(key)
+                if intent_entry is not None:
+                    try:
+                        self._on_intent_changed(key, intent_entry.protected)
+                    except Exception as e:
+                        logger.warning(f"Failed to sync protection to target intent for '{key}': {e}")
+            self._dirty_keys.clear()
     
     @traced(log_result=True)
     def set_intent(
@@ -245,7 +282,8 @@ class ProtectionIntentManager:
         history entry to track the change.
         
         Args:
-            key: Resource key (e.g., "my_project", "proj_myjob")
+            key: Resource key, MUST be prefixed with TYPE: (e.g., "PRJ:my_project", "REPO:my_repo").
+                Unprefixed keys are accepted for backward compatibility but a warning is logged.
             protected: Whether the resource should be protected
             source: Source of the intent (e.g., "user_click", "unprotect_all")
             reason: Human-readable reason for the decision
@@ -256,6 +294,16 @@ class ProtectionIntentManager:
         Returns:
             The created/updated ProtectionIntent
         """
+        # DEFENSIVE: Warn if key is unprefixed - callers should always prefix with TYPE:
+        # Auto-prefix if resource_type is provided but key is missing prefix
+        if ":" not in key:
+            if resource_type:
+                old_key = key
+                key = f"{resource_type}:{key}"
+                logger.warning(f"Auto-prefixed unprefixed intent key '{old_key}' → '{key}' (source={source})")
+            else:
+                logger.warning(f"Unprefixed intent key '{key}' with no resource_type (source={source}) - this may cause UNKNOWN type in UI")
+        
         # Check if intent already exists with same protection value
         # Skip recording duplicate history if nothing actually changed
         existing_intent = self._intent.get(key)
@@ -291,6 +339,7 @@ class ProtectionIntentManager:
         
         # Store intent
         self._intent[key] = intent
+        self._dirty_keys.add(key)
         
         log_state_change(
             "protection_intent",

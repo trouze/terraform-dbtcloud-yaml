@@ -211,8 +211,10 @@ resource "dbtcloud_job" "jobs" {
   num_threads            = coalesce(try(each.value.job_data.num_threads, null), 4)
   # Only enable run_compare_changes if validation passes (staging/prod environment and not CI/Merge job)
   run_compare_changes = local.validate_run_compare_changes[each.key]
-  # Use null for compare_changes_flags if validation fails - empty string still triggers SAO validation
-  compare_changes_flags = local.validate_run_compare_changes[each.key] ? try(each.value.job_data.compare_changes_flags, "--select state:modified") : null
+  # Always pass compare_changes_flags from YAML; the provider internally gates it
+  # (only sends to API when run_compare_changes=true), so this is safe and avoids
+  # perpetual "(known after apply)" diffs when run_compare_changes is false.
+  compare_changes_flags = try(each.value.job_data.compare_changes_flags, "--select state:modified")
   run_generate_sources  = try(each.value.job_data.run_generate_sources, false)
   run_lint              = try(each.value.job_data.run_lint, false)
   schedule_cron         = local.schedule_cron_effective[each.key]
@@ -238,7 +240,10 @@ resource "dbtcloud_job" "jobs" {
 
   lifecycle {
     ignore_changes = [
-      job_completion_trigger_condition
+      job_completion_trigger_condition,
+      # job_type is provider-computed and not configurable via this module;
+      # ignoring prevents noisy "other -> (known after apply)" diffs.
+      job_type,
     ]
   }
 }
@@ -274,8 +279,10 @@ resource "dbtcloud_job" "protected_jobs" {
   num_threads            = coalesce(try(each.value.job_data.num_threads, null), 4)
   # Only enable run_compare_changes if validation passes (staging/prod environment and not CI/Merge job)
   run_compare_changes = local.validate_run_compare_changes[each.key]
-  # Use null for compare_changes_flags if validation fails - empty string still triggers SAO validation
-  compare_changes_flags = local.validate_run_compare_changes[each.key] ? try(each.value.job_data.compare_changes_flags, "--select state:modified") : null
+  # Always pass compare_changes_flags from YAML; the provider internally gates it
+  # (only sends to API when run_compare_changes=true), so this is safe and avoids
+  # perpetual "(known after apply)" diffs when run_compare_changes is false.
+  compare_changes_flags = try(each.value.job_data.compare_changes_flags, "--select state:modified")
   run_generate_sources  = try(each.value.job_data.run_generate_sources, false)
   run_lint              = try(each.value.job_data.run_lint, false)
   schedule_cron         = local.schedule_cron_effective[each.key]
@@ -298,7 +305,8 @@ resource "dbtcloud_job" "protected_jobs" {
   lifecycle {
     prevent_destroy = true
     ignore_changes = [
-      job_completion_trigger_condition
+      job_completion_trigger_condition,
+      job_type,
     ]
   }
 }

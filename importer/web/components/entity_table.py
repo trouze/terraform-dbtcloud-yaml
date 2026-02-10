@@ -1368,6 +1368,7 @@ def show_match_detail_dialog(
             summary_tab = ui.tab("Source Details", icon="summarize")
             target_tab = ui.tab("Target Details", icon="cloud_download")
             state_tab = ui.tab("TF State", icon="storage")
+            intent_tab = ui.tab("Target Intent", icon="assignment")
             json_tab = ui.tab("JSON", icon="code")
             debug_tab = ui.tab("Match Debug", icon="bug_report")
         
@@ -1514,6 +1515,17 @@ def show_match_detail_dialog(
                             else:
                                 ui.label("Terraform State Not Loaded").classes("text-lg text-slate-500")
                                 ui.label("Load Terraform state to see state resource details").classes("text-sm text-slate-400")
+
+            # Target Intent tab - disposition and match summary from target-intent.json
+            with ui.tab_panel(intent_tab):
+                with ui.scroll_area().style("height: 65vh;"):
+                    _render_target_intent_tab(
+                        app_state=app_state,
+                        source_key=grid_row.get("source_key") or source_data.get("key") or source_data.get("element_mapping_id", ""),
+                        source_type=type_code,
+                        state_resource=state_resource,
+                        grid_row=grid_row,
+                    )
             
             # JSON tab
             with ui.tab_panel(json_tab):
@@ -1584,6 +1596,93 @@ def show_match_detail_dialog(
     except: pass
     # endregion
     dialog.open()
+
+
+def _render_target_intent_tab(
+    app_state: Optional["AppState"],
+    source_key: str,
+    source_type: str,
+    state_resource: Optional[dict],
+    grid_row: dict,
+) -> None:
+    """Render Target Intent tab: disposition, confirmed status, state-to-target match, protection summary."""
+    with ui.column().classes("w-full gap-4 p-4"):
+        if app_state is None:
+            ui.label("Application state not available.").classes("text-slate-500")
+            return
+        try:
+            intent = app_state.get_target_intent_manager().load()
+        except Exception as e:
+            ui.label(f"Could not load target intent: {e}").classes("text-amber-600")
+            return
+        if intent is None:
+            ui.label("No target intent file found. Run Deploy Generate or confirm mappings on the Match page to create one.").classes("text-slate-500")
+            return
+
+        # Disposition for this resource (by source_key)
+        disposition = intent.dispositions.get(source_key)
+        if disposition:
+            disp_colors = {
+                "retained": "#059669",
+                "upserted": "#2563eb",
+                "adopted": "#7c3aed",
+                "removed": "#dc2626",
+                "orphan_flagged": "#d97706",
+                "orphan_retained": "#0891b2",
+            }
+            color = disp_colors.get(disposition.disposition, "#6b7280")
+            with ui.card().classes("w-full p-4"):
+                with ui.row().classes("items-center gap-2 mb-2"):
+                    ui.icon("assignment", size="sm").classes("text-slate-500")
+                    ui.label("Disposition").classes("font-semibold")
+                ui.badge(disposition.disposition).style(f"background-color: {color};")
+                ui.label(f"Source: {disposition.source}").classes("text-sm text-slate-500 mt-2")
+                if disposition.confirmed:
+                    ui.label(f"Confirmed: {disposition.confirmed_at or 'Yes'}").classes("text-sm text-green-600 mt-1")
+                else:
+                    ui.label("Not confirmed").classes("text-sm text-slate-400 mt-1")
+        else:
+            with ui.card().classes("w-full p-4"):
+                ui.label("No disposition in target intent for this resource key.").classes("text-slate-500")
+
+        # State-to-target match (if this resource has a state entry)
+        state_key = state_resource.get("resource_index") if state_resource else None
+        state_address = state_resource.get("address") if state_resource else None
+        if state_key is not None or state_address is not None:
+            state_match = None
+            for m in intent.match_mappings.state_to_target:
+                if m.state_key == state_key or m.state_address == state_address:
+                    state_match = m
+                    break
+            with ui.card().classes("w-full p-4"):
+                with ui.row().classes("items-center gap-2 mb-2"):
+                    ui.icon("account_tree", size="sm").classes("text-slate-500")
+                    ui.label("State-to-target match").classes("font-semibold")
+                if state_match and state_match.target_id:
+                    ui.label(f"{state_match.target_name} (ID: {state_match.target_id})").classes("text-sm")
+                    ui.label(f"Match type: {state_match.match_type}").classes("text-xs text-slate-500")
+                else:
+                    ui.label("No target match for this state resource.").classes("text-slate-500 text-sm")
+
+        # Protection intent summary (concise)
+        if source_type in EXTENDED_RESOURCE_TYPE_MAP:
+            base_key = state_key or grid_row.get("project_name") or source_key
+            resource_key = f"{source_type}:{base_key}"
+            try:
+                protection_mgr = app_state.get_protection_intent_manager()
+                current = protection_mgr.get_intent(resource_key)
+                with ui.card().classes("w-full p-4"):
+                    with ui.row().classes("items-center gap-2 mb-2"):
+                        ui.icon("security", size="sm").classes("text-slate-500")
+                        ui.label("Protection intent").classes("font-semibold")
+                    if current is None:
+                        ui.label("Not set").classes("text-slate-500 text-sm")
+                    else:
+                        ui.label("Protected" if current.protected else "Unprotected").classes(
+                            "text-sm font-medium " + ("text-green-600" if current.protected else "text-slate-600")
+                        )
+            except Exception:
+                ui.label("Could not load protection intent.").classes("text-slate-500 text-sm")
 
 
 def _render_match_debug_tab(

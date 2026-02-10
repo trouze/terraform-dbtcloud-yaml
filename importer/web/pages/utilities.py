@@ -296,7 +296,9 @@ def _create_protection_status_section(
                         result = parse_state_json(state_json)
                         
                         if result.success:
-                            state.deploy._state_data = {"resources": [r.__dict__ for r in result.resources]}
+                            # Store parsed resources in the proper DeployState field
+                            state.deploy.reconcile_state_resources = [r.__dict__ for r in result.resources]
+                            state.deploy.reconcile_state_loaded = True
                             if save_state:
                                 save_state()
                             ui.notify(f"Loaded {len(result.resources)} resources from state", type="positive")
@@ -306,7 +308,7 @@ def _create_protection_status_section(
                     except Exception as e:
                         ui.notify(f"Error loading state: {e}", type="negative")
                 
-                ui.button("Load State", icon="cloud_download", on_click=lambda: asyncio.create_task(load_state_action())).props("color=primary")
+                ui.button("Load State", icon="cloud_download", on_click=load_state_action).props("color=primary")
 
 
 def _create_protection_management_section(
@@ -411,37 +413,34 @@ def _create_protection_management_section(
         
         # Bulk Action Buttons
         with ui.row().classes("w-full gap-2 mb-4"):
-            def reset_all_to_yaml():
+            async def reset_all_to_yaml():
                 """Reset all intents, falling back to YAML flags."""
-                async def do_reset():
-                    dialog = ui.dialog()
-                    confirmed = {"value": False}
-                    
-                    with dialog:
-                        with ui.card().classes("p-4"):
-                            ui.label("Reset All to YAML").classes("text-lg font-semibold mb-2")
-                            ui.label("This will clear all intent history. Protection status will fall back to YAML configuration.").classes("text-sm text-slate-500 mb-4")
-                            
-                            with ui.row().classes("gap-2 justify-end"):
-                                ui.button("Cancel", on_click=dialog.close).props("flat")
-                                
-                                def confirm_reset():
-                                    confirmed["value"] = True
-                                    dialog.close()
-                                
-                                ui.button("Reset All", on_click=confirm_reset).props("color=red")
-                    
-                    dialog.open()
-                    await dialog
-                    
-                    if confirmed["value"]:
-                        protection_intent._intent.clear()
-                        protection_intent._history.clear()
-                        protection_intent.save()
-                        ui.notify("All intents reset to YAML defaults", type="positive")
-                        ui.navigate.reload()
+                dialog = ui.dialog()
+                confirmed = {"value": False}
                 
-                asyncio.create_task(do_reset())
+                with dialog:
+                    with ui.card().classes("p-4"):
+                        ui.label("Reset All to YAML").classes("text-lg font-semibold mb-2")
+                        ui.label("This will clear all intent history. Protection status will fall back to YAML configuration.").classes("text-sm text-slate-500 mb-4")
+                        
+                        with ui.row().classes("gap-2 justify-end"):
+                            ui.button("Cancel", on_click=dialog.close).props("flat")
+                            
+                            def confirm_reset():
+                                confirmed["value"] = True
+                                dialog.close()
+                            
+                            ui.button("Reset All", on_click=confirm_reset).props("color=red")
+                
+                dialog.open()
+                await dialog
+                
+                if confirmed["value"]:
+                    protection_intent._intent.clear()
+                    protection_intent._history.clear()
+                    protection_intent.save()
+                    ui.notify("All intents reset to YAML defaults", type="positive")
+                    ui.navigate.reload()
             
             ui.button(
                 "Reset All to YAML",
@@ -451,7 +450,7 @@ def _create_protection_management_section(
             
             async def sync_from_tf_state():
                 """Sync intents from current TF state - set intents to match what's in TF state."""
-                if not state.deploy.has_state_file() or not state.deploy._state_data:
+                if not state.deploy.has_state_file() or not state.deploy.reconcile_state_resources:
                     ui.notify("No TF state loaded. Load state first.", type="warning")
                     return
                 
@@ -484,7 +483,7 @@ def _create_protection_management_section(
                 
                 # Get resources from state
                 count = 0
-                for resource in state.deploy._state_data.get("resources", []):
+                for resource in state.deploy.reconcile_state_resources:
                     tf_name = resource.get("tf_name", "")
                     resource_index = resource.get("resource_index", "")
                     element_code = resource.get("element_code", "")
@@ -506,7 +505,7 @@ def _create_protection_management_section(
             ui.button(
                 "Sync from TF State",
                 icon="cloud_download",
-                on_click=lambda: asyncio.create_task(sync_from_tf_state()),
+                on_click=sync_from_tf_state,
             ).props("outline").tooltip("Create intents to match current TF state")
             
             async def generate_all_pending():
@@ -589,7 +588,7 @@ def _create_protection_management_section(
             generate_btn = ui.button(
                 f"Generate All Pending ({pending_generate})" if pending_generate > 0 else "Generate All Pending",
                 icon="auto_fix_high",
-                on_click=lambda: asyncio.create_task(generate_all_pending()),
+                on_click=generate_all_pending,
             ).props("color=green")
             generate_btn.set_enabled(pending_generate > 0)
             

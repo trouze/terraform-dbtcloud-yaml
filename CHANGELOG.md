@@ -9,6 +9,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-02-10
+
+### Added
+- **Explicit Global Intent Filtering**: `compute_target_intent()` now accepts `included_globals` parameter to control which global sections appear in output_config
+  - Default keeps only `connections` and `repositories` (project dependencies)
+  - Strips `groups`, `service_tokens`, `notifications`, `privatelink_endpoints`, `webhooks` unless explicitly opted in
+  - Prevents unintended creation of account-level resources (e.g. groups) that weren't part of the match intent
+- **Config Preference for Drift Detection**: `config_preference` field on `ResourceDisposition` tracks whether target or source values should be used
+  - Retained/adopted resources default to `"target"` preference
+  - Upserted (new) resources default to `"source"` preference
+  - `DRIFT_ATTR_MISMATCH` status for attribute-level drift visibility in match grid
+- **TF State Repository Identity Fixup**: `_apply_tf_state_repo_values()` overlays TF state `remote_url` and `github_installation_id` on matched repos to prevent destruction from source/target value drift
+- **Job Normalizer Enhancement**: `job_type` now always serialized to YAML for visibility and consistency
+
+### Changed
+- `compare_changes_flags` in Terraform module always passes YAML value (with default) instead of conditionally nullifying — relies on provider's internal gating
+- `job_type` added to `lifecycle { ignore_changes }` in Terraform module as temporary workaround
+
+### Fixed
+- Protected repository `sse_dm_fin_fido` no longer destroyed due to `remote_url`/`github_installation_id` mismatch between source and TF state
+
+## [0.18.0] - 2026-02-09
+
+### Added
+- **Target Intent as Authoritative State File**: `target-intent.json` is now the single, self-contained source of truth for deployment
+  - `output_config` (merged YAML dict) persisted directly inside `target-intent.json` — no more recomputation on Deploy
+  - Match page computes full target intent (dispositions + output_config + protection) and persists it
+  - Deploy page loads persisted intent, re-validates against current TF state, and uses `output_config` directly
+  - `normalize_target_fetch()` utility lazily normalizes target fetch data to produce a baseline YAML for retained projects
+- **Protection as a Disposition Property**: Per-resource `protected` field on `ResourceDisposition`
+  - 4-level priority chain: default false < TF state `protected_projects` override < `protection-intent.json` entry < user edit
+  - `protection_set_by` and `protection_set_at` fields for audit trail
+  - Deploy reads protection directly from dispositions instead of separate `ProtectionIntentManager`
+- **Write-Through Protection Sync**: UI protection edits automatically sync to target intent dispositions
+  - `ProtectionIntentManager` fires callback after `save()` for dirty keys
+  - `AppState.sync_protection_to_target_intent()` updates `ResourceDisposition.protected` in `target-intent.json`
+  - Write order: `protection-intent.json` first, then `target-intent.json`
+- **`target_baseline_yaml` field on `TargetFetchState`**: Caches the normalized target fetch YAML path across sessions
+- **17 new unit tests**: Protection defaults, TF state override, protection intent override, user edit override, serialization round-trip, output_config persistence, retained project config, disposition sync
+
+### Changed
+- `get_tf_state_project_keys()` now includes both `projects` and `protected_projects` TF resources
+- `TargetIntentManager.save()` / `.load()` now persist and restore `output_config` (previously dropped)
+- `_persist_target_intent_from_match()` rebuilt to compute full target intent with all inputs
+- Deploy `_run_generate` uses persisted intent when available, falls back to recompute for backward compatibility
+- Protection sync in Deploy now sources from target intent dispositions instead of `ProtectionIntentManager` directly
+
 ## [0.17.0] - 2026-01-27
 
 ### Added

@@ -218,6 +218,8 @@ class TargetFetchState:
     last_report_items_file: Optional[str] = None
     account_name: Optional[str] = None
     resource_counts: dict = field(default_factory=dict)
+    # Path to the normalized YAML produced from target fetch data (all projects, no exclusions)
+    target_baseline_yaml: Optional[str] = None
 
 
 class FetchMode(str, Enum):
@@ -867,6 +869,12 @@ class AppState:
             
             self._protection_intent_manager = ProtectionIntentManager(intent_file)
             self._protection_intent_manager.load()
+
+            # Wire up callback: after protection-intent.json is saved, sync dirty keys
+            # to target intent dispositions (write-through to target-intent.json)
+            self._protection_intent_manager._on_intent_changed = (
+                lambda key, protected: self.sync_protection_to_target_intent(key, protected)
+            )
         
         return self._protection_intent_manager
     
@@ -907,7 +915,20 @@ class AppState:
         """
         self.get_target_intent_manager().save(intent)
 
-    def is_step_complete(self, step: WorkflowStep) -> bool:
+    def sync_protection_to_target_intent(self, resource_key: str, protected: bool) -> bool:
+        """Sync a protection edit to the target intent disposition.
+
+        Called AFTER ProtectionIntentManager.set_intent() writes to protection-intent.json.
+        Updates the corresponding ResourceDisposition.protected in target-intent.json.
+
+        Returns:
+            True if a disposition was found and updated, False otherwise.
+        """
+        return self.get_target_intent_manager().sync_protection_to_disposition(
+            resource_key, protected
+        )
+
+    def step_is_complete(self, step: WorkflowStep) -> bool:
         """Check if a workflow step has been completed."""
         if step != WorkflowStep.HOME and step not in self.workflow_steps():
             return False
@@ -1094,6 +1115,7 @@ class AppState:
                 "last_report_items_file": self.target_fetch.last_report_items_file,
                 "account_name": self.target_fetch.account_name,
                 "resource_counts": self.target_fetch.resource_counts,
+                "target_baseline_yaml": self.target_fetch.target_baseline_yaml,
                 # Tier 3 SKIP: is_fetching (runtime flag)
                 # Tier 3 SKIP: threads (runtime config)
             },
@@ -1350,6 +1372,7 @@ class AppState:
             state.target_fetch.last_report_items_file = tf.get("last_report_items_file")
             state.target_fetch.account_name = tf.get("account_name")
             state.target_fetch.resource_counts = tf.get("resource_counts", {})
+            state.target_fetch.target_baseline_yaml = tf.get("target_baseline_yaml")
 
         if "explore" in data:
             e = data["explore"]

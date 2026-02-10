@@ -1837,7 +1837,7 @@ def _create_target_matching_section(state: AppState) -> None:
     if not target_fetch_available:
         # Show hint to fetch target
         with ui.expansion(
-            "Match Existing Target Resources",
+            "Set Target Intent",
             icon="link",
         ).classes("w-full mt-4").props("dense"):
             with ui.card().classes("w-full p-3"):
@@ -1860,7 +1860,7 @@ def _create_target_matching_section(state: AppState) -> None:
         return
     
     with ui.expansion(
-        "Match Existing Target Resources",
+        "Set Target Intent",
         icon="link",
         value=state.map.target_matching_enabled,
     ).classes("w-full mt-4").style(f"border-left: 3px solid {DBT_TEAL};"):

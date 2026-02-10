@@ -69,6 +69,7 @@ DRIFT_IN_SYNC = "in_sync"    # State ID matches target ID
 DRIFT_ID_MISMATCH = "id_mismatch"  # State has different ID than target
 DRIFT_NOT_IN_STATE = "not_in_state"  # Target exists but not in state
 DRIFT_STATE_ONLY = "state_only"  # Resource in state but no target matched
+DRIFT_ATTR_MISMATCH = "attr_mismatch"  # ID matches but identity attrs differ (e.g. remote_url)
 
 # Resource types that are keyed by name, not by numeric ID
 # These don't have a single dbt_id - they use composite keys like project_id:name
@@ -84,6 +85,7 @@ def _compute_drift_status(
     state_by_id: Optional[dict[tuple[str, int], dict]] = None,
     project_name: Optional[str] = None,
     state_repo_by_project: Optional[dict[str, dict]] = None,
+    source_remote_url: Optional[str] = None,
 ) -> tuple[Optional[int], str, Optional[str]]:
     """Compute state_id, drift_status, and state_address for a resource.
     
@@ -102,6 +104,7 @@ def _compute_drift_status(
         state_by_id: Optional lookup dict from (element_code, dbt_id) to state resource
         project_name: Optional project name (for repository lookups)
         state_repo_by_project: Optional lookup dict from project_name to repo state resource
+        source_remote_url: Optional source repo remote_url for attribute-level drift detection
         
     Returns:
         Tuple of (state_id, drift_status, state_address)
@@ -175,6 +178,13 @@ def _compute_drift_status(
             return state_id, DRIFT_STATE_ONLY, state_address
         
         if state_id == target_id:
+            # ID matches — but for REP resources, also check identity attributes
+            # A repo with the same ID but different remote_url will cause TF to
+            # destroy+recreate, which is dangerous for protected resources.
+            if source_type == "REP" and source_remote_url:
+                state_url = state_resource.get("remote_url", "")
+                if state_url and source_remote_url != state_url:
+                    return state_id, DRIFT_ATTR_MISMATCH, state_address
             return state_id, DRIFT_IN_SYNC, state_address
         else:
             return state_id, DRIFT_ID_MISMATCH, state_address
@@ -215,6 +225,7 @@ def build_grid_data(
     state_result: Optional["StateReadResult"] = None,
     protected_resources: Optional[set[str]] = None,
     protection_intent_manager: Optional["ProtectionIntentManager"] = None,
+    removal_keys: Optional[set[str]] = None,
 ) -> list[dict]:
     """Build grid row data from source/target items and existing mappings.
     
@@ -227,12 +238,14 @@ def build_grid_data(
         state_result: Optional Terraform state for drift detection
         protected_resources: Optional set of source_keys that are protected (YAML config)
         protection_intent_manager: Optional intent manager for effective protection lookup
+        removal_keys: Optional set of source_keys marked for unadopt (removal from TF state)
         
     Returns:
         List of row dictionaries for AG Grid
     """
     # Initialize protected_resources set if None
     protected_resources = protected_resources or set()
+    removal_keys = removal_keys or set()
     
     # Build clone config lookup
     clone_by_key = {}
@@ -639,16 +652,22 @@ def build_grid_data(
         if target:
             target_id_int = target.get("dbt_id")
             
+            # For REP resources, get source remote_url for attribute-level drift detection
+            _src_remote_url = None
+            if source_type == "REP":
+                _src_remote_url = source.get("remote_url") or (source.get("metadata") or {}).get("remote_url")
+
             # Compute drift status - compare matched target against TF state
             state_id, drift_status, state_address = _compute_drift_status(
                 source_type, source_name, target_id_int, state_by_name, bool(state_result),
                 state_by_id=state_by_id,
                 project_name=project_name,
                 state_repo_by_project=state_repo_by_project,
+                source_remote_url=_src_remote_url,
             )
             
             # If matched but not in state, or ID mismatch, default to "adopt"
-            if drift_status in (DRIFT_NOT_IN_STATE, DRIFT_ID_MISMATCH):
+            if drift_status in (DRIFT_NOT_IN_STATE, DRIFT_ID_MISMATCH, DRIFT_ATTR_MISMATCH):
                 default_action = "adopt"
             else:
                 default_action = "match"
@@ -954,6 +973,74 @@ def build_grid_data(
                         }
                         rows.append(link_row)
     
+    # Append state-only rows: state resources that are NOT already represented by a source row.
+    # These are resources managed by Terraform in the target but not part of the source migration.
+    if state_result and state_result.resources:
+        # Collect (element_code, dbt_id) pairs already covered by existing rows
+        covered_state_ids: set[tuple[str, int]] = set()
+        for row in rows:
+            # A row covers a state resource if its matched target_id matches the state dbt_id
+            row_type = row.get("source_type", "")
+            row_state_id = row.get("state_id")
+            if row_state_id is not None:
+                try:
+                    covered_state_ids.add((row_type, int(row_state_id)))
+                except (TypeError, ValueError):
+                    pass
+            # Also cover by target_id (in case state_id wasn't set but target was matched)
+            row_target_id = row.get("target_id")
+            if row_target_id:
+                try:
+                    covered_state_ids.add((row_type, int(row_target_id)))
+                except (TypeError, ValueError):
+                    pass
+
+        for res in state_result.resources:
+            dbt_id = res.dbt_id
+            if isinstance(dbt_id, str):
+                try:
+                    dbt_id = int(dbt_id)
+                except ValueError:
+                    continue
+            if dbt_id is None:
+                continue
+            if (res.element_code, dbt_id) in covered_state_ids:
+                continue
+
+            # Look up the matching target to get a proper name
+            target_item = target_by_id.get(dbt_id)
+            target_name = ""
+            target_project = ""
+            if target_item:
+                target_name = target_item.get("name", "")
+                target_project = target_item.get("project_name", "")
+            else:
+                target_name = res.name or res.tf_name or ""
+
+            project_name = target_project or res.resource_index or ""
+
+            state_row = {
+                "source_key": f"state__{res.address}",
+                "source_name": target_name,
+                "source_type": res.element_code,
+                "source_id": None,
+                "project_name": project_name,
+                "action": "match",
+                "target_id": str(dbt_id),
+                "target_name": target_name,
+                "status": "confirmed",
+                "confidence": "state_match",
+                "clone_configured": False,
+                "clone_name": "",
+                "state_id": dbt_id,
+                "drift_status": DRIFT_IN_SYNC,
+                "state_address": res.address,
+                "is_state_only": True,
+            }
+            rows.append(state_row)
+            # Mark as covered to avoid duplicates from multi-address resources
+            covered_state_ids.add((res.element_code, dbt_id))
+
     # Post-process: Add protection status to all rows
     # We track THREE separate protection fields:
     # 1. yaml_protected: What's in the YAML config (from protected_resources set)
@@ -985,6 +1072,12 @@ def build_grid_data(
         
         # Combined value for UI display (protected if either source says so)
         row["protected"] = is_effective_protected or is_state_protected
+    
+    # Post-process: Apply removal_keys (unadopt) so persisted intent shows on load
+    for row in rows:
+        if row.get("source_key") in removal_keys:
+            row["action"] = "unadopt"
+            row["status"] = "unadopted"
     
     # Post-process: CRD drift status inheritance from parent ENV
     # CRDs don't exist in Terraform state directly - they're embedded in environment resources.
@@ -1038,6 +1131,8 @@ def create_match_grid(
     on_configure_clone: Optional[Callable[[str], None]] = None,
     state_result: Optional["StateReadResult"] = None,
     on_adopt: Optional[Callable[[str], None]] = None,
+    on_unadopt: Optional[Callable[[str], None]] = None,
+    removal_keys: Optional[set[str]] = None,
     protected_resources: Optional[set[str]] = None,
     protection_intent_manager: Optional["ProtectionIntentManager"] = None,
 ) -> tuple:
@@ -1056,6 +1151,8 @@ def create_match_grid(
         on_configure_clone: Callback when configure clone button clicked (source_key)
         state_result: Optional Terraform state for drift detection
         on_adopt: Callback when adopt button clicked (source_key) for drift resolution
+        on_unadopt: Callback when unadopt action is set (source_key) for removal from TF state
+        removal_keys: Optional set of source_keys marked for unadopt (persisted, applied on load)
         protected_resources: Optional set of source_keys that are protected
         protection_intent_manager: Optional intent manager for effective protection lookup
         
@@ -1063,11 +1160,13 @@ def create_match_grid(
         Tuple of (grid component, row data list)
     """
     # Build row data
+    removal_keys = removal_keys or set()
     row_data = build_grid_data(
         source_items, target_items, confirmed_mappings, rejected_keys, clone_configs,
         state_result=state_result,
         protected_resources=protected_resources,
         protection_intent_manager=protection_intent_manager,
+        removal_keys=removal_keys,
     )
     
     # Build target options for autocomplete
@@ -1147,7 +1246,7 @@ def create_match_grid(
             "editable": True,
             "cellEditor": "agSelectCellEditor",
             "cellEditorParams": {
-                "values": ["match", "create_new", "skip", "adopt"],
+                "values": ACTION_VALUES,
             },
             ":valueFormatter": """params => {
                 const labels = {
@@ -1155,6 +1254,7 @@ def create_match_grid(
                     'create_new': '➕ Create New',
                     'skip': '⏭️ Skip',
                     'adopt': '📥 Adopt',
+                    'unadopt': '🔓 Unadopt',
                 };
                 return labels[params.value] || params.value;
             }""",
@@ -1163,6 +1263,7 @@ def create_match_grid(
                 "action-create": "x === 'create_new'",
                 "action-skip": "x === 'skip'",
                 "action-adopt": "x === 'adopt'",
+                "action-unadopt": "x === 'unadopt'",
             },
         },
         {
@@ -1237,6 +1338,7 @@ def create_match_grid(
                     'confirmed': '✓ Confirmed',
                     'error': '✗ Error',
                     'skipped': '⊘ Skipped',
+                    'unadopted': '🔓 Unadopted',
                 };
                 return labels[params.value] || params.value;
             }""",
@@ -1245,6 +1347,7 @@ def create_match_grid(
                 "status-confirmed": "x === 'confirmed'",
                 "status-error": "x === 'error'",
                 "status-skipped": "x === 'skipped'",
+                "status-unadopted": "x === 'unadopted'",
             },
         },
         {
@@ -1281,6 +1384,7 @@ def create_match_grid(
             "row-confirmed": "data.status === 'confirmed'",
             "row-error": "data.status === 'error'",
             "row-skipped": "data.status === 'skipped' || data.action === 'skip'",
+            "row-unadopted": "data.action === 'unadopt'",
             "row-protected": "data.protected === true",
         },
         "stopEditingWhenCellsLoseFocus": True,
@@ -1321,6 +1425,10 @@ def create_match_grid(
                 elif new_val == "match":
                     # Switching back to match - restore pending status
                     data["status"] = "pending"
+                elif new_val == "unadopt":
+                    # Unadopt: remove resource from TF management (terraform state rm)
+                    # Keep target_id for reference but mark as removal candidate
+                    data["status"] = "unadopted"
                 
                 on_row_change(data)
                 
@@ -1329,6 +1437,11 @@ def create_match_grid(
                     source_key = data.get("source_key", "")
                     if source_key:
                         on_adopt(source_key)
+                # If unadopt action and on_unadopt callback exists, trigger it
+                if new_val == "unadopt" and on_unadopt:
+                    source_key = data.get("source_key", "")
+                    if source_key:
+                        on_unadopt(source_key)
             
             elif col == "target_id":
                 # Validate target ID
@@ -1550,14 +1663,38 @@ def create_match_grid(
     return grid, row_data
 
 
+# Allowed values for the Action column (match grid)
+ACTION_VALUES = ["match", "create_new", "skip", "adopt", "unadopt"]
+
+# Type labels for match grid filter dropdown (same codes as source_type column)
+MATCH_GRID_TYPE_LABELS = {
+    "ACC": "Account",
+    "CON": "Connection",
+    "REP": "Repository",
+    "TOK": "Token",
+    "GRP": "Group",
+    "NOT": "Notify",
+    "WEB": "Webhook",
+    "PLE": "PrivateLink",
+    "PRJ": "Project",
+    "ENV": "Environment",
+    "VAR": "EnvVar",
+    "JOB": "Job",
+    "JEVO": "EnvVar Ovr",
+    "JCTG": "Job Trigger",
+    "PREP": "Repo Link",
+}
+
+
 def create_grid_toolbar(
     row_data: list[dict],
     on_accept_all: Callable[[], None],
     on_reject_all: Callable[[], None],
     on_reset_all: Callable[[], None],
     on_export_csv: Callable[[], None],
+    on_type_filter_change: Optional[Callable[[str], None]] = None,
 ) -> None:
-    """Create the toolbar above the grid with bulk actions.
+    """Create the toolbar above the grid with bulk actions and type filter.
     
     Args:
         row_data: Current row data for counting
@@ -1565,15 +1702,33 @@ def create_grid_toolbar(
         on_reject_all: Callback for Reject All button
         on_reset_all: Callback for Reset All button
         on_export_csv: Callback for Export CSV button
+        on_type_filter_change: Optional callback when type filter dropdown changes (filter value string)
     """
     # Count stats
     pending = sum(1 for r in row_data if r.get("status") == "pending" and r.get("action") == "match")
     confirmed = sum(1 for r in row_data if r.get("status") == "confirmed")
     create_new = sum(1 for r in row_data if r.get("action") == "create_new")
     skipped = sum(1 for r in row_data if r.get("action") == "skip")
+    unadopted = sum(1 for r in row_data if r.get("action") == "unadopt")
     clones = sum(1 for r in row_data if r.get("clone_configured"))
     
     with ui.row().classes("w-full items-center justify-between mb-3 flex-wrap gap-2"):
+        # Type filter dropdown (like explore grids)
+        types_in_data = sorted(set(r.get("source_type", "UNK") for r in row_data))
+        type_counts: dict[str, int] = {}
+        for r in row_data:
+            t = r.get("source_type", "UNK")
+            type_counts[t] = type_counts.get(t, 0) + 1
+        filter_options: dict[str, str] = {"all": f"All Types ({len(row_data)})"}
+        for t in types_in_data:
+            label = MATCH_GRID_TYPE_LABELS.get(t, t)
+            filter_options[t] = f"{label} ({t}) [{type_counts.get(t, 0)}]"
+        ui.select(
+            options=filter_options,
+            value="all",
+            on_change=lambda e: on_type_filter_change(e.value) if on_type_filter_change else None,
+        ).props("outlined dense").classes("min-w-[200px]")
+        
         # Stats
         with ui.row().classes("items-center gap-4"):
             with ui.row().classes("items-center gap-1"):
@@ -1591,6 +1746,10 @@ def create_grid_toolbar(
             with ui.row().classes("items-center gap-1"):
                 ui.badge(str(skipped), color="grey").props("dense")
                 ui.label("Skip").classes("text-sm")
+            
+            with ui.row().classes("items-center gap-1"):
+                ui.badge(str(unadopted), color="purple").props("dense")
+                ui.label("Unadopt").classes("text-sm")
             
             if clones > 0:
                 with ui.row().classes("items-center gap-1"):
