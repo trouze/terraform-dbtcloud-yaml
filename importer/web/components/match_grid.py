@@ -450,6 +450,10 @@ def build_grid_data(
     added_repo_keys: set[str] = set()
     
     rows = []
+    # #region agent log
+    _debug_log({"location": "match_grid.py:source_items_summary", "message": "VAR source items", "data": {"var_sources": [{"key": s.get("key") or s.get("element_mapping_id", ""), "name": s.get("name", ""), "project_name": s.get("project_name", ""), "project_key": s.get("project_key", "")} for s in source_items if s.get("element_type_code") == "VAR"]}, "timestamp": int(time.time() * 1000), "hypothesisId": "HA", "runId": "var_debug"})
+    _debug_log({"location": "match_grid.py:target_var_keys", "message": "VAR target keys in target_by_type_name", "data": {"var_target_keys": [str(k) for k in target_by_type_name.keys() if (isinstance(k, tuple) and len(k) >= 2 and k[0] == "VAR")]}, "timestamp": int(time.time() * 1000), "hypothesisId": "HB", "runId": "var_debug"})
+    # #endregion
     for source in source_items:
         # Use key if available, otherwise fall back to element_mapping_id
         # (Environment variables often have key=null)
@@ -458,6 +462,15 @@ def build_grid_data(
         source_type = source.get("element_type_code", "")
         source_id = source.get("dbt_id")
         project_name = source.get("project_name", "")
+        # For NAME_KEYED_TYPES (VAR, JEVO), ensure source_key is project-scoped.
+        # Same-named vars in different projects must have distinct keys for the grid
+        # to correctly track confirmed mappings and diagnostic lookups.
+        if source_type in NAME_KEYED_TYPES and project_name and source_key:
+            project_scoped_key = f"{source_key}:{project_name}"
+            # Only apply if the key isn't already project-scoped
+            # (new element_ids.py generates unique keys, this is defense-in-depth)
+            if source_key == source.get("element_mapping_id", ""):
+                source_key = project_scoped_key
         project_id = source_id if source_type == "PRJ" else (
             source.get("project_id") or (source.get("metadata") or {}).get("project_id")
         )
@@ -472,6 +485,12 @@ def build_grid_data(
         
         # Check if this source is already confirmed
         confirmed = confirmed_by_source_key.get(source_key)
+        # Fallback for NAME_KEYED_TYPES: old confirmed mappings may store the bare
+        # element_mapping_id before the project-scoped key was introduced.
+        if not confirmed and source_type in NAME_KEYED_TYPES:
+            bare_key = source.get("element_mapping_id", "")
+            if bare_key and bare_key != source_key:
+                confirmed = confirmed_by_source_key.get(bare_key)
         if confirmed:
             target_id_val = confirmed.get("target_id", "")
             target_name = confirmed.get("target_name", "")
@@ -622,6 +641,10 @@ def build_grid_data(
         clone_config = clone_by_key.get(source_key)
         target = target_by_type_name.get(lookup_key)
         match_confidence = "exact_match" if target else "none"
+        # #region agent log
+        if source_type == "VAR":
+            _debug_log({"location": "match_grid.py:var_lookup", "message": "VAR lookup", "data": {"source_key": source_key, "source_name": source_name, "project_name": project_name, "lookup_key": str(lookup_key), "target_found": target is not None, "target_project": target.get("project_name", "") if target else None, "target_name": target.get("name", "") if target else None}, "timestamp": int(time.time() * 1000), "hypothesisId": "HC", "runId": "var_debug"})
+        # #endregion
         
         # Special handling for CRD (credentials) - match by parent environment instead of name
         # since credential names are generic like "Credential (snowflake)" and often don't match exactly
@@ -714,7 +737,7 @@ def build_grid_data(
                 "source_id": source_id,
                 "project_name": project_name,
                 "action": default_action,
-                "target_id": str(target.get("dbt_id", "")),
+                "target_id": str(target.get("dbt_id") or ""),
                 "target_name": target.get("name", ""),
                 "status": "pending",
                 "confidence": match_confidence,  # Use tracked confidence (exact_match, state_id_match, etc.)
@@ -1081,9 +1104,11 @@ def build_grid_data(
     # 1. yaml_protected: What's in the YAML config (from protected_resources set)
     # 2. state_protected: Actual TF state (from state_address containing ".protected_")
     # 3. protected: Effective protection (intent takes precedence over YAML if available)
+    import re as _re_prot
     for row in rows:
         source_key = row.get("source_key", "")
         state_address = row.get("state_address", "")
+        source_type = row.get("source_type", "")
         
         # Check if resource is in a protected Terraform map (e.g., protected_repositories, protected_projects)
         is_state_protected = ".protected_" in state_address if state_address else False
@@ -1091,12 +1116,30 @@ def build_grid_data(
         # Check if user wants it protected (from YAML config)
         is_yaml_protected = source_key in protected_resources
         
+        # For state-only resources, the source_key is "state__<full_tf_address>"
+        # but the protection intent system stores keys as "TYPE:short_tf_key"
+        # (extracted from the ["key"] portion of the state address).
+        # Normalize the lookup key to match the intent system's key format.
+        intent_lookup_key = source_key
+        if source_key.startswith("state__") and state_address:
+            _m = _re_prot.search(r'\["([^"]+)"\]$', state_address)
+            if _m:
+                short_key = _m.group(1)
+                intent_lookup_key = f"{source_type}:{short_key}" if source_type else short_key
+        
         # Use protection intent manager if available to get effective protection
         # Intent takes precedence over YAML to prevent "flip-flopping"
         if protection_intent_manager is not None:
             is_effective_protected = protection_intent_manager.get_effective_protection(
-                source_key, yaml_protected=is_yaml_protected
+                intent_lookup_key, yaml_protected=is_yaml_protected
             )
+            # #region agent log
+            if source_key.startswith("state__"):
+                import json as _json_prot, time as _time_prot
+                _has_intent = protection_intent_manager.has_intent(intent_lookup_key)
+                with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as _f:
+                    _f.write(_json_prot.dumps({"hypothesisId":"H1_prot_key","location":"match_grid.py:protection_postprocess","message":"State-only protection lookup","data":{"source_key":source_key[:80],"intent_lookup_key":intent_lookup_key,"has_intent":_has_intent,"is_effective_protected":is_effective_protected,"is_yaml_protected":is_yaml_protected,"is_state_protected":is_state_protected,"source_type":source_type},"timestamp":_time_prot.time()}) + "\n")
+            # #endregion
         else:
             # Fallback: use YAML protection directly
             is_effective_protected = is_yaml_protected

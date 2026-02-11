@@ -513,6 +513,7 @@ def apply_protection_from_set(
     env_keys_to_protect = set()
     job_keys_to_protect = set()
     conn_keys_to_protect = set()
+    var_keys_to_protect = set()  # Environment variables
     all_unprefixed = set()  # Fallback for unprefixed keys
     
     for key in protected_keys:
@@ -539,6 +540,8 @@ def apply_protection_from_set(
                 job_keys_to_protect.add(resource_key)
             elif prefix == "CON":
                 conn_keys_to_protect.add(resource_key)
+            elif prefix == "VAR":
+                var_keys_to_protect.add(resource_key)
             else:
                 # Unknown prefix, add to unprefixed set
                 all_unprefixed.add(resource_key)
@@ -578,7 +581,7 @@ def apply_protection_from_set(
                 updated_count += 1
                 logger.info(f"  Set protected=True for environment {env_key}")
             
-            # Process jobs within environment
+            # Process jobs within environment (legacy structure)
             for job in env.get("jobs", []):
                 job_key = job.get("key", "")
                 full_job_key = f"{project_key}_{job_key}" if job_key else ""
@@ -587,7 +590,24 @@ def apply_protection_from_set(
                     job_key in all_unprefixed or full_job_key in all_unprefixed):
                     job["protected"] = True
                     updated_count += 1
-                    logger.info(f"  Set protected=True for job {job_key}")
+                    logger.info(f"  Set protected=True for job {job_key} (in env)")
+        
+        # Process jobs at project level (current YAML structure)
+        for job in project.get("jobs", []):
+            job_key = job.get("key", "")
+            full_job_key = f"{project_key}_{job_key}" if job_key else ""
+            
+            # #region agent log
+            import json as _json_prot2
+            with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
+                f.write(_json_prot2.dumps({"hypothesisId": "H1_JOB_MATCH", "location": "adoption_yaml_updater.py:apply_protection_from_set:project_job_check", "message": "Checking project-level job", "data": {"job_key": job_key, "full_job_key": full_job_key, "in_job_keys": job_key in job_keys_to_protect, "full_in_job_keys": full_job_key in job_keys_to_protect, "job_keys_to_protect": list(job_keys_to_protect)}, "timestamp": __import__("time").time()}) + "\n")
+            # #endregion
+            
+            if (job_key in job_keys_to_protect or full_job_key in job_keys_to_protect or
+                job_key in all_unprefixed or full_job_key in all_unprefixed):
+                job["protected"] = True
+                updated_count += 1
+                logger.info(f"  Set protected=True for job {job_key} (project-level)")
         
         # Process repository in project (inline repository definition)
         if "repository" in project and isinstance(project["repository"], dict):
@@ -603,6 +623,18 @@ def apply_protection_from_set(
                 repo["protected"] = True
                 updated_count += 1
                 logger.info(f"  Set protected=True for repository (keys: {possible_keys})")
+        
+        # Process environment variables within project
+        for env_var in project.get("environment_variables", []):
+            env_var_name = env_var.get("name", "")
+            # VAR key format: project_key_VAR_NAME (composite key matching TF for_each)
+            full_var_key = f"{project_key}_{env_var_name}" if env_var_name else ""
+            
+            if (env_var_name in var_keys_to_protect or full_var_key in var_keys_to_protect or
+                env_var_name in all_unprefixed or full_var_key in all_unprefixed):
+                env_var["protected"] = True
+                updated_count += 1
+                logger.info(f"  Set protected=True for env var {env_var_name} (project {project_key})")
     
     # Process globals section
     globals_section = config.get("globals", {})
@@ -695,6 +727,11 @@ def apply_unprotection_from_set(
     # Build lookup sets for each resource type from prefixed keys
     project_keys_to_unprotect = set()
     repo_keys_to_unprotect = set()
+    prep_keys_to_unprotect = set()
+    env_keys_to_unprotect = set()
+    job_keys_to_unprotect = set()
+    conn_keys_to_unprotect = set()
+    var_keys_to_unprotect = set()  # Environment variables
     all_unprefixed = set()
     
     for key in unprotected_keys:
@@ -710,6 +747,16 @@ def apply_unprotection_from_set(
                 # REPO: is the consolidated repo+project-repo-link intent key.
                 repo_keys_to_unprotect.add(resource_key)
                 project_keys_to_unprotect.add(resource_key)
+            elif prefix == "PREP":
+                prep_keys_to_unprotect.add(resource_key)
+            elif prefix == "ENV":
+                env_keys_to_unprotect.add(resource_key)
+            elif prefix == "JOB":
+                job_keys_to_unprotect.add(resource_key)
+            elif prefix == "CON":
+                conn_keys_to_unprotect.add(resource_key)
+            elif prefix == "VAR":
+                var_keys_to_unprotect.add(resource_key)
             else:
                 all_unprefixed.add(resource_key)
         else:
@@ -727,6 +774,42 @@ def apply_unprotection_from_set(
                 updated_count += 1
                 logger.info(f"  Removed protection from project {project_key}")
         
+        # Process environments within project
+        for env in project.get("environments", []):
+            env_key = env.get("key", "")
+            full_env_key = f"{project_key}_{env_key}" if env_key else ""
+            
+            if (env_key in env_keys_to_unprotect or full_env_key in env_keys_to_unprotect or
+                env_key in all_unprefixed or full_env_key in all_unprefixed):
+                if "protected" in env:
+                    del env["protected"]
+                    updated_count += 1
+                    logger.info(f"  Removed protection from environment {env_key}")
+            
+            # Process jobs within environment (legacy structure)
+            for job in env.get("jobs", []):
+                job_key = job.get("key", "")
+                full_job_key = f"{project_key}_{job_key}" if job_key else ""
+                
+                if (job_key in job_keys_to_unprotect or full_job_key in job_keys_to_unprotect or
+                    job_key in all_unprefixed or full_job_key in all_unprefixed):
+                    if "protected" in job:
+                        del job["protected"]
+                        updated_count += 1
+                        logger.info(f"  Removed protection from job {job_key} (in env)")
+        
+        # Process jobs at project level (current YAML structure)
+        for job in project.get("jobs", []):
+            job_key = job.get("key", "")
+            full_job_key = f"{project_key}_{job_key}" if job_key else ""
+            
+            if (job_key in job_keys_to_unprotect or full_job_key in job_keys_to_unprotect or
+                job_key in all_unprefixed or full_job_key in all_unprefixed):
+                if "protected" in job:
+                    del job["protected"]
+                    updated_count += 1
+                    logger.info(f"  Removed protection from job {job_key} (project-level)")
+        
         # Process repository in project
         if "repository" in project and isinstance(project["repository"], dict):
             repo = project["repository"]
@@ -738,6 +821,18 @@ def apply_unprotection_from_set(
                     del repo["protected"]
                     updated_count += 1
                     logger.info(f"  Removed protection from repository (key: {repo_key or project_key})")
+        
+        # Process environment variables within project
+        for env_var in project.get("environment_variables", []):
+            env_var_name = env_var.get("name", "")
+            full_var_key = f"{project_key}_{env_var_name}" if env_var_name else ""
+            
+            if (env_var_name in var_keys_to_unprotect or full_var_key in var_keys_to_unprotect or
+                env_var_name in all_unprefixed or full_var_key in all_unprefixed):
+                if "protected" in env_var:
+                    del env_var["protected"]
+                    updated_count += 1
+                    logger.info(f"  Removed protection from env var {env_var_name} (project {project_key})")
     
     # Process globals section
     globals_section = config.get("globals", {})
@@ -861,69 +956,109 @@ def merge_yaml_configs(base_yaml: dict, source_yaml: dict) -> dict:
     return merged
 
 
-def _merge_list_by_key(target: dict, source: dict, list_key: str) -> None:
-    """Merge a list of keyed dicts from source into target.
+def _get_item_identifier(item: dict):
+    """Get the merge identifier for a list item.
     
-    Items are matched by 'key' field. Existing items are updated,
-    new items are appended. Items only in target are preserved.
+    Tries 'key' first (most resource types), then 'name' (environment_variables).
+    """
+    return item.get("key") or item.get("name")
+
+
+def _deep_merge_dict(base: dict, source: dict) -> dict:
+    """Deep-merge source into base, recursively merging keyed sub-lists.
+    
+    This enables source-selecting at any granularity (a single job, env, envvar)
+    while preserving everything else from the base. Merge rules:
+    - Scalar/dict fields: source wins
+    - Lists of keyed dicts (have 'key' or 'name'): merge by identifier recursively
+    - Lists of non-keyed items: source wins
+    - Base fields not in source: preserved
+    """
+    import copy
+    merged = copy.deepcopy(base)
+    
+    for key, source_value in source.items():
+        base_value = merged.get(key)
+        
+        if isinstance(source_value, list) and isinstance(base_value, list):
+            if (source_value and isinstance(source_value[0], dict)
+                    and _get_item_identifier(source_value[0]) is not None):
+                # Both are lists of keyed dicts -- merge by identifier recursively
+                _merge_keyed_list_inplace(merged[key], source_value)
+            elif (not source_value and base_value
+                    and isinstance(base_value[0], dict)
+                    and _get_item_identifier(base_value[0]) is not None):
+                # Empty source list should NOT clobber a populated base keyed list.
+                # An empty [] from the deploy YAML means "not defined yet",
+                # not "intentionally remove all items".
+                pass  # keep base value
+            else:
+                # Non-keyed list or both empty -- source wins
+                merged[key] = copy.deepcopy(source_value)
+        else:
+            # Scalar, dict, or new field -- source wins
+            merged[key] = copy.deepcopy(source_value)
+    
+    return merged
+
+
+def _merge_keyed_list_inplace(target_list: list, source_list: list) -> None:
+    """Merge source keyed items into target list in-place, recursively.
+    
+    Items matched by identifier are deep-merged (preserving base sub-resources).
+    Items only in source are appended. Items only in target are preserved.
     """
     import copy
     
-    target_list = target.get(list_key, [])
+    if not source_list:
+        return
+    
+    existing = {}
+    for i, item in enumerate(target_list):
+        if isinstance(item, dict):
+            ident = _get_item_identifier(item)
+            if ident:
+                existing[ident] = i
+    
+    for source_item in source_list:
+        if not isinstance(source_item, dict):
+            continue
+        ident = _get_item_identifier(source_item)
+        if not ident:
+            continue
+        
+        if ident in existing:
+            # UPDATE: recursive deep merge (source wins, base preserved)
+            idx = existing[ident]
+            target_list[idx] = _deep_merge_dict(target_list[idx], source_item)
+        else:
+            # ADD: new item from source
+            target_list.append(copy.deepcopy(source_item))
+
+
+def _merge_list_by_key(target: dict, source: dict, list_key: str) -> None:
+    """Merge a list of keyed dicts from source into target.
+    
+    Items are matched by identifier ('key' or 'name'). Existing items are
+    deep-merged (source wins, base sub-resources preserved). New items are
+    appended. Items only in target are preserved.
+    """
     source_list = source.get(list_key, [])
     
     if not source_list:
         return
     
-    # Build lookup of existing items by key
-    existing_by_key = {}
-    for i, item in enumerate(target_list):
-        item_key = item.get("key")
-        if item_key:
-            existing_by_key[item_key] = i
+    if list_key not in target:
+        import copy
+        target[list_key] = copy.deepcopy(source_list)
+        return
     
-    # Merge source items
-    for source_item in source_list:
-        source_key = source_item.get("key")
-        if not source_key:
-            continue
-        
-        if source_key in existing_by_key:
-            # UPDATE: source item replaces existing (source values win)
-            idx = existing_by_key[source_key]
-            target_list[idx] = copy.deepcopy(source_item)
-        else:
-            # ADD: new item from source
-            target_list.append(copy.deepcopy(source_item))
-    
-    target[list_key] = target_list
+    _merge_keyed_list_inplace(target[list_key], source_list)
 
 
 def _merge_list_by_key_inline(target_list: list, source_list: list) -> None:
     """Merge source keyed items into target list in-place.
     
-    Same logic as _merge_list_by_key but operates directly on lists.
+    Same recursive deep-merge logic as _merge_list_by_key.
     """
-    import copy
-    
-    if not source_list:
-        return
-    
-    existing_by_key = {}
-    for i, item in enumerate(target_list):
-        item_key = item.get("key") if isinstance(item, dict) else None
-        if item_key:
-            existing_by_key[item_key] = i
-    
-    for source_item in source_list:
-        if not isinstance(source_item, dict):
-            continue
-        source_key = source_item.get("key")
-        if not source_key:
-            continue
-        
-        if source_key in existing_by_key:
-            idx = existing_by_key[source_key]
-            target_list[idx] = copy.deepcopy(source_item)
-        else:
-            target_list.append(copy.deepcopy(source_item))
+    _merge_keyed_list_inplace(target_list, source_list)

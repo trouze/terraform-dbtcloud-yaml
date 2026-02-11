@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-02-11
+
+### Added
+- **EnvVar (VAR) Protection Support**: Full protection lifecycle for dbt Cloud environment variables
+  - `protected_environment_variables` / `unprotected_environment_variables` split in Terraform module (`environment_vars.tf`) with `lifecycle { prevent_destroy = true }`
+  - `RESOURCE_TYPE_MAP` and `EXTENDED_RESOURCE_TYPE_MAP` entries for VAR type in `protection_manager.py`
+  - `apply_protection_from_set` / `apply_unprotection_from_set` handle composite VAR keys (`{project_key}_{env_var_name}`)
+  - Protection intent, moved blocks, and mismatch detection all support VARs
+- **State-Only Resource Detail Panel**: Clicking details on state-only resources (e.g., environments in TF state but not in source selection) now correctly displays target/state data instead of showing "Source resource not found" toast
+
+### Fixed
+- **Terraform Plan Destroy for Protected VARs**: Environment variables with `environment_variables: []` in deploy YAML no longer get destroyed; `_deep_merge_dict` now preserves populated base keyed lists when source provides an empty list
+- **Unwanted Target-Only Project Creation**: Baseline merge in `start_generate_protection_changes` now filters to only projects already in the deploy config, preventing target-only projects (e.g., `not_terraform`) from being introduced into `dbt-cloud-config.yml`
+- **Protection Key Mismatch for State-Only Resources**: Grid protection lookup now normalizes `state__<tf_address>` keys to `TYPE:short_key` format, matching how the write path stores intents — state-only resources now correctly show and persist protection status
+- **Project-Scoped Element IDs for VARs**: `element_mapping_id` for environment variables now includes `project_key`, preventing cross-project matching collisions for VARs with the same name
+
 ## [0.20.0] - 2026-02-11
 
 ### Added

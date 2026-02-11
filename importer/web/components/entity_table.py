@@ -950,6 +950,8 @@ def _get_full_entity_data(state: "AppState", row_data: dict, is_target: bool = F
     type_code = row_data.get("element_type_code", "")
     entity_id = row_data.get("dbt_id")
     entity_key = row_data.get("key")
+    entity_name = row_data.get("name", "")
+    entity_project = row_data.get("project_name", "") or row_data.get("project_key", "")
     
     full_data_list = _load_full_data_for_type(state, type_code, is_target)
     
@@ -961,6 +963,26 @@ def _get_full_entity_data(state: "AppState", row_data: dict, is_target: bool = F
             return item
         if entity_key and item.get("_key") == entity_key:
             return item
+    
+    # Fallback for name-keyed types (VAR, JEVO) and project-scoped types:
+    # These may not have a usable id/key. Match by (name, project) instead.
+    NAME_KEYED = {"VAR", "JEVO"}
+    if type_code in NAME_KEYED and entity_name:
+        for item in full_data_list:
+            item_name = item.get("name", "")
+            item_project = item.get("project_name", "") or item.get("project_key", "")
+            if item_name == entity_name:
+                # If project info available, require it to match
+                if entity_project and item_project:
+                    if item_project == entity_project:
+                        return item
+                elif not entity_project:
+                    return item
+        # If project-scoped match failed, try name-only as last resort
+        if entity_project:
+            for item in full_data_list:
+                if item.get("name", "") == entity_name:
+                    return item
     
     return None
 

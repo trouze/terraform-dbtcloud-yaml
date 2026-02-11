@@ -58,11 +58,9 @@ locals {
     if try(item.job_data.protected, false) != true
   }
 
-  # Map of environment keys to environment IDs (separate local for clarity)
-  environment_id_by_key = {
-    for env_item in local.all_environments :
-    "${env_item.project_key}_${env_item.env_key}" => dbtcloud_environment.environments["${env_item.project_key}_${env_item.env_key}"].environment_id
-  }
+  # Map of environment keys to environment IDs - resolves from either protected or unprotected
+  # Reuses environment_id_lookup which already merges both resource blocks
+  environment_id_by_key = local.environment_id_lookup
 
   # Helper to resolve deferring environment ID by key
   resolve_deferring_environment_id = {
@@ -82,6 +80,18 @@ locals {
   # Use deferring_environment_key in YAML for environment-based deferral,
   # or self_deferring for job self-deferral.
 
+  # Merged deployment_type lookup - resolves from either protected or unprotected environments
+  env_deployment_type_lookup = merge(
+    {
+      for key, env in dbtcloud_environment.environments :
+      key => env.deployment_type
+    },
+    {
+      for key, env in dbtcloud_environment.protected_environments :
+      key => env.deployment_type
+    }
+  )
+
   # Validate run_compare_changes compatibility
   # State-aware orchestration (run_compare_changes) is only available for:
   # 1. Jobs on staging or production environments (deployment_type must be "staging" or "production")
@@ -89,7 +99,7 @@ locals {
   env_deployment_type_by_job = {
     for key, item in local.jobs_map :
     key => try(
-      dbtcloud_environment.environments["${item.project_key}_${item.environment_key}"].deployment_type,
+      local.env_deployment_type_lookup["${item.project_key}_${item.environment_key}"],
       null
     )
   }
