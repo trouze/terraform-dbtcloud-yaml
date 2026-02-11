@@ -67,6 +67,26 @@ class ProtectionIntent:
     applied_to_tf_state: bool = False
     tf_state_at_decision: Optional[str] = None  # "protected", "unprotected", or None
     
+    @property
+    def needs_tf_move(self) -> bool:
+        """Whether this intent requires a TF state move (plan/apply with moved blocks).
+        
+        Returns False for intents that are:
+        - Not yet applied to YAML (YAML must be updated first)
+        - Already applied to TF state
+        - Derived from TF state (sync_from_tf_state) — TF already matches
+        - Where TF state at decision time already matched the intent
+        """
+        if not self.applied_to_yaml or self.applied_to_tf_state:
+            return False
+        if self.set_by == "sync_from_tf_state":
+            return False
+        if self.tf_state_at_decision is not None:
+            intent_state = "protected" if self.protected else "unprotected"
+            if self.tf_state_at_decision == intent_state:
+                return False
+        return True
+    
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -221,6 +241,39 @@ class ProtectionIntentManager:
                     del self._intent[key]
                 self.save()
                 logger.info(f"Cleaned up {len(unprefixed_to_remove)} stale unprefixed intent(s)")
+            
+            # CLEANUP: Auto-mark intents that don't need TF moves as applied_to_tf_state=True.
+            # Two cases where no TF state move is needed:
+            # 1. sync_from_tf_state: intent was derived FROM TF state, so it already matches
+            # 2. Intent matches tf_state_at_decision: e.g., protect intent when TF was already
+            #    protected at decision time — the YAML was updated but TF needs no move.
+            noop_auto_marked = 0
+            for key, intent in self._intent.items():
+                if not intent.applied_to_yaml or intent.applied_to_tf_state:
+                    continue  # Not pending TF, skip
+                
+                needs_mark = False
+                if intent.set_by == "sync_from_tf_state":
+                    needs_mark = True
+                elif intent.tf_state_at_decision is not None:
+                    # Check if intent already matches TF state at decision time
+                    intent_state = "protected" if intent.protected else "unprotected"
+                    if intent.tf_state_at_decision == intent_state:
+                        needs_mark = True
+                
+                if needs_mark:
+                    intent.applied_to_tf_state = True
+                    noop_auto_marked += 1
+                    logger.debug(
+                        f"Auto-marked '{key}' as applied_to_tf_state=True "
+                        f"(set_by={intent.set_by}, tf_state_at_decision={intent.tf_state_at_decision})"
+                    )
+            if noop_auto_marked > 0:
+                self.save()
+                logger.info(
+                    f"Auto-marked {noop_auto_marked} no-op intent(s) as applied_to_tf_state=True "
+                    f"(TF state already matches intent)"
+                )
             
         except json.JSONDecodeError as e:
             raise ValueError(f"Corrupted intent file: {e}")

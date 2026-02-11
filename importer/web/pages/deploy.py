@@ -1446,6 +1446,7 @@ async def _run_generate(
         from importer.web.utils.target_intent import (
             TargetIntentManager,
             compute_target_intent,
+            build_included_globals,
             validate_intent_coverage,
             get_tf_state_project_keys,
             normalize_target_fetch,
@@ -1518,6 +1519,8 @@ async def _run_generate(
                 except Exception:
                     pass
 
+                included_globals = build_included_globals(state)
+
                 target_intent = compute_target_intent(
                     tfstate_path=tfstate_path,
                     source_focus_yaml=yaml_file,
@@ -1527,6 +1530,7 @@ async def _run_generate(
                     removal_keys=removal_keys,
                     previous_intent=persisted_intent,
                     protection_intent_manager=protection_intent_mgr,
+                    included_globals=included_globals,
                 )
 
                 tf_state_keys = get_tf_state_project_keys(tfstate_path)

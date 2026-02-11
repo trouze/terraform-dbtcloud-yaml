@@ -22,6 +22,7 @@ from importer.web.utils.target_intent import (
     MatchMappings,
     StateToTargetMapping,
     compute_target_intent,
+    build_included_globals,
     normalize_target_fetch,
     get_tf_state_project_keys,
     validate_intent_coverage,
@@ -35,6 +36,7 @@ from importer.web.utils.terraform_import import (
 from importer.web.utils.protection_manager import (
     get_resources_to_protect,
     get_resources_to_unprotect,
+    get_resource_address,
     CascadeResource,
     check_single_resource_protection,
     EXTENDED_RESOURCE_TYPE_MAP,
@@ -309,6 +311,9 @@ def _persist_target_intent_from_match(
     except Exception:
         pass
 
+    # Build included_globals from user selections + TF state safety net
+    included_globals = build_included_globals(state)
+
     # Compute full target intent
     try:
         intent = compute_target_intent(
@@ -320,6 +325,7 @@ def _persist_target_intent_from_match(
             removal_keys=removal_keys,
             previous_intent=previous_intent,
             protection_intent_manager=protection_intent_mgr,
+            included_globals=included_globals,
         )
         # Override match_mappings with current grid state
         intent.match_mappings = new_mm
@@ -685,6 +691,67 @@ def _create_matching_content(
         
         dialog.open()
     
+    def _get_intent_key_for_row(row_data: dict) -> str:
+        """Get the canonical intent key for a grid row.
+        
+        For sub-project resources (ENV, JOB, EXTATTR), the grid source_key is just the
+        resource name (e.g., "dev"), but the TF state key includes the project prefix
+        (e.g., "sse_dm_fin_fido_dev"). The intent system must use the TF state key
+        to match what the mismatch panel and clarification panel use.
+        
+        Priority:
+        1. Extract from state_address (most reliable, matches TF state)
+        2. Fall back to source_key (for resources without state)
+        """
+        import re
+        source_key = row_data.get("source_key", "")
+        state_address = row_data.get("state_address", "")
+        
+        if state_address:
+            # Extract key from TF state address: ...["key_here"]
+            match = re.search(r'\["([^"]+)"\]$', state_address)
+            if match:
+                return match.group(1)
+        
+        # Fallback: use source_key as-is
+        return source_key
+    
+    def _get_intent_key_for_source_key(source_key: str, source_type: str) -> str:
+        """Get the canonical intent key for a source_key by looking up the grid row.
+        
+        Used by bulk protect/unprotect handlers where only source_key is available.
+        """
+        for row in grid_data_ref["data"]:
+            if row.get("source_key") == source_key:
+                return _get_intent_key_for_row(row)
+        return source_key
+    
+    def _find_source_key_for_intent_key(prefixed_key: str) -> str:
+        """Reverse lookup: find the source_key in grid data for a given intent key.
+        
+        Intent keys are prefixed like "ENV:sse_dm_fin_fido_dev". We need to find the
+        grid row where _get_intent_key_for_row() returns "sse_dm_fin_fido_dev" and
+        source_type is "ENV", then return that row's source_key (e.g., "dev").
+        
+        Returns source_key if found, or None if no match in grid data.
+        """
+        if ":" in prefixed_key:
+            intent_type, intent_resource_key = prefixed_key.split(":", 1)
+        else:
+            intent_type = ""
+            intent_resource_key = prefixed_key
+        
+        for row in grid_data_ref["data"]:
+            row_type = row.get("source_type", "")
+            if intent_type and row_type != intent_type:
+                continue
+            row_intent_key = _get_intent_key_for_row(row)
+            if row_intent_key == intent_resource_key:
+                return row.get("source_key", "")
+        
+        # Fallback: intent_resource_key might BE the source_key (for PRJ, REP, PREP)
+        return intent_resource_key
+    
     def apply_protection(keys_to_protect: list[str]) -> None:
         """Apply protection to multiple resources.
         
@@ -718,8 +785,10 @@ def _create_matching_content(
                 yaml_state_before = key in before
             
             # Always use prefixed key (TYPE:key) for intent manager
+            # Use TF state key for sub-project resources (ENV, JOB, EXTATTR)
             source_type = key_to_type.get(key, "")
-            prefixed_key = f"{source_type}:{key}" if source_type and ":" not in key else key
+            intent_key = _get_intent_key_for_source_key(key, source_type)
+            prefixed_key = f"{source_type}:{intent_key}" if source_type and ":" not in intent_key else intent_key
             
             # Record intent - this is the source of truth for user decisions
             protection_intent.set_intent(
@@ -793,8 +862,10 @@ def _create_matching_content(
                 yaml_state_before = key in before
             
             # Always use prefixed key (TYPE:key) for intent manager
+            # Use TF state key for sub-project resources (ENV, JOB, EXTATTR)
             source_type = key_to_type.get(key, "")
-            prefixed_key = f"{source_type}:{key}" if source_type and ":" not in key else key
+            intent_key = _get_intent_key_for_source_key(key, source_type)
+            prefixed_key = f"{source_type}:{intent_key}" if source_type and ":" not in intent_key else intent_key
             
             # Record intent - this is the source of truth for user decisions
             protection_intent.set_intent(
@@ -875,7 +946,10 @@ def _create_matching_content(
                 protection_intent = state.get_protection_intent_manager()
                 tf_state_at_decision = "protected" if row_data.get("state_protected") else "unprotected"
                 source_type = row_data.get("source_type", "")
-                prefixed_key = f"{source_type}:{source_key}" if source_type else source_key
+                # For sub-project resources (ENV, JOB, EXTATTR), use the TF state key
+                # which includes the project prefix (e.g., "sse_dm_fin_fido_dev" not just "dev")
+                intent_key = _get_intent_key_for_row(row_data)
+                prefixed_key = f"{source_type}:{intent_key}" if source_type else intent_key
                 protection_intent.set_intent(
                     key=prefixed_key,
                     protected=True,
@@ -915,7 +989,9 @@ def _create_matching_content(
                 protection_intent = state.get_protection_intent_manager()
                 tf_state_at_decision = "protected" if row_data.get("state_protected") else "unprotected"
                 source_type = row_data.get("source_type", "")
-                prefixed_key = f"{source_type}:{source_key}" if source_type else source_key
+                # For sub-project resources (ENV, JOB, EXTATTR), use the TF state key
+                intent_key = _get_intent_key_for_row(row_data)
+                prefixed_key = f"{source_type}:{intent_key}" if source_type else intent_key
                 protection_intent.set_intent(
                     key=prefixed_key,
                     protected=False,
@@ -2026,10 +2102,12 @@ def _create_matching_content(
     _synced_intents.extend(_synced_orphan_items)
     _synced_count = len(_synced_prj_keys) + len(_synced_orphan_items)  # Count projects (grouped) + orphans
     
-    # Count pending TF applies (applied_to_yaml=True but applied_to_tf_state=False)
+    # Count pending TF applies — only intents that actually need a TF state move.
+    # Uses needs_tf_move property which excludes sync_from_tf_state (already in sync)
+    # and intents where TF state already matched at decision time.
     _pending_tf_count = sum(
         1 for intent in protection_intent_manager._intent.values()
-        if intent.applied_to_yaml and not intent.applied_to_tf_state
+        if intent.needs_tf_move
     )
     
     # Find mismatches that need intent clarification (no intent recorded yet)
@@ -2096,6 +2174,12 @@ def _create_matching_content(
                 
                 # Synced intents - expandable section to show details
                 if _synced_count > 0:
+                    # Split synced intents into protected-first and unprotected
+                    _synced_protected = [(k, i) for k, i in _synced_intents if i is not None and i.protected]
+                    _synced_unprotected = [(k, i) for k, i in _synced_intents if i is not None and not i.protected]
+                    _protected_count = len(_synced_protected)
+                    _unprotected_count = len(_synced_unprotected)
+                    
                     with ui.expansion(
                         f"✅ View {_synced_count} synced intent(s)",
                         icon="verified"
@@ -2105,12 +2189,11 @@ def _create_matching_content(
                             "Projects (PRJ) include their linked Repository (REP) and Project-Repository (PREP) automatically."
                         ).classes("text-xs opacity-70 mb-3")
                         
-                        for resource_key, intent in _synced_intents:
-                            if intent is None:
-                                continue  # Skip if intent couldn't be found
-                                
+                        def _render_synced_intent_card(resource_key, intent):
+                            """Render a single synced intent card."""
                             protection_status = "protected" if intent.protected else "unprotected"
                             status_color = "blue" if intent.protected else "grey"
+                            status_icon = "shield" if intent.protected else "shield_outlined" if not intent.protected else ""
                             
                             # Parse the key to get type and base key
                             if ":" in resource_key:
@@ -2123,15 +2206,20 @@ def _create_matching_content(
                             is_project = rtype == "PRJ"
                             is_orphan = rtype not in ("PRJ", "REP", "PREP") and not rtype
                             
-                            # For projects, check for linked REPO (single key covers both repository + project_repository_link)
+                            # For projects, check for linked REPO
                             linked_resources = []
                             if is_project:
                                 repo_key = f"REPO:{rkey}"
                                 if repo_key in protection_intent_manager._intent:
                                     linked_resources.append("REPO")
                             
-                            # Use different styling
-                            card_bg = "bg-amber-500 bg-opacity-10" if is_orphan else "bg-green-500 bg-opacity-10"
+                            # Use different styling based on protection status
+                            if is_orphan:
+                                card_bg = "bg-amber-500 bg-opacity-10"
+                            elif intent.protected:
+                                card_bg = "bg-green-500 bg-opacity-10"
+                            else:
+                                card_bg = "bg-slate-500 bg-opacity-5"
                             
                             with ui.card().classes(f"w-full p-2 mb-2 {card_bg}"):
                                 with ui.row().classes("items-center justify-between"):
@@ -2171,6 +2259,25 @@ def _create_matching_content(
                                             icon="delete",
                                             on_click=make_delete_handler(),
                                         ).props("flat dense color=warning").tooltip("Remove this orphan entry")
+                        
+                        # Protected intents first (always visible)
+                        if _protected_count > 0:
+                            ui.label(f"Protected ({_protected_count})").classes("text-xs font-semibold text-green-700 mb-1")
+                            for resource_key, intent in _synced_protected:
+                                _render_synced_intent_card(resource_key, intent)
+                        
+                        # Unprotected intents in a nested collapsible section
+                        if _unprotected_count > 0:
+                            ui.separator().classes("my-2")
+                            with ui.expansion(
+                                f"Unprotected ({_unprotected_count})",
+                                icon="shield_outlined",
+                            ).classes("w-full border border-slate-200 rounded").props("dense"):
+                                ui.label(
+                                    "Resources explicitly marked as unprotected."
+                                ).classes("text-xs opacity-60 mb-2")
+                                for resource_key, intent in _synced_unprotected:
+                                    _render_synced_intent_card(resource_key, intent)
                 
                 # Mismatches needing clarification - expandable section
                 if len(_mismatches_needing_intent) > 0:
@@ -2387,8 +2494,19 @@ def _create_matching_content(
                                     def make_undo_handler(key_to_undo=rkey):
                                         def handler():
                                             if protection_intent_manager.has_intent(key_to_undo):
+                                                intent_to_undo = protection_intent_manager._intent[key_to_undo]
+                                                # Revert protected_resources to match
+                                                source_key = _find_source_key_for_intent_key(key_to_undo)
+                                                if source_key:
+                                                    if intent_to_undo.protected:
+                                                        # Was a protect intent → remove from protected_resources
+                                                        state.map.protected_resources.discard(source_key)
+                                                    else:
+                                                        # Was an unprotect intent → add back to protected_resources
+                                                        state.map.protected_resources.add(source_key)
                                                 del protection_intent_manager._intent[key_to_undo]
                                                 protection_intent_manager.save()
+                                                save_state()
                                                 ui.notify(f"Removed intent for {key_to_undo}", type="info")
                                                 ui.navigate.reload()
                                         return handler
@@ -2405,10 +2523,18 @@ def _create_matching_content(
                         # Clear all button
                         ui.separator().classes("my-2")
                         def clear_all_pending():
-                            for key, _ in _all_pending:
+                            for key, intent_obj in _all_pending:
                                 if protection_intent_manager.has_intent(key):
+                                    # Revert protected_resources for each intent
+                                    source_key = _find_source_key_for_intent_key(key)
+                                    if source_key:
+                                        if intent_obj.protected:
+                                            state.map.protected_resources.discard(source_key)
+                                        else:
+                                            state.map.protected_resources.add(source_key)
                                     del protection_intent_manager._intent[key]
                             protection_intent_manager.save()
+                            save_state()
                             ui.notify(f"Cleared {len(_all_pending)} pending intents", type="info")
                             ui.navigate.reload()
                         
@@ -2816,8 +2942,51 @@ def _create_matching_content(
                                 tf_path_for_cmd = project_root / tf_dir
                             tf_path_for_cmd = tf_path_for_cmd.resolve()
                             
+                            # Build -target flags from pending protection intents
+                            # This scopes plan/apply to ONLY the resources with pending protection moves,
+                            # avoiding surfacing unrelated drift in the full terraform configuration.
+                            # Uses needs_tf_move to exclude sync_from_tf_state entries and intents
+                            # where TF state already matched at decision time.
+                            _target_addresses = []
+                            for _ikey, _intent in protection_intent_manager._intent.items():
+                                if _intent.needs_tf_move:
+                                    if ":" in _ikey:
+                                        # Prefixed key: "TYPE:resource_key"
+                                        _rtype, _rkey = _ikey.split(":", 1)
+                                    elif _intent.resource_type:
+                                        # Unprefixed key with resource_type field
+                                        _rtype = _intent.resource_type
+                                        _rkey = _ikey
+                                    else:
+                                        # Unprefixed key without resource_type (legacy project-level intent)
+                                        # Target PRJ + REP + PREP for the project key
+                                        for _legacy_type in ("PRJ", "REP", "PREP"):
+                                            try:
+                                                _addr = get_resource_address(_legacy_type, _ikey, protected=_intent.protected)
+                                                _target_addresses.append(_addr)
+                                            except (ValueError, KeyError):
+                                                pass
+                                        continue
+                                    try:
+                                        # Target the NEW address (where resource should end up after move)
+                                        _addr = get_resource_address(_rtype, _rkey, protected=_intent.protected)
+                                        _target_addresses.append(_addr)
+                                    except (ValueError, KeyError):
+                                        pass  # Skip unknown resource types
+                            
+                            _target_flags: list[str] = []
+                            for _addr in _target_addresses:
+                                _target_flags.extend(["-target", _addr])
+                            
                             # Info about what will happen
-                            ui.label(f"Run terraform commands to apply protection moves from: {tf_path_for_cmd}").classes("text-xs text-slate-500")
+                            if _target_addresses:
+                                ui.label(f"Scoped to {len(_target_addresses)} protection target(s) in: {tf_path_for_cmd}").classes("text-xs text-slate-500")
+                                with ui.element("details").classes("text-xs text-slate-400 mt-1"):
+                                    ui.element("summary").classes("cursor-pointer").text = "Show targeted resources"
+                                    for _addr in _target_addresses:
+                                        ui.label(f"  → {_addr}").classes("text-xs text-slate-400 font-mono ml-2")
+                            else:
+                                ui.label(f"Run terraform commands from: {tf_path_for_cmd}").classes("text-xs text-slate-500")
                             
                             # Terminal output area
                             tf_cmd_output = ui.element("div").classes("w-full")
@@ -2856,17 +3025,21 @@ def _create_matching_content(
                                     ui.notify("Init failed - see output", type="negative")
                         
                         async def run_tf_plan():
-                            """Run terraform plan."""
+                            """Run terraform plan scoped to protection targets."""
                             import asyncio
                             import subprocess
                             with tf_cmd_output:
                                 tf_cmd_output.clear()
-                                ui.label("Running terraform plan...").classes("text-xs text-blue-500")
+                                if _target_flags:
+                                    ui.label(f"Running terraform plan (targeted: {len(_target_addresses)} resource(s))...").classes("text-xs text-blue-500")
+                                else:
+                                    ui.label("Running terraform plan...").classes("text-xs text-blue-500")
                             
                             env = _get_terraform_env(state)
+                            plan_cmd = ["terraform", "plan", "-no-color", "-input=false"] + _target_flags
                             result = await asyncio.to_thread(
                                 subprocess.run,
-                                ["terraform", "plan", "-no-color", "-input=false"],
+                                plan_cmd,
                                 cwd=str(tf_path_for_cmd),
                                 capture_output=True,
                                 text=True,
@@ -2924,17 +3097,21 @@ def _create_matching_content(
                                 ui.notify("Plan failed - see output", type="negative")
                         
                         async def run_tf_apply():
-                            """Run terraform apply with auto-approve."""
+                            """Run terraform apply scoped to protection targets."""
                             import asyncio
                             import subprocess
                             with tf_cmd_output:
                                 tf_cmd_output.clear()
-                                ui.label("Running terraform apply...").classes("text-xs text-blue-500")
+                                if _target_flags:
+                                    ui.label(f"Running terraform apply (targeted: {len(_target_addresses)} resource(s))...").classes("text-xs text-blue-500")
+                                else:
+                                    ui.label("Running terraform apply...").classes("text-xs text-blue-500")
                             
                             env = _get_terraform_env(state)
+                            apply_cmd = ["terraform", "apply", "-auto-approve", "-no-color", "-input=false"] + _target_flags
                             result = await asyncio.to_thread(
                                 subprocess.run,
-                                ["terraform", "apply", "-auto-approve", "-no-color", "-input=false"],
+                                apply_cmd,
                                 cwd=str(tf_path_for_cmd),
                                 capture_output=True,
                                 text=True,
@@ -3631,9 +3808,6 @@ This will **UNPROTECT** all {len(protection_mismatches)} mismatched resource(s):
                 tf_path = project_root / tf_dir
             # Always resolve to absolute path
             tf_path = tf_path.resolve()
-            # #region agent log H13
-            import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H13", "location": "match.py:protection_section:tf_path_resolved", "message": "tf_path resolved", "data": {"tf_path": str(tf_path), "tf_path_exists": tf_path.exists(), "tf_path_is_absolute": tf_path.is_absolute(), "fetch_output_dir": state.fetch.output_dir, "deploy_terraform_dir": state.deploy.terraform_dir}, "timestamp": __import__("time").time()}) + "\n")
-            # #endregion
             
             # Create a simple terminal output area for this section
             match_terminal_output = ui.element("div").classes("w-full")
@@ -3645,9 +3819,6 @@ This will **UNPROTECT** all {len(protection_mismatches)} mismatched resource(s):
             
             def show_output_dialog(step_name: str, title: str):
                 """Show a dialog with the stored output for a step."""
-                # #region agent log H1,H3,H4
-                import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H1,H3", "location": "match.py:show_output_dialog", "message": "show_output_dialog called", "data": {"step_name": step_name, "title": title, "tf_outputs_keys": list(tf_outputs.keys()), "tf_outputs_lengths": {k: len(v) for k, v in tf_outputs.items()}, "plan_running": plan_running["active"]}, "timestamp": __import__("time").time()}) + "\n")
-                # #endregion
                 output = tf_outputs.get(step_name, "")
                 
                 # Handle plan specially - might be running with partial output
@@ -3656,9 +3827,6 @@ This will **UNPROTECT** all {len(protection_mismatches)} mismatched resource(s):
                     return
                 
                 if not output:
-                    # #region agent log H1
-                    import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H1", "location": "match.py:show_output_dialog:no_output", "message": "No output found", "data": {"step_name": step_name, "output_empty": True}, "timestamp": __import__("time").time()}) + "\n")
-                    # #endregion
                     ui.notify(f"No {step_name} output available. Run {step_name} first.", type="warning")
                     return
                 
@@ -3668,14 +3836,8 @@ This will **UNPROTECT** all {len(protection_mismatches)} mismatched resource(s):
                     display_title = f"{title} (In Progress - Partial Output)"
                     ui.notify("Showing partial output - plan still running", type="info")
                 
-                # #region agent log H4
-                import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H4", "location": "match.py:show_output_dialog:creating_dialog", "message": "Creating dialog", "data": {"step_name": step_name, "output_len": len(output), "plan_running": plan_running["active"]}, "timestamp": __import__("time").time()}) + "\n")
-                # #endregion
                 from importer.web.utils.yaml_viewer import create_plan_viewer_dialog
                 dialog = create_plan_viewer_dialog(output, display_title)
-                # #region agent log H4,H5
-                import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H4,H5", "location": "match.py:show_output_dialog:opening_dialog", "message": "Opening dialog", "data": {"dialog_type": str(type(dialog)), "dialog_id": id(dialog)}, "timestamp": __import__("time").time()}) + "\n")
-                # #endregion
                 dialog.open()
             
             with ui.row().classes("w-full items-center gap-2"):
@@ -3747,10 +3909,6 @@ This will **UNPROTECT** all {len(protection_mismatches)} mismatched resource(s):
                     keys_to_protect = project_keys_to_protect | repo_keys_to_protect
                     keys_to_unprotect = project_keys_to_unprotect | repo_keys_to_unprotect
                     
-                    # #region agent log
-                    import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H_YAML_UPDATE", "location": "match.py:run_generate_moved_blocks:yaml_update_start", "message": "Applying protection to YAML", "data": {"yaml_file": str(yaml_file), "project_keys_to_protect": list(project_keys_to_protect), "repo_keys_to_protect": list(repo_keys_to_protect), "keys_to_protect": list(keys_to_protect), "keys_to_unprotect": list(keys_to_unprotect), "mismatches_count": len(protection_mismatches), "mismatches": [{"type": m["type"], "key": m["key"], "yaml_protected": m.get("yaml_protected"), "state_protected": m["state_protected"]} for m in protection_mismatches]}, "timestamp": __import__("time").time()}) + "\n")
-                    # #endregion
-                    
                     # NOTE: Protection is at the PROJECT level in the YAML/Terraform architecture.
                     # When protecting a repository, the parent project is automatically protected too.
                     # This cascades to the moved blocks generation which adds project moves for repo mismatches.
@@ -3783,14 +3941,7 @@ This will **UNPROTECT** all {len(protection_mismatches)} mismatched resource(s):
                             match_terminal_output.clear()
                             ui.label(f"✅ YAML updated: {len(keys_to_protect)} protected, {len(keys_to_unprotect)} unprotected").classes("text-xs text-green-600 font-semibold")
                         
-                        # #region agent log
-                        import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H_YAML_UPDATE", "location": "match.py:run_generate_moved_blocks:yaml_update_complete", "message": "YAML protection updated", "data": {"yaml_file": str(yaml_file)}, "timestamp": __import__("time").time()}) + "\n")
-                        # #endregion
-                        
                     except Exception as e:
-                        # #region agent log
-                        import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H_YAML_UPDATE", "location": "match.py:run_generate_moved_blocks:yaml_update_error", "message": "YAML update failed", "data": {"error": str(e)}, "timestamp": __import__("time").time()}) + "\n")
-                        # #endregion
                         ui.notify(f"Failed to update YAML: {e}", type="warning")
                         # Continue anyway - we'll try the regeneration
                     
@@ -3801,10 +3952,6 @@ This will **UNPROTECT** all {len(protection_mismatches)} mismatched resource(s):
                     # Step 2: Regenerate Terraform files from the updated YAML
                     # This ensures the protected resources are declared in protected_* blocks
                     try:
-                        # #region agent log
-                        import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H_REGEN", "location": "match.py:run_generate_moved_blocks:regen_start", "message": "Starting TF regeneration", "data": {"yaml_file": str(yaml_file), "tf_path": str(tf_path)}, "timestamp": __import__("time").time()}) + "\n")
-                        # #endregion
-                        
                         converter = YamlToTerraformConverter()
                         await asyncio.to_thread(
                             converter.convert,
@@ -3816,18 +3963,11 @@ This will **UNPROTECT** all {len(protection_mismatches)} mismatched resource(s):
                             match_terminal_output.clear()
                             ui.label("✅ Terraform files regenerated").classes("text-xs text-green-600 font-semibold")
                         
-                        # #region agent log
-                        import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H_REGEN", "location": "match.py:run_generate_moved_blocks:regen_complete", "message": "TF regeneration complete", "data": {"yaml_file": str(yaml_file)}, "timestamp": __import__("time").time()}) + "\n")
-                        # #endregion
-                        
                     except Exception as e:
                         with match_terminal_output:
                             match_terminal_output.clear()
                             ui.label(f"⚠️ Regen warning: {e}").classes("text-xs text-amber-600")
                         # Continue anyway - the moved blocks might still work
-                        # #region agent log
-                        import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H_REGEN", "location": "match.py:run_generate_moved_blocks:regen_error", "message": "TF regeneration failed", "data": {"error": str(e)}, "timestamp": __import__("time").time()}) + "\n")
-                        # #endregion
                     
                     # Step 2: Generate moved blocks for all mismatches
                     with match_terminal_output:
@@ -3927,9 +4067,6 @@ moved {{
                     try:
                         moves_file.write_text(content)
                         tf_outputs["generate"] = content
-                        # #region agent log H1
-                        import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H1", "location": "match.py:run_generate_moved_blocks:stored", "message": "Stored generate output", "data": {"content_len": len(content), "tf_outputs_id": id(tf_outputs), "tf_outputs_generate_len": len(tf_outputs.get("generate", ""))}, "timestamp": __import__("time").time()}) + "\n")
-                        # #endregion
                         
                         with match_terminal_output:
                             match_terminal_output.clear()
@@ -4694,18 +4831,11 @@ moved {{
                 
                 def show_view_output_menu():
                     """Show a menu to select which output to view."""
-                    # #region agent log H2
-                    import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H2", "location": "match.py:show_view_output_menu", "message": "Menu opened", "data": {"tf_outputs_id": id(tf_outputs), "tf_outputs_keys": list(tf_outputs.keys())}, "timestamp": __import__("time").time()}) + "\n")
-                    # #endregion
-                    
                     with ui.dialog() as menu_dialog, ui.card().style("width: 300px;"):
                         ui.label("View Terraform Output").classes("text-lg font-bold mb-3")
                         
                         with ui.column().classes("w-full gap-2"):
                             def view_and_close(step, title):
-                                # #region agent log H7
-                                import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H7", "location": "match.py:view_and_close", "message": "view_and_close called", "data": {"step": step, "title": title, "tf_outputs_id": id(tf_outputs), "output_len": len(tf_outputs.get(step, ""))}, "timestamp": __import__("time").time()}) + "\n")
-                                # #endregion
                                 output = tf_outputs.get(step, "")
                                 if not output:
                                     ui.notify(f"No {step} output available. Run {step} first.", type="warning")
@@ -4735,10 +4865,6 @@ moved {{
                                     viewer_stats_row.set_visibility(True)
                                 else:
                                     viewer_stats_row.set_visibility(False)
-                                
-                                # #region agent log H8
-                                import json; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(json.dumps({"hypothesisId": "H8", "location": "match.py:view_and_close:opening", "message": "Opening pre-created viewer", "data": {"step": step, "title": title, "content_len": len(output)}, "timestamp": __import__("time").time()}) + "\n")
-                                # #endregion
                                 
                                 viewer_dialog.open()
                             

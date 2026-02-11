@@ -58,6 +58,21 @@ TF_TYPE_TO_CODE = {
 # Reverse mapping for generating import blocks
 CODE_TO_TF_TYPE = {v: k for k, v in TF_TYPE_TO_CODE.items()}
 
+# Map Terraform resource types to global YAML section keys.
+# Used by get_tf_state_global_sections() to detect which global sections
+# have resources in TF state (for auto-retain safety net).
+TF_TYPE_TO_GLOBAL_SECTION: dict[str, str] = {
+    "dbtcloud_group": "groups",
+    "dbtcloud_service_token": "service_tokens",
+    "dbtcloud_notification": "notifications",
+    "dbtcloud_webhook": "webhooks",
+    "dbtcloud_privatelink_endpoint": "privatelink_endpoints",
+    "dbtcloud_privatelink_endpoints": "privatelink_endpoints",
+    "dbtcloud_global_connection": "connections",
+    "dbtcloud_global_connections": "connections",
+    "dbtcloud_repository": "repositories",
+}
+
 
 @dataclass
 class StateResource:

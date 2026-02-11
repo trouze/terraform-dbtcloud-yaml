@@ -324,7 +324,7 @@ def _create_protection_management_section(
     pending_generate = len(protection_intent.get_pending_yaml_updates())
     pending_tf = sum(
         1 for intent in protection_intent._intent.values()
-        if intent.applied_to_yaml and not intent.applied_to_tf_state
+        if intent.needs_tf_move
     )
     synced = sum(
         1 for intent in protection_intent._intent.values()
@@ -490,12 +490,15 @@ def _create_protection_management_section(
                     
                     if element_code in ("PRJ", "REP", "PREP") and resource_index:
                         is_protected = "protected_" in tf_name
-                        protection_intent.set_intent(
+                        intent = protection_intent.set_intent(
                             key=resource_index,
                             protected=is_protected,
                             source="sync_from_tf_state",
                             reason=f"Synced from TF state - was in {tf_name}",
                         )
+                        # Intent was derived FROM TF state, so TF state already matches.
+                        # Mark as applied_to_tf_state=True to avoid requiring a TF plan/apply.
+                        intent.applied_to_tf_state = True
                         count += 1
                 
                 protection_intent.save()

@@ -4,6 +4,8 @@ import json
 import pytest
 from pathlib import Path
 
+from unittest.mock import MagicMock
+
 from importer.web.utils.target_intent import (
     DISP_RETAINED,
     DISP_UPSERTED,
@@ -12,6 +14,8 @@ from importer.web.utils.target_intent import (
     DISP_ORPHAN_FLAGGED,
     get_tf_state_project_keys,
     get_tf_state_protected_project_keys,
+    get_tf_state_global_sections,
+    build_included_globals,
     compute_target_intent,
     validate_intent_coverage,
     ResourceDisposition,
@@ -1186,3 +1190,331 @@ class TestConfigPreferenceInComputeIntent:
         assert loaded is not None
         assert loaded.dispositions["proj_a"].config_preference == "target"
         assert loaded.dispositions["proj_b"].config_preference == "source"
+
+
+# ── get_tf_state_global_sections Tests ──────────────────────────
+
+
+class TestGetTFStateGlobalSections:
+    """Tests for detecting which global sections have resources in TF state."""
+
+    def test_empty_state_returns_empty(self, tmp_path: Path):
+        """Empty TF state -> no global sections detected."""
+        path = tmp_path / "terraform.tfstate"
+        with open(path, "w") as f:
+            json.dump({"version": 4, "resources": []}, f)
+        result = get_tf_state_global_sections(path)
+        assert result == {}
+
+    def test_missing_file_returns_empty(self, tmp_path: Path):
+        """Missing TF state file -> empty dict."""
+        result = get_tf_state_global_sections(tmp_path / "nonexistent.tfstate")
+        assert result == {}
+
+    def test_detects_groups(self, tmp_path: Path):
+        """TF state with dbtcloud_group resources -> groups section detected."""
+        state = {
+            "version": 4,
+            "resources": [
+                {
+                    "type": "dbtcloud_group",
+                    "name": "groups",
+                    "instances": [
+                        {"index_key": "owner"},
+                        {"index_key": "developer"},
+                        {"index_key": "analyst"},
+                    ],
+                }
+            ],
+        }
+        path = tmp_path / "terraform.tfstate"
+        with open(path, "w") as f:
+            json.dump(state, f)
+        result = get_tf_state_global_sections(path)
+        assert result == {"groups": 3}
+
+    def test_detects_service_tokens(self, tmp_path: Path):
+        """TF state with dbtcloud_service_token resources -> service_tokens detected."""
+        state = {
+            "version": 4,
+            "resources": [
+                {
+                    "type": "dbtcloud_service_token",
+                    "name": "service_tokens",
+                    "instances": [
+                        {"index_key": "deploy_token"},
+                    ],
+                }
+            ],
+        }
+        path = tmp_path / "terraform.tfstate"
+        with open(path, "w") as f:
+            json.dump(state, f)
+        result = get_tf_state_global_sections(path)
+        assert result == {"service_tokens": 1}
+
+    def test_detects_multiple_global_types(self, tmp_path: Path):
+        """TF state with multiple global types -> all detected with correct counts."""
+        state = {
+            "version": 4,
+            "resources": [
+                {
+                    "type": "dbtcloud_group",
+                    "name": "groups",
+                    "instances": [{"index_key": "owner"}, {"index_key": "dev"}],
+                },
+                {
+                    "type": "dbtcloud_service_token",
+                    "name": "tokens",
+                    "instances": [{"index_key": "t1"}],
+                },
+                {
+                    "type": "dbtcloud_notification",
+                    "name": "notifications",
+                    "instances": [{"index_key": "n1"}, {"index_key": "n2"}],
+                },
+                # Projects should not appear in global sections
+                {
+                    "type": "dbtcloud_project",
+                    "name": "projects",
+                    "instances": [{"index_key": "p1"}],
+                },
+            ],
+        }
+        path = tmp_path / "terraform.tfstate"
+        with open(path, "w") as f:
+            json.dump(state, f)
+        result = get_tf_state_global_sections(path)
+        assert result == {"groups": 2, "service_tokens": 1, "notifications": 2}
+        assert "projects" not in result
+
+    def test_ignores_connections_and_repositories(self, tmp_path: Path):
+        """Connections and repositories are always-included and excluded from safety-net results."""
+        state = {
+            "version": 4,
+            "resources": [
+                {
+                    "type": "dbtcloud_global_connection",
+                    "name": "connections",
+                    "instances": [{"index_key": "c1"}],
+                },
+                {
+                    "type": "dbtcloud_repository",
+                    "name": "repos",
+                    "instances": [{"index_key": "r1"}],
+                },
+            ],
+        }
+        path = tmp_path / "terraform.tfstate"
+        with open(path, "w") as f:
+            json.dump(state, f)
+        result = get_tf_state_global_sections(path)
+        # Connections and repositories are NOT returned (always included, not part of safety net)
+        assert result == {}
+
+
+# ── build_included_globals Tests ────────────────────────────────
+
+
+class TestBuildIncludedGlobals:
+    """Tests for building the included_globals set from state flags."""
+
+    def _make_mock_state(
+        self,
+        include_groups: bool = False,
+        include_service_tokens: bool = False,
+        terraform_dir: str = "",
+    ) -> MagicMock:
+        """Create a mock AppState with the given flags."""
+        mock_state = MagicMock()
+        mock_state.map.include_groups = include_groups
+        mock_state.map.include_service_tokens = include_service_tokens
+        mock_state.deploy.terraform_dir = terraform_dir
+        return mock_state
+
+    def test_default_includes_connections_and_repositories(self, tmp_path: Path):
+        """Default state (nothing checked) -> only connections and repositories."""
+        mock_state = self._make_mock_state(terraform_dir=str(tmp_path))
+        result = build_included_globals(mock_state)
+        assert "connections" in result
+        assert "repositories" in result
+        assert "groups" not in result
+        assert "service_tokens" not in result
+
+    def test_include_groups_flag(self, tmp_path: Path):
+        """include_groups=True -> groups added."""
+        mock_state = self._make_mock_state(include_groups=True, terraform_dir=str(tmp_path))
+        result = build_included_globals(mock_state)
+        assert "groups" in result
+        assert "connections" in result
+
+    def test_include_service_tokens_flag(self, tmp_path: Path):
+        """include_service_tokens=True -> service_tokens added."""
+        mock_state = self._make_mock_state(include_service_tokens=True, terraform_dir=str(tmp_path))
+        result = build_included_globals(mock_state)
+        assert "service_tokens" in result
+
+    def test_both_flags(self, tmp_path: Path):
+        """Both flags true -> both sections added."""
+        mock_state = self._make_mock_state(
+            include_groups=True,
+            include_service_tokens=True,
+            terraform_dir=str(tmp_path),
+        )
+        result = build_included_globals(mock_state)
+        assert result >= {"connections", "repositories", "groups", "service_tokens"}
+
+    def test_auto_retain_from_tf_state(self, tmp_path: Path):
+        """Groups in TF state but not checked -> auto-retained (safety net)."""
+        # Create a TF state with groups
+        state_data = {
+            "version": 4,
+            "resources": [
+                {
+                    "type": "dbtcloud_group",
+                    "name": "groups",
+                    "instances": [{"index_key": "owner"}, {"index_key": "dev"}],
+                },
+            ],
+        }
+        tfstate_path = tmp_path / "terraform.tfstate"
+        with open(tfstate_path, "w") as f:
+            json.dump(state_data, f)
+
+        mock_state = self._make_mock_state(
+            include_groups=False,
+            terraform_dir=str(tmp_path),
+        )
+        result = build_included_globals(mock_state)
+        # Groups should be auto-retained even though unchecked
+        assert "groups" in result
+
+    def test_auto_retain_does_not_duplicate_checked(self, tmp_path: Path):
+        """Groups checked AND in TF state -> included once, no duplication issue."""
+        state_data = {
+            "version": 4,
+            "resources": [
+                {
+                    "type": "dbtcloud_group",
+                    "name": "groups",
+                    "instances": [{"index_key": "owner"}],
+                },
+            ],
+        }
+        tfstate_path = tmp_path / "terraform.tfstate"
+        with open(tfstate_path, "w") as f:
+            json.dump(state_data, f)
+
+        mock_state = self._make_mock_state(
+            include_groups=True,
+            terraform_dir=str(tmp_path),
+        )
+        result = build_included_globals(mock_state)
+        assert "groups" in result
+        # Set operations ensure no duplication — just verify the set works
+        assert len([s for s in result if s == "groups"]) == 1
+
+    def test_no_tf_state_file(self, tmp_path: Path):
+        """No TF state file -> no auto-retain, just user selections."""
+        mock_state = self._make_mock_state(
+            include_groups=True,
+            terraform_dir=str(tmp_path / "nonexistent"),
+        )
+        result = build_included_globals(mock_state)
+        assert "groups" in result
+        assert "connections" in result
+
+
+# ── included_globals Integration Tests ──────────────────────────
+
+
+class TestIncludedGlobalsInComputeIntent:
+    """Tests that compute_target_intent correctly filters globals based on included_globals."""
+
+    @pytest.fixture
+    def source_yaml_with_globals(self, tmp_path: Path) -> str:
+        """Source YAML with projects and globals (groups, service_tokens)."""
+        import yaml
+        config = {
+            "version": 1,
+            "projects": [
+                {"key": "proj_a", "name": "Project A", "environments": []},
+            ],
+            "globals": {
+                "connections": [{"name": "snowflake_conn"}],
+                "repositories": [{"name": "main_repo"}],
+                "groups": [
+                    {"name": "Owner", "assign_by_default": False},
+                    {"name": "Developer", "assign_by_default": True},
+                ],
+                "service_tokens": [
+                    {"name": "deploy_token", "state": 1},
+                ],
+            },
+        }
+        path = tmp_path / "source_with_globals.yml"
+        with open(path, "w") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+        return str(path)
+
+    @pytest.fixture
+    def empty_tfstate(self, tmp_path: Path) -> Path:
+        path = tmp_path / "terraform.tfstate"
+        with open(path, "w") as f:
+            json.dump({"version": 4, "resources": []}, f)
+        return path
+
+    def test_default_strips_groups_and_tokens(
+        self, empty_tfstate: Path, source_yaml_with_globals: str
+    ):
+        """Default included_globals (None) strips groups and service_tokens from output."""
+        result = compute_target_intent(
+            tfstate_path=empty_tfstate,
+            source_focus_yaml=source_yaml_with_globals,
+            baseline_yaml=None,
+            target_report_items=None,
+            adopt_rows=[],
+            removal_keys=set(),
+        )
+        globals_in_output = result.output_config.get("globals", {})
+        assert "connections" in globals_in_output
+        assert "repositories" in globals_in_output
+        assert "groups" not in globals_in_output
+        assert "service_tokens" not in globals_in_output
+
+    def test_included_globals_keeps_groups(
+        self, empty_tfstate: Path, source_yaml_with_globals: str
+    ):
+        """included_globals with 'groups' -> groups preserved in output."""
+        result = compute_target_intent(
+            tfstate_path=empty_tfstate,
+            source_focus_yaml=source_yaml_with_globals,
+            baseline_yaml=None,
+            target_report_items=None,
+            adopt_rows=[],
+            removal_keys=set(),
+            included_globals={"connections", "repositories", "groups"},
+        )
+        globals_in_output = result.output_config.get("globals", {})
+        assert "groups" in globals_in_output
+        assert len(globals_in_output["groups"]) == 2
+        assert "service_tokens" not in globals_in_output
+
+    def test_included_globals_keeps_both(
+        self, empty_tfstate: Path, source_yaml_with_globals: str
+    ):
+        """included_globals with both groups and service_tokens -> both preserved."""
+        result = compute_target_intent(
+            tfstate_path=empty_tfstate,
+            source_focus_yaml=source_yaml_with_globals,
+            baseline_yaml=None,
+            target_report_items=None,
+            adopt_rows=[],
+            removal_keys=set(),
+            included_globals={"connections", "repositories", "groups", "service_tokens"},
+        )
+        globals_in_output = result.output_config.get("globals", {})
+        assert "groups" in globals_in_output
+        assert "service_tokens" in globals_in_output
+        assert len(globals_in_output["groups"]) == 2
+        assert len(globals_in_output["service_tokens"]) == 1

@@ -1,8 +1,8 @@
 # Importer Implementation Status & Tracking
 
-**Last Updated:** 2026-02-10  
-**Current Importer Version:** 0.19.0  
-**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix + Match Diagnostics Improvements + AG Grid Standardization + Dialog Width Fix + Protection Mismatch Fix + Adoption Override Data Flow Fix + Debug Logging Standards + View Output Plan Dialog Fix + Independent Protection Architecture + Comprehensive Protection Unit Tests + Repository Key Prefix Matching Fix + Extended Attributes (EXTATTR) Support + Target Intent State File + Protection as Disposition Property + Explicit Global Intent Filtering + Drift Detection + TF State Repo Identity Fixup
+**Last Updated:** 2026-02-11  
+**Current Importer Version:** 0.20.0  
+**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix + Match Diagnostics Improvements + AG Grid Standardization + Dialog Width Fix + Protection Mismatch Fix + Adoption Override Data Flow Fix + Debug Logging Standards + View Output Plan Dialog Fix + Independent Protection Architecture + Comprehensive Protection Unit Tests + Repository Key Prefix Matching Fix + Extended Attributes (EXTATTR) Support + Target Intent State File + Protection as Disposition Property + Explicit Global Intent Filtering + Drift Detection + TF State Repo Identity Fixup + Global Resources Configuration + Protection Intent Key Fix
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
 > 
@@ -420,7 +420,7 @@ Before starting end-to-end testing with a real account, verify:
 ## Version Tracking
 
 ### Importer Version
-- **Current:** 0.18.0
+- **Current:** 0.20.0
 - **File:** `importer/VERSION`
 - **Last Updated:** 2026-02-09
 
@@ -666,6 +666,13 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2026-02-11 (v0.20.0)
+- **Version:** Incremented to 0.20.0 (minor release - Global Resources Configuration + Protection Intent Key Fix + Undo Handler Fix)
+- Global Resources card on Configure page with TF state safety-net detection
+- Protection intent key normalization for sub-project resources (ENV, JOB, EXTATTR)
+- Undo/Clear pending intents now revert protected_resources state
+- Synced intents panel: protected first, unprotected below the fold
 
 ### 2026-02-10 (v0.19.0)
 - **Version:** Incremented to 0.19.0 (minor release - Explicit Global Intent Filtering + Drift Detection + TF State Repo Identity Fixup)

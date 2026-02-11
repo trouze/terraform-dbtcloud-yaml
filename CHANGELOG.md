@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-02-11
+
+### Added
+- **Global Resources Configuration**: Configure page now shows Global Resources card with toggles for groups, service tokens, notifications, webhooks, and PrivateLink endpoints
+  - Auto-detects existing TF state global sections as safety net against accidental destruction
+  - `build_included_globals()` helper constructs the set from state flags
+  - `get_tf_state_global_sections()` scans TF state for managed global resources
+- **Target Intent Summary Card**: Configure page shows target intent file status, disposition counts, and output_config preview
+- **Protection Intent `needs_tf_move` Property**: Computed property on `ProtectionIntent` to determine if a TF state move is actually required
+  - Excludes no-op intents (sync_from_tf_state, already-matching TF state)
+  - Auto-marks no-op intents as `applied_to_tf_state=True` during load cleanup
+- **`TF_TYPE_TO_GLOBAL_SECTION` Mapping**: Maps Terraform resource types to global YAML section keys for state scanning
+- **New Unit Tests**: 332 lines of target intent tests covering global section detection, included_globals construction, and safety net behavior
+
+### Changed
+- Synced intents panel in Protection Intent Status now shows protected intents first, with unprotected intents collapsed below the fold in a nested expansion
+
+### Fixed
+- **Protection Intent Key Normalization**: Sub-project resources (ENV, JOB, EXTATTR) now use TF state key (e.g., `sse_dm_fin_fido_dev`) instead of grid `source_key` (e.g., `dev`) — fixes duplicate intent entries and clarification panel false positives
+- **Undo/Clear Pending Intents**: Undo and Clear All now revert `protected_resources` state alongside removing the intent, preventing phantom "Needs Clarification" entries
+- **Project-Scoped Matching**: Cross-project resource collisions resolved with project-scoped matching
+- **Debug Instrumentation Cleanup**: Removed all leftover debug logging from match.py
+
 ## [0.19.0] - 2026-02-10
 
 ### Added

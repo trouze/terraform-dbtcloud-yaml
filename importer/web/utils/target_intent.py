@@ -348,6 +348,95 @@ class TargetIntentResult:
         )
 
 
+def get_tf_state_global_sections(tfstate_path: Path) -> dict[str, int]:
+    """Return global section keys that have resources in TF state, with counts.
+
+    Scans terraform.tfstate for resource types that map to global YAML sections
+    (groups, service_tokens, notifications, webhooks, privatelink_endpoints).
+    Connections and repositories are excluded since they are always included.
+
+    Returns:
+        dict mapping global section key -> resource instance count.
+        E.g. {"groups": 3, "service_tokens": 1}
+    """
+    from importer.web.utils.terraform_state_reader import TF_TYPE_TO_GLOBAL_SECTION
+
+    # Sections we're interested in for safety-net detection (exclude always-included)
+    _safety_net_sections = {"groups", "service_tokens", "notifications", "webhooks", "privatelink_endpoints"}
+
+    result: dict[str, int] = {}
+    if not tfstate_path.exists():
+        return result
+    try:
+        with open(tfstate_path, "r") as f:
+            state = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(f"Failed to read Terraform state for global sections: {e}")
+        return result
+
+    resources = state.get("resources", [])
+    for res in resources:
+        tf_type = res.get("type", "")
+        section = TF_TYPE_TO_GLOBAL_SECTION.get(tf_type)
+        if section and section in _safety_net_sections:
+            instance_count = len(res.get("instances", []))
+            if instance_count > 0:
+                result[section] = result.get(section, 0) + instance_count
+    return result
+
+
+def build_included_globals(state: Any) -> set[str]:
+    """Build the included_globals set from state flags.
+
+    Always includes connections and repositories (project dependencies).
+    Adds groups, service_tokens, etc. based on state.map.include_* flags.
+
+    Also auto-retains any global sections present in TF state to prevent
+    accidental resource destruction (safety net).
+
+    Args:
+        state: AppState instance with map.include_* flags and deploy.terraform_dir.
+
+    Returns:
+        Set of global section keys to include in target intent output.
+    """
+    result = {"connections", "repositories"}  # always included
+
+    # User selections from Configure page checkboxes
+    if getattr(state.map, "include_groups", False):
+        result.add("groups")
+    if getattr(state.map, "include_service_tokens", False):
+        result.add("service_tokens")
+    # notifications/privatelink/webhooks: future — not yet manageable in TF
+    # if getattr(state.map, "include_notifications", False):
+    #     result.add("notifications")
+    # if getattr(state.map, "include_webhooks", False):
+    #     result.add("webhooks")
+
+    # Safety net: auto-retain globals present in TF state
+    tf_dir = getattr(state.deploy, "terraform_dir", None) or "deployments/migration"
+    tf_path = Path(tf_dir)
+    if not tf_path.is_absolute():
+        # Resolve relative to project root (4 levels up from this file)
+        project_root = Path(__file__).parent.parent.parent.parent.resolve()
+        tf_path = project_root / tf_path
+    tfstate_path = tf_path / "terraform.tfstate"
+
+    if tfstate_path.exists():
+        tf_globals = get_tf_state_global_sections(tfstate_path)
+        for section, count in tf_globals.items():
+            if section not in result:
+                logger.warning(
+                    "Auto-retaining globals.%s (%d resource(s) in TF state) "
+                    "despite not being selected — prevents destruction",
+                    section,
+                    count,
+                )
+                result.add(section)
+
+    return result
+
+
 def get_tf_state_project_keys(tfstate_path: Path) -> set[str]:
     """Parse terraform.tfstate JSON and return all managed project keys.
 
