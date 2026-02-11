@@ -3,7 +3,6 @@
 import asyncio
 import json
 import logging
-import time
 from pathlib import Path
 from typing import Callable, Optional, TYPE_CHECKING
 
@@ -1210,19 +1209,8 @@ def _create_matching_content(
                 ui.notify(f"Parent project not found for repository link: {source_key}", type="warning")
             return
         
-        # #region agent log
-        import json as _json_dbg; import time as _time_dbg
-        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as _f:
-            _f.write(_json_dbg.dumps({"hypothesisId":"H3_H4","location":"match.py:on_view_details","message":"on_view_details called","data":{"source_key":source_key,"starts_with_state":source_key.startswith("state__")},"timestamp":_time_dbg.time()}) + "\n")
-        # #endregion
-        
         # Handle state-only resources (in TF state but not in source selection)
         if source_key.startswith("state__"):
-            # #region agent log
-            with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as _f:
-                _f.write(_json_dbg.dumps({"hypothesisId":"H3_H4","location":"match.py:on_view_details:state_only","message":"State-only resource detected","data":{"source_key":source_key},"timestamp":_time_dbg.time()}) + "\n")
-            # #endregion
-            
             # Find the grid row for this state-only resource
             grid_row = None
             for row in grid_data_ref["data"]:
@@ -2888,15 +2876,6 @@ def _create_matching_content(
                             # Combine: new items + re-analysis items
                             pending = {**pending_yaml, **pending_tf}
                             
-                            # #region agent log
-                            import json as _json_dbg; import time as _time_dbg
-                            _all_intents_summary = {}
-                            for _ik, _iv in protection_intent_manager._intent.items():
-                                _all_intents_summary[_ik] = {"protected": _iv.protected, "applied_to_yaml": _iv.applied_to_yaml, "applied_to_tf_state": _iv.applied_to_tf_state, "needs_tf_move": getattr(_iv, "needs_tf_move", None)}
-                            with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as _f:
-                                _f.write(_json_dbg.dumps({"hypothesisId": "H2_H3_all_intents", "location": "match.py:generate:step1", "message": "All intents vs pending", "data": {"total_intents": len(_all_intents_summary), "pending_yaml_keys": list(pending_yaml.keys()), "pending_tf_keys": list(pending_tf.keys()), "pending_keys": list(pending.keys()), "all_intents": _all_intents_summary}, "timestamp": _time_dbg.time()}) + "\n")
-                            # #endregion
-                            
                             if len(pending_yaml) > 0:
                                 append_output(f"   Found {len(pending_yaml)} resources with pending YAML changes", "#10B981")
                             if len(pending_tf) > 0:
@@ -2994,27 +2973,6 @@ def _create_matching_content(
                                         # Result: deploy customizations preserved + baseline-only
                                         # sub-resources (like missing env vars) are filled in.
                                         merged = merge_yaml_configs(baseline_config, deploy_config)
-                                        
-                                        # #region agent log
-                                        import json as _json_merge; import time as _time_merge
-                                        _baseline_proj_keys = [p.get("key") for p in baseline_config.get("projects", [])]
-                                        _deploy_proj_keys = list(deploy_project_keys)
-                                        _merged_proj_keys = [p.get("key") for p in merged.get("projects", [])]
-                                        _not_tf_in_baseline = "not_terraform" in _baseline_proj_keys
-                                        _not_tf_in_deploy = "not_terraform" in _deploy_proj_keys
-                                        _not_tf_in_merged = "not_terraform" in _merged_proj_keys
-                                        # Check if sse_dm_fin_fido env vars got merged
-                                        _fido_envvars_before = []
-                                        _fido_envvars_after = []
-                                        for p in deploy_config.get("projects", []):
-                                            if p.get("key") == "sse_dm_fin_fido":
-                                                _fido_envvars_before = [v.get("name") for v in p.get("environment_variables", [])]
-                                        for p in merged.get("projects", []):
-                                            if p.get("key") == "sse_dm_fin_fido":
-                                                _fido_envvars_after = [v.get("name") for v in p.get("environment_variables", [])]
-                                        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as _f:
-                                            _f.write(_json_merge.dumps({"hypothesisId":"H1_baseline_filter","location":"match.py:generate_protection:baseline_merge","message":"Baseline merge with project filter","data":{"baseline_projects_filtered":len(_baseline_proj_keys),"deploy_projects":len(_deploy_proj_keys),"merged_projects":len(_merged_proj_keys),"not_terraform_in_baseline":_not_tf_in_baseline,"not_terraform_in_deploy":_not_tf_in_deploy,"not_terraform_in_merged":_not_tf_in_merged,"fido_envvars_before":_fido_envvars_before,"fido_envvars_after":_fido_envvars_after},"timestamp":_time_merge.time()}) + "\n")
-                                        # #endregion
                                         
                                         with open(str(yaml_file), "w") as _wf:
                                             _yaml_merge.dump(merged, _wf, default_flow_style=False, sort_keys=False, allow_unicode=True)
@@ -3171,10 +3129,6 @@ def _create_matching_content(
                                     if _new_mismatch_count > 0:
                                         append_output(f"   ✓ Found {_new_mismatch_count} additional YAML-vs-state mismatches", "#60A5FA")
                                     
-                                    # #region agent log
-                                    with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as _f:
-                                        _f.write(_json_dbg.dumps({"hypothesisId": "H_detect_mismatches", "location": "match.py:generate:step4_detect", "message": "detect_protection_mismatches results", "data": {"total_mismatches": len(all_mismatches), "new_mismatches": _new_mismatch_count, "all_types": [f"{m.resource_type}:{m.resource_key}" for m in all_mismatches], "added_types": [f"{m.resource_type}:{m.resource_key}" for m in moves_data]}, "timestamp": _time_dbg.time()}) + "\n")
-                                    # #endregion
                             except Exception as _detect_err:
                                 logger.warning(f"detect_protection_mismatches failed (non-fatal): {_detect_err}")
                                 append_output(f"   ⚠️ YAML-vs-state detection skipped: {_detect_err}", "#F59E0B")
@@ -3188,12 +3142,6 @@ def _create_matching_content(
                                 moves_file = samples_dir / "protection_moves.tf"
                             
                             moved_blocks = generate_repair_moved_blocks(moves_data, module_prefix)
-                            
-                            # #region agent log
-                            _moves_summary = [{"resource_type": m.resource_type, "resource_key": m.resource_key, "yaml_protected": m.yaml_protected, "state_protected": m.state_protected, "state_address": m.state_address, "expected_address": m.expected_address} for m in moves_data]
-                            with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as _f:
-                                _f.write(_json_dbg.dumps({"hypothesisId": "H1_H3_moved_blocks", "location": "match.py:generate:step4_moves", "message": "Moved blocks generated", "data": {"num_moves": len(moves_data), "moves": _moves_summary, "has_env_qa": any(m.resource_key == "sse_dm_fin_fido_qa" for m in moves_data), "moves_file": str(moves_file)}, "timestamp": _time_dbg.time()}) + "\n")
-                            # #endregion
                             
                             if moved_blocks:
                                 # Ensure parent directory exists
@@ -3250,8 +3198,8 @@ def _create_matching_content(
                 ).props("color=green")
                 generate_btn.set_enabled(can_generate)
                 
-                # Terraform Commands Section - show when there are pending TF applies
-                if _pending_tf_count > 0:
+                # Terraform Commands Section - always visible
+                if True:
                     with ui.expansion("Terraform Commands", icon="terminal").classes("w-full mt-3").style("max-width: 100%; overflow: hidden;"):
                         with ui.column().classes("gap-3 w-full"):
                             # Get terraform directory

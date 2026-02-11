@@ -1183,21 +1183,8 @@ def _apply_tf_state_repo_values(yaml_file: str, tfstate_path: Path, terminal: An
     import json as _json_tf
     import yaml as _yaml_tf
 
-    # #region agent log
-    _debug_log_path = "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log"
-    def _dlog(msg, data=None, hyp="H1"):
-        import time as _t
-        try:
-            import json as _jl
-            with open(_debug_log_path, "a") as _f:
-                _f.write(_jl.dumps({"hypothesisId": hyp, "location": "deploy.py:_apply_tf_state_repo_values", "message": msg, "data": data or {}, "timestamp": int(_t.time() * 1000)}) + "\n")
-        except Exception:
-            pass
-    # #endregion
-
     if not tfstate_path.exists():
         terminal.info("  TF state not found — skipping repo identity fixup")
-        _dlog("TF state not found", {"path": str(tfstate_path)}, "H1")
         return 0
 
     # 1. Read TF state repos keyed by project (index_key)
@@ -1226,12 +1213,6 @@ def _apply_tf_state_repo_values(yaml_file: str, tfstate_path: Path, terminal: An
                     "protected": res.get("name") == "protected_repositories",
                 }
 
-    # #region agent log
-    _dlog("TF state repos found", {"count": len(state_repos), "keys": list(state_repos.keys())}, "H1")
-    for k, v in state_repos.items():
-        _dlog(f"TF state repo: {k}", {"remote_url": v.get("remote_url"), "git_clone_strategy": v.get("git_clone_strategy"), "github_installation_id": v.get("github_installation_id")}, "H1")
-    # #endregion
-
     if not state_repos:
         terminal.info("  No repo resources in TF state — skipping repo identity fixup")
         return 0
@@ -1253,17 +1234,9 @@ def _apply_tf_state_repo_values(yaml_file: str, tfstate_path: Path, terminal: An
         if pkey and repo_ref:
             project_to_repo_key[pkey] = repo_ref
 
-    # #region agent log
-    _dlog("Project->repo key map", {"map": project_to_repo_key}, "H2")
-    # #endregion
-
     # 4. Match TF state repos to YAML repos and overlay identity attributes
     globals_repos = config.get("globals", {}).get("repositories", [])
     repos_by_key = {r.get("key"): r for r in globals_repos}
-
-    # #region agent log
-    _dlog("YAML repos by key", {"keys": list(repos_by_key.keys())}, "H2")
-    # #endregion
 
     updated = 0
 
@@ -1274,14 +1247,7 @@ def _apply_tf_state_repo_values(yaml_file: str, tfstate_path: Path, terminal: An
             # Try project key directly as repo key
             repo = repos_by_key.get(project_key)
         if not repo:
-            # #region agent log
-            _dlog(f"No YAML repo found for project {project_key}", {"tried_keys": [repo_key, project_key]}, "H2")
-            # #endregion
             continue
-
-        # #region agent log
-        _dlog(f"Matched TF state repo to YAML", {"project_key": project_key, "repo_key": repo_key, "yaml_remote_url": repo.get("remote_url"), "state_remote_url": state_attrs.get("remote_url")}, "H3")
-        # #endregion
 
         changed = False
         for attr in ("remote_url", "git_clone_strategy", "github_installation_id"):
@@ -1290,16 +1256,10 @@ def _apply_tf_state_repo_values(yaml_file: str, tfstate_path: Path, terminal: An
                 old_val = repo.get(attr)
                 repo[attr] = state_val
                 terminal.info(f"    {repo_key}: {attr}: {old_val} -> {state_val}")
-                # #region agent log
-                _dlog(f"Updated {attr}", {"repo_key": repo_key, "old": str(old_val), "new": str(state_val)}, "H3")
-                # #endregion
                 changed = True
             elif state_val is not None and attr not in repo:
                 repo[attr] = state_val
                 terminal.info(f"    {repo_key}: {attr}: (missing) -> {state_val}")
-                # #region agent log
-                _dlog(f"Added {attr}", {"repo_key": repo_key, "new": str(state_val)}, "H3")
-                # #endregion
                 changed = True
 
         if changed:
@@ -1308,10 +1268,6 @@ def _apply_tf_state_repo_values(yaml_file: str, tfstate_path: Path, terminal: An
     if updated > 0:
         with open(yaml_path, "w") as f:
             _yaml_tf.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-
-    # #region agent log
-    _dlog("Repo fixup complete", {"updated_count": updated}, "H3")
-    # #endregion
 
     return updated
 
@@ -1582,16 +1538,6 @@ async def _run_generate(
             source_pref = sum(1 for d in target_intent.dispositions.values() if d.config_preference == "source")
             terminal.info(f"  Config preference: {target_pref} target, {source_pref} source")
 
-            # #region agent log
-            try:
-                import json as _jl5; import time as _t5
-                pref_data = {k: {"disposition": d.disposition, "config_preference": d.config_preference, "protected": d.protected} for k, d in target_intent.dispositions.items()}
-                with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as _f5:
-                    _f5.write(_jl5.dumps({"hypothesisId": "H5", "location": "deploy.py:config_preference_summary", "message": "Config preference per disposition", "data": pref_data, "timestamp": int(_t5.time() * 1000)}) + "\n")
-            except Exception:
-                pass
-            # #endregion
-
             # Apply TF state repo identity values to prevent destroy+recreate of repos
             # Repositories are identity-critical: changing remote_url or git_clone_strategy
             # forces destroy+recreate. Always prefer TF state values for repos that exist
@@ -1661,23 +1607,13 @@ async def _run_generate(
         # reconcile_adopt_rows is populated when user clicks "Generate Import Blocks" on Set Target Intent tab
         adopt_rows = getattr(state.deploy, "reconcile_adopt_rows", []) or []
         terminal.info(f"Checking adoption overrides: {len(adopt_rows)} row(s) in reconcile_adopt_rows")
-        # #region agent log
-        import json as _json_deploy
-        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
-            f.write(_json_deploy.dumps({"location": "deploy.py:adoption_check", "message": "Checking adoption sources", "data": {"reconcile_adopt_rows_len": len(adopt_rows), "has_confirmed_mappings": bool(state.map.confirmed_mappings), "confirmed_mappings_len": len(state.map.confirmed_mappings) if state.map.confirmed_mappings else 0, "has_mapping_file_path": bool(state.map.mapping_file_path)}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "HA"}) + "\n")
-        # #endregion
-        
+
         # Auto-populate adopt_rows from confirmed_mappings if empty
         # This ensures adoption overrides work even after server restart (when reconcile_adopt_rows was lost)
         if not adopt_rows and state.map.confirmed_mappings:
             terminal.info("  Auto-populating adopt_rows from confirmed_mappings...")
             # Accept "match", "adopt", or missing action (for older mappings) - all represent mapping to existing target
             confirmed_with_action = [m for m in state.map.confirmed_mappings if m.get("target_id") and m.get("action") in ("adopt", "match", None)]
-            # #region agent log
-            with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
-                sample_mappings = [{"source_key": m.get("source_key"), "action": m.get("action"), "target_id": m.get("target_id"), "resource_type": m.get("resource_type")} for m in state.map.confirmed_mappings[:5]]
-                f.write(_json_deploy.dumps({"location": "deploy.py:auto_populate", "message": "Auto-populate from confirmed_mappings", "data": {"confirmed_mappings_total": len(state.map.confirmed_mappings), "confirmed_with_action_len": len(confirmed_with_action), "sample_mappings": sample_mappings}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "HB"}) + "\n")
-            # #endregion
             if confirmed_with_action:
                 # Get protection status from state.map.protected_resources
                 protected_keys = getattr(state.map, "protected_resources", set()) or set()
@@ -1727,11 +1663,6 @@ async def _run_generate(
                 except Exception as e:
                     terminal.warning(f"  Failed to load mapping file: {e}")
         
-        # #region agent log
-        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
-            adopt_summary = [{"source_key": r.get("source_key"), "source_type": r.get("source_type"), "target_id": r.get("target_id")} for r in adopt_rows[:10]] if adopt_rows else []
-            f.write(_json_deploy.dumps({"location": "deploy.py:final_adopt_rows", "message": "Final adopt_rows before apply", "data": {"adopt_rows_len": len(adopt_rows), "adopt_rows_sample": adopt_summary}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "HC"}) + "\n")
-        # #endregion
         if adopt_rows:
             terminal.info(f"Applying {len(adopt_rows)} adoption override(s) to YAML...")
             # Debug: show what we're trying to adopt
@@ -1785,10 +1716,6 @@ async def _run_generate(
                             except ValueError:
                                 terminal.warning(f"  Target lookup ({src_type}, {tgt_id}): Invalid target_id")
                     
-                    # #region agent log
-                    with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
-                        f.write(_json_deploy.dumps({"location": "deploy.py:before_apply", "message": "About to call apply_adoption_overrides", "data": {"adoption_yaml": str(adoption_yaml), "adopt_rows_len": len(adopt_rows), "target_items_len": len(target_items)}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "HD"}) + "\n")
-                    # #endregion
                     yaml_file = await asyncio.to_thread(
                         apply_adoption_overrides,
                         str(adoption_yaml),
@@ -1869,15 +1796,6 @@ async def _run_generate(
             terminal.info(f"  TF state repo keys: {tf_state_repo_keys}")
             terminal.info(f"  Adopted repo keys: {adopted_repo_keys}")
 
-            # #region agent log
-            try:
-                import json as _jl4; import time as _t4
-                with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as _f4:
-                    _f4.write(_jl4.dumps({"hypothesisId": "H4", "location": "deploy.py:stripping", "message": "Stripping decision sets", "data": {"tf_state_repo_keys": sorted(tf_state_repo_keys), "adopted_repo_keys": sorted(adopted_repo_keys), "keep_keys": sorted(keep_keys)}, "timestamp": int(_t4.time() * 1000)}) + "\n")
-            except Exception:
-                pass
-            # #endregion
-            
             # Strip github_installation_id from repos not in the keep set
             repos_stripped = 0
             globals_repos = yaml_config.get("globals", {}).get("repositories", [])
@@ -1991,37 +1909,6 @@ async def _run_generate(
         terminal.info("Credentials will be passed via TF_VAR_* environment variables")
         terminal.info("")
         
-        # #region agent log - verify yaml_file is protection-updated
-        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
-            # Read the yaml_file to check if protection is set
-            try:
-                import yaml as _yaml_check
-                with open(yaml_file, "r") as yf:
-                    _yaml_content = _yaml_check.safe_load(yf)
-                protected_projects = [p.get("key") for p in _yaml_content.get("projects", []) if p.get("protected")]
-                f.write(_json_deploy.dumps({
-                    "location": "deploy.py:before_converter",
-                    "message": "YAML file being passed to converter",
-                    "data": {
-                        "yaml_file": yaml_file,
-                        "protected_projects_in_yaml": protected_projects,
-                        "protected_resources_in_state": list(state.map.protected_resources) if state.map.protected_resources else [],
-                    },
-                    "timestamp": __import__("time").time() * 1000,
-                    "sessionId": "debug-session",
-                    "hypothesisId": "HE",
-                }) + "\n")
-            except Exception as e:
-                f.write(_json_deploy.dumps({
-                    "location": "deploy.py:before_converter",
-                    "message": "Failed to read YAML for verification",
-                    "data": {"yaml_file": yaml_file, "error": str(e)},
-                    "timestamp": __import__("time").time() * 1000,
-                    "sessionId": "debug-session",
-                    "hypothesisId": "HE",
-                }) + "\n")
-        # #endregion
-        
         log_generate_step("converter_start", {"yaml_file": yaml_file, "output_path": str(output_path)})
         
         converter = YamlToTerraformConverter()
@@ -2044,23 +1931,6 @@ async def _run_generate(
         try:
             previous_yaml_path = state.deploy.previous_yaml_file
             current_yaml_path = str(output_path / "dbt-cloud-config.yml")
-            
-            # #region agent log - debug protection change detection
-            with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
-                f.write(_json_deploy.dumps({
-                    "location": "deploy.py:protection_detection",
-                    "message": "Protection change detection",
-                    "data": {
-                        "previous_yaml_path": previous_yaml_path,
-                        "previous_yaml_exists": bool(previous_yaml_path and Path(previous_yaml_path).exists()),
-                        "current_yaml_path": current_yaml_path,
-                        "protected_resources_in_state": list(state.map.protected_resources) if state.map.protected_resources else [],
-                    },
-                    "timestamp": __import__("time").time() * 1000,
-                    "sessionId": "debug-session",
-                    "hypothesisId": "HF",
-                }) + "\n")
-            # #endregion
             
             # FIX: Apply pending protection intents to YAML BEFORE comparing to state
             # This ensures the Deploy page respects intents just like the Match page does
@@ -2170,91 +2040,78 @@ async def _run_generate(
                 else:
                     terminal.info("  Intent matches YAML - no repairs needed")
             
+            # Collect all protection changes from both YAML-vs-YAML and YAML-vs-State
+            all_protection_changes = []
+            
             if previous_yaml_path and Path(previous_yaml_path).exists():
                 terminal.info("")
-                terminal.info("Checking for protection status changes...")
+                terminal.info("Checking for protection status changes (YAML-vs-YAML)...")
                 
                 previous_yaml = load_yaml_config(previous_yaml_path)
                 current_yaml = load_yaml_config(current_yaml_path)
                 
-                protection_changes = detect_protection_changes(current_yaml, previous_yaml)
+                yaml_changes = detect_protection_changes(current_yaml, previous_yaml)
                 
-                # #region agent log
-                with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
-                    prev_projects = [p.get("key") for p in previous_yaml.get("projects", []) if p.get("protected")]
-                    curr_projects = [p.get("key") for p in current_yaml.get("projects", []) if p.get("protected")]
-                    f.write(_json_deploy.dumps({
-                        "location": "deploy.py:protection_comparison",
-                        "message": "Comparing YAML protection",
-                        "data": {
-                            "previous_protected_projects": prev_projects,
-                            "current_protected_projects": curr_projects,
-                            "protection_changes_count": len(protection_changes),
-                        },
-                        "timestamp": __import__("time").time() * 1000,
-                        "sessionId": "debug-session",
-                        "hypothesisId": "HG",
-                    }) + "\n")
-                # #endregion
-                
-                if protection_changes:
-                    terminal.info(f"  Detected {len(protection_changes)} protection change(s)")
-                    # Use preserve_existing=False to regenerate file fresh (avoid stale moved blocks)
-                    moved_file = write_moved_blocks_file(protection_changes, str(output_path), preserve_existing=False)
-                    if moved_file:
-                        terminal.success(f"  Generated moved blocks: {moved_file.name}")
-                        terminal.info("  These will move resources between protected/unprotected blocks")
+                if yaml_changes:
+                    terminal.info(f"  Detected {len(yaml_changes)} YAML-vs-YAML protection change(s)")
+                    all_protection_changes.extend(yaml_changes)
                 else:
-                    terminal.info("  No protection changes detected")
-            else:
-                # CRITICAL FIX: When no previous YAML exists, we still need to generate moved blocks
-                # based on the Terraform state vs the YAML configuration
-                terminal.info("")
-                terminal.info("Checking protection status (state vs YAML)...")
-                
-                # Load current YAML and read Terraform state to compare
-                from importer.web.utils.protection_manager import generate_moved_blocks_from_state
-                
-                current_yaml = load_yaml_config(current_yaml_path)
-                terraform_dir = state.deploy.terraform_dir
-                
-                if terraform_dir and Path(terraform_dir).exists():
-                    # Read state file if it exists
-                    state_file = Path(terraform_dir) / "terraform.tfstate"
-                    if state_file.exists():
-                        protection_changes = generate_moved_blocks_from_state(
-                            current_yaml, 
-                            str(state_file),
-                        )
-                        
-                        # #region agent log
-                        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
-                            f.write(_json_deploy.dumps({
-                                "location": "deploy.py:state_based_detection",
-                                "message": "State-based protection detection",
-                                "data": {
-                                    "state_file": str(state_file),
-                                    "protection_changes_count": len(protection_changes) if protection_changes else 0,
-                                },
-                                "timestamp": __import__("time").time() * 1000,
-                                "sessionId": "debug-session",
-                                "hypothesisId": "HH",
-                            }) + "\n")
-                        # #endregion
-                        
-                        if protection_changes:
-                            terminal.info(f"  Detected {len(protection_changes)} protection change(s) from state")
-                            # Use preserve_existing=False to regenerate file fresh (avoid stale moved blocks)
-                            moved_file = write_moved_blocks_file(protection_changes, str(output_path), preserve_existing=False)
-                            if moved_file:
-                                terminal.success(f"  Generated moved blocks: {moved_file.name}")
-                                terminal.info("  These will move resources between protected/unprotected blocks")
+                    terminal.info("  No YAML-vs-YAML protection changes detected")
+            
+            # ALWAYS run state-based detection as a safety net
+            # This catches mismatches from match page TF applies, manual state edits, etc.
+            # (Previously this only ran when no previous YAML existed)
+            terminal.info("")
+            terminal.info("Checking protection status (YAML-vs-State)...")
+            
+            from importer.web.utils.protection_manager import generate_moved_blocks_from_state
+            
+            current_yaml = load_yaml_config(current_yaml_path)
+            terraform_dir = state.deploy.terraform_dir
+            
+            if terraform_dir and Path(terraform_dir).exists():
+                state_file = Path(terraform_dir) / "terraform.tfstate"
+                if state_file.exists():
+                    state_changes = generate_moved_blocks_from_state(
+                        current_yaml,
+                        str(state_file),
+                    )
+                    
+                    if state_changes:
+                        # De-duplicate: only add state changes not already found by YAML comparison
+                        existing_keys = {(c.resource_type, c.resource_key) for c in all_protection_changes}
+                        new_state_changes = [
+                            sc for sc in state_changes
+                            if (sc.resource_type, sc.resource_key) not in existing_keys
+                        ]
+                        if new_state_changes:
+                            terminal.info(f"  Detected {len(new_state_changes)} additional state-vs-YAML mismatch(es)")
+                            for sc in new_state_changes:
+                                terminal.info(f"    {sc.resource_type}:{sc.resource_key} → {sc.direction}")
+                            all_protection_changes.extend(new_state_changes)
                         else:
-                            terminal.info("  No protection mismatches between state and YAML")
+                            terminal.info("  State mismatches already covered by YAML changes")
                     else:
-                        terminal.info("  No Terraform state file found - skipping protection detection")
+                        terminal.info("  No protection mismatches between state and YAML")
                 else:
-                    terminal.info("  No Terraform directory configured - skipping protection detection")
+                    terminal.info("  No Terraform state file found - skipping state-based detection")
+            else:
+                terminal.info("  No Terraform directory configured - skipping state-based detection")
+            
+            # Write combined moved blocks
+            if all_protection_changes:
+                terminal.info(f"  Total: {len(all_protection_changes)} protection change(s) to generate moved blocks for")
+                moved_file = write_moved_blocks_file(all_protection_changes, str(output_path), preserve_existing=False)
+                if moved_file:
+                    terminal.success(f"  Generated moved blocks: {moved_file.name}")
+                    terminal.info("  These will move resources between protected/unprotected blocks")
+            else:
+                terminal.info("  No protection changes - clearing any stale moved blocks")
+                # Clear any stale protection_moves.tf from previous runs
+                stale_moves = Path(output_path) / "protection_moves.tf"
+                if stale_moves.exists():
+                    stale_moves.unlink()
+                    terminal.info("  Removed stale protection_moves.tf")
             
             # Store current YAML path as previous for next generation
             state.deploy.previous_yaml_file = current_yaml_path

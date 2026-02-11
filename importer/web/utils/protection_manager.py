@@ -5,9 +5,6 @@ This module provides utilities for:
 - Detecting changes in protection status between YAML versions
 - Generating Terraform moved blocks when protection status changes
 - Parsing Terraform plans to identify protected resource destruction
-
-IMPORTANT: Debug instrumentation in this module MUST NOT be removed.
-See tasks/prd-web-ui-12-debug-logging-standards.md for guidelines.
 """
 
 import json
@@ -388,11 +385,16 @@ def generate_moved_blocks_from_state(
             job_key = job.get("key", "")
             composite_key = f"{project_key}_{job_key}"
             yaml_protection[("JOB", composite_key)] = job.get("protected", False)  # Default False, not project_protected
+        
+        # Environment Variables - only protected if EXPLICITLY marked, NOT inherited from project
+        for var in project.get("environment_variables", []):
+            var_key = var.get("key", "") or var.get("name", "")
+            composite_key = f"{project_key}_{var_key}"
+            yaml_protection[("VAR", composite_key)] = var.get("protected", False)  # Default False, not project_protected
     
     # Process repositories - PREP inherits protection from REP
     # NOTE: YAML repo keys are like "dbt_ep_bt_data_ops_db" but Terraform uses "bt_data_ops_db"
     # So we need to store protection under BOTH keys for proper lookup
-    prep_mappings = []  # For debug logging
     for repo in yaml_config.get("globals", {}).get("repositories", []):
         repo_key = repo.get("key", "")
         repo_protected = repo.get("protected", False)
@@ -408,26 +410,7 @@ def generate_moved_blocks_from_state(
                 # Store REP protection under project_key as well (for Terraform state lookup)
                 yaml_protection[("REP", project_key)] = repo_protected
                 yaml_protection[("PREP", project_key)] = repo_protected
-                prep_mappings.append({"repo_key": repo_key, "project_key": project_key, "protected": repo_protected})
                 break
-    
-    # #region agent log - PREP protection mapping
-    with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as f:
-        import time as _time_pm
-        f.write(json.dumps({
-            "location": "protection_manager.py:generate_moved_blocks_from_state",
-            "message": "PREP protection mapping",
-            "data": {
-                "prep_mappings": prep_mappings,
-                "prj_protection": {k[1]: v for k, v in yaml_protection.items() if k[0] == "PRJ"},
-                "rep_protection": {k[1]: v for k, v in yaml_protection.items() if k[0] == "REP"},
-                "prep_protection": {k[1]: v for k, v in yaml_protection.items() if k[0] == "PREP"},
-            },
-            "timestamp": _time_pm.time() * 1000,
-            "sessionId": "debug-session",
-            "hypothesisId": "HI",
-        }) + "\n")
-    # #endregion
     
     # Parse Terraform state to find current resource locations
     resources = state.get("resources", [])
@@ -439,6 +422,7 @@ def generate_moved_blocks_from_state(
         "dbtcloud_job": ("JOB", "jobs", "protected_jobs"),
         "dbtcloud_repository": ("REP", "repositories", "protected_repositories"),
         "dbtcloud_project_repository": ("PREP", "project_repositories", "protected_project_repositories"),
+        "dbtcloud_environment_variable": ("VAR", "environment_variables", "protected_environment_variables"),
     }
     
     for resource in resources:

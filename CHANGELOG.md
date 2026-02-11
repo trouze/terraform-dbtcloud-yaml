@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.2] - 2026-02-11
+
+### Fixed
+- **Deploy Page State-Based Protection Detection**: Deploy page generate now ALWAYS runs `generate_moved_blocks_from_state` (YAML-vs-State comparison) as a safety net, not just when no previous YAML exists. This catches protection mismatches from match page TF applies, where resources were moved to protected blocks in state but the YAML never had `protected: true`
+- **VAR Support in `generate_moved_blocks_from_state`**: Added `dbtcloud_environment_variable` to the state-based detection `type_map` and YAML protection map, so environment variables in protected TF state blocks get proper moved blocks during deploy generate
+- **Stale `protection_moves.tf` Cleanup**: Deploy generate now removes stale `protection_moves.tf` when no protection changes are detected, preventing leftover moved blocks from causing plan errors
+
 ## [0.21.1] - 2026-02-11
 
 ### Fixed
