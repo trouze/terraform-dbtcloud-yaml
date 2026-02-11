@@ -47,3 +47,23 @@ Commits: 5 ralph commits (rename, data model, AppState fix, state alignment, tes
 
 New RALPH_TASK.md created with 37 criteria across phases 1a–1f + full E2E.
 Starting with Phase 1a (criteria 1–4): unit tests for import block generation.
+
+### 2026-02-10 (continued)
+**PRD 43.01 — Adoption Workflow — ALL 37 CRITERIA COMPLETE**
+
+Completed all remaining criteria (27–37) in this session:
+
+- **Phase 1e (27-29)**: Protection verified — checkbox, cascade dialog, persistence,
+  moved blocks generation (UT-AD-04 tests added)
+- **Phase 1f (30-33)**: Deploy integration — adoption summary panel with import/create/protected
+  counts, cleanup_adopt_imports_file() after successful apply, plan summary parsing
+- **Full E2E (34-37)**: Integration tests for source-matched, target-only, mixed, and
+  protected adoption flows
+
+Key files changed:
+- `importer/web/utils/terraform_import.py` — added cleanup_adopt_imports_file()
+- `importer/web/pages/deploy.py` — added _create_adoption_summary_panel(), _compute_adoption_counts(),
+  cleanup call after successful apply
+- `importer/web/tests/test_adoption_imports.py` — 62 tests total (was 19 → 62)
+
+All 126 tests pass across 4 test files. All 37 RALPH_TASK.md criteria marked [x].
