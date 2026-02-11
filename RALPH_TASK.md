@@ -27,9 +27,9 @@ dependency handling, protection, and deploy integration. All components must be 
 
 ### Phase 1b: Target-Only Adoption
 
-8. [ ] `build_grid_data()` produces `is_target_only: True` with default action="ignore" and empty source columns (UT-AD-20, UT-AD-21, UT-AD-22)
-9. [ ] `normalize_target_fetch()` generates valid YAML for target-only resources (UT-AD-11)
-10. [ ] `generate_adopt_imports_from_grid()` handles mixed source-matched and target-only rows (UT-AD-12)
+8. [x] `build_grid_data()` produces `is_target_only: True` with default action="ignore" and empty source columns (UT-AD-20, UT-AD-21, UT-AD-22)
+9. [x] `normalize_target_fetch()` generates valid YAML for target-only resources (UT-AD-11)
+10. [x] `generate_adopt_imports_from_grid()` handles mixed source-matched and target-only rows (UT-AD-12)
 11. [ ] Target-only rows visible in grid with "Target Only" badge and empty Source column (E2E, browser_validation: true)
 12. [ ] "Show Target-Only Resources" toggle hides/shows target-only rows; "Adopt All Target-Only" bulk action works (E2E, browser_validation: true)
 

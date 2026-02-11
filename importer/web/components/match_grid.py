@@ -1365,6 +1365,15 @@ def create_match_grid(
             "width": 200,
             "filter": "agTextColumnFilter",
             "cellStyle": {"fontFamily": "monospace", "fontSize": "12px"},
+            ":cellRenderer": """params => {
+                if (params.data && params.data.is_target_only) {
+                    return '<span style="background: #0D9488; color: white; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-family: sans-serif;">Target Only</span>';
+                }
+                if (params.data && params.data.is_state_only) {
+                    return '<span style="background: #6366F1; color: white; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-family: sans-serif;">In State</span>';
+                }
+                return params.value || '';
+            }""",
         },
         {
             "field": "source_id",
@@ -1830,6 +1839,9 @@ def create_grid_toolbar(
     on_type_filter_change: Optional[Callable[[str], None]] = None,
     on_adopt_all_matched: Optional[Callable[[], None]] = None,
     on_ignore_all_unmatched: Optional[Callable[[], None]] = None,
+    on_adopt_all_target_only: Optional[Callable[[], None]] = None,
+    on_toggle_target_only: Optional[Callable[[bool], None]] = None,
+    show_target_only: bool = True,
 ) -> None:
     """Create the toolbar above the grid with bulk actions and type filter.
     
@@ -1842,6 +1854,9 @@ def create_grid_toolbar(
         on_type_filter_change: Optional callback when type filter dropdown changes (filter value string)
         on_adopt_all_matched: Optional callback for "Adopt All Matched" bulk action
         on_ignore_all_unmatched: Optional callback for "Ignore All Unmatched" bulk action
+        on_adopt_all_target_only: Optional callback for "Adopt All Target-Only" bulk action
+        on_toggle_target_only: Optional callback when "Show Target-Only" toggle changes
+        show_target_only: Current state of the target-only visibility toggle
     """
     # Count stats
     pending = sum(1 for r in row_data if r.get("status") == "pending" and r.get("action") == "match")
@@ -1863,6 +1878,12 @@ def create_grid_toolbar(
         if not r.get("target_id") and r.get("action") not in ("skip", "ignore")
         and not r.get("is_state_only")
     )
+    # Count target-only rows
+    target_only_count = sum(1 for r in row_data if r.get("is_target_only"))
+    target_only_adoptable = sum(
+        1 for r in row_data
+        if r.get("is_target_only") and r.get("action") != "adopt"
+    )
     
     with ui.row().classes("w-full items-center justify-between mb-3 flex-wrap gap-2"):
         # Type filter dropdown (like explore grids)
@@ -1880,6 +1901,14 @@ def create_grid_toolbar(
             value="all",
             on_change=lambda e: on_type_filter_change(e.value) if on_type_filter_change else None,
         ).props("outlined dense").classes("min-w-[200px]")
+        
+        # Target-only toggle (only show if target-only rows exist)
+        if target_only_count > 0 and on_toggle_target_only is not None:
+            ui.switch(
+                f"Show Target-Only ({target_only_count})",
+                value=show_target_only,
+                on_change=lambda e: on_toggle_target_only(e.value),
+            ).props("dense color=teal").classes("text-sm")
         
         # Stats
         with ui.row().classes("items-center gap-4"):
@@ -1953,6 +1982,13 @@ def create_grid_toolbar(
                     icon="visibility_off",
                     on_click=on_ignore_all_unmatched,
                 ).props("size=sm flat text-color=grey-6").set_enabled(unmatched_pending > 0)
+            
+            if on_adopt_all_target_only is not None and target_only_count > 0:
+                ui.button(
+                    f"Adopt All Target-Only ({target_only_adoptable})",
+                    icon="input",
+                    on_click=on_adopt_all_target_only,
+                ).props("size=sm flat text-color=teal-6").set_enabled(target_only_adoptable > 0)
 
 
 def export_mappings_to_csv(row_data: list[dict]) -> str:

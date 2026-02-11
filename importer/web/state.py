@@ -489,6 +489,12 @@ class MapState:
     
     # Removal intent: resource keys flagged for removal from TF state (future UI)
     removal_keys: set = field(default_factory=set)
+    
+    # Target-only visibility: when True, target-only rows are visible in the grid
+    show_target_only: bool = True
+    
+    # Scope visibility filter: when True, only show rows related to source scope
+    show_scope_only: bool = False
 
     # Normalization state
     normalize_running: bool = False

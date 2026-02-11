@@ -430,7 +430,7 @@ def _create_matching_content(
     # Get protection intent manager for effective protection lookup
     protection_intent_manager = state.get_protection_intent_manager()
     
-    grid_row_data = build_grid_data(
+    grid_row_data_all = build_grid_data(
         source_items,
         target_items,
         state.map.confirmed_mappings,
@@ -440,6 +440,13 @@ def _create_matching_content(
         protected_resources=state.map.protected_resources,
         protection_intent_manager=protection_intent_manager,
     )
+    
+    # Apply target-only visibility filter
+    show_target_only = getattr(state.map, "show_target_only", True)
+    if not show_target_only:
+        grid_row_data = [r for r in grid_row_data_all if not r.get("is_target_only")]
+    else:
+        grid_row_data = grid_row_data_all
     
     # Stats from grid data - separate primary resources from derived resources
     # Derived resource types: JEVO (env var overrides), JCTG (job triggers), PREP (project repo links)
@@ -519,7 +526,8 @@ def _create_matching_content(
                 ui.label("Drift").classes("text-xs text-slate-500")
     
     # Store grid row data in a mutable container for callbacks
-    grid_data_ref = {"data": grid_row_data}
+    # "data" = visible rows (after filtering), "all" = all rows (before filtering)
+    grid_data_ref = {"data": grid_row_data, "all": grid_row_data_all}
     
     # Reset all mappings function
     def reset_all_mappings():
@@ -653,6 +661,55 @@ def _create_matching_content(
         save_state()
         _persist_target_intent_from_match(state)
         ui.notify(f"Set {ignored_count} unmatched resources to skip", type="info")
+        ui.navigate.reload()
+    
+    def adopt_all_target_only():
+        """Bulk adopt all target-only resources (those with is_target_only=True).
+        
+        Sets action='adopt' for all target-only rows that aren't already adopted.
+        Operates on all data (including hidden target-only rows).
+        """
+        if not hasattr(state.map, "confirmed_mappings"):
+            state.map.confirmed_mappings = []
+        
+        adopted_count = 0
+        for row in grid_data_ref.get("all", grid_data_ref["data"]):
+            if (
+                row.get("is_target_only")
+                and row.get("action") != "adopt"
+                and row.get("target_id")
+            ):
+                source_key = row.get("source_key", "")
+                # Remove existing mapping if any
+                state.map.confirmed_mappings = [
+                    m for m in state.map.confirmed_mappings
+                    if m.get("source_key") != source_key
+                ]
+                # Add adopt mapping
+                state.map.confirmed_mappings.append({
+                    "source_key": source_key,
+                    "target_id": row.get("target_id"),
+                    "target_name": row.get("target_name", ""),
+                    "match_type": "bulk_adopt_target_only",
+                    "action": "adopt",
+                    "protected": False,
+                })
+                adopted_count += 1
+        
+        save_state()
+        _persist_target_intent_from_match(state)
+        ui.notify(f"Adopted {adopted_count} target-only resources", type="positive")
+        ui.navigate.reload()
+    
+    def toggle_target_only(visible: bool):
+        """Toggle visibility of target-only rows.
+        
+        Stores the preference in MapState and reloads to filter the grid.
+        """
+        if not hasattr(state.map, "show_target_only"):
+            pass
+        state.map.show_target_only = visible
+        save_state()
         ui.navigate.reload()
                     
     async def export_csv():
@@ -1755,6 +1812,9 @@ def _create_matching_content(
         on_type_filter_change=on_type_filter_change,
         on_adopt_all_matched=adopt_all_matched,
         on_ignore_all_unmatched=ignore_all_unmatched,
+        on_adopt_all_target_only=adopt_all_target_only,
+        on_toggle_target_only=toggle_target_only,
+        show_target_only=show_target_only,
     )
     
     # Main grid in a card - flex container that grows to fill available space
