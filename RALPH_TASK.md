@@ -35,10 +35,10 @@ dependency handling, protection, and deploy integration. All components must be 
 
 ### Phase 1b-ext: Target-Only Preference
 
-13. [ ] Project-level preference loads from config and drives grid toggle default (UT-AD-14)
-14. [ ] First-run dialog triggers only when unmatched target-only resources exist (UT-AD-15)
-15. [ ] First-run dialog: "Yes, show them" / "No thanks" / "Remember this choice" all work (E2E, browser_validation: true)
-16. [ ] Configure page toggle changes project-level preference (E2E, browser_validation: true)
+13. [x] Project-level preference loads from config and drives grid toggle default (UT-AD-14)
+14. [x] First-run dialog triggers only when unmatched target-only resources exist (UT-AD-15)
+15. [x] First-run dialog: "Yes, show them" / "No thanks" / "Remember this choice" all work (E2E, browser_validation: true)
+16. [x] Configure page toggle changes project-level preference (E2E, browser_validation: true)
 
 ### Phase 1b-ext: Scope Visibility Filter
 
