@@ -1771,6 +1771,8 @@ def create_grid_toolbar(
     on_reset_all: Callable[[], None],
     on_export_csv: Callable[[], None],
     on_type_filter_change: Optional[Callable[[str], None]] = None,
+    on_adopt_all_matched: Optional[Callable[[], None]] = None,
+    on_ignore_all_unmatched: Optional[Callable[[], None]] = None,
 ) -> None:
     """Create the toolbar above the grid with bulk actions and type filter.
     
@@ -1781,14 +1783,29 @@ def create_grid_toolbar(
         on_reset_all: Callback for Reset All button
         on_export_csv: Callback for Export CSV button
         on_type_filter_change: Optional callback when type filter dropdown changes (filter value string)
+        on_adopt_all_matched: Optional callback for "Adopt All Matched" bulk action
+        on_ignore_all_unmatched: Optional callback for "Ignore All Unmatched" bulk action
     """
     # Count stats
     pending = sum(1 for r in row_data if r.get("status") == "pending" and r.get("action") == "match")
     confirmed = sum(1 for r in row_data if r.get("status") == "confirmed")
     create_new = sum(1 for r in row_data if r.get("action") == "create_new")
     skipped = sum(1 for r in row_data if r.get("action") == "skip")
+    adopted = sum(1 for r in row_data if r.get("action") == "adopt")
     unadopted = sum(1 for r in row_data if r.get("action") == "unadopt")
     clones = sum(1 for r in row_data if r.get("clone_configured"))
+    # Count rows eligible for bulk adopt (have a target match but not yet adopted)
+    adoptable_matched = sum(
+        1 for r in row_data
+        if r.get("target_id") and r.get("action") not in ("adopt", "unadopt")
+        and not r.get("is_state_only")
+    )
+    # Count rows without target match that could be ignored
+    unmatched_pending = sum(
+        1 for r in row_data
+        if not r.get("target_id") and r.get("action") not in ("skip", "ignore")
+        and not r.get("is_state_only")
+    )
     
     with ui.row().classes("w-full items-center justify-between mb-3 flex-wrap gap-2"):
         # Type filter dropdown (like explore grids)
@@ -1825,6 +1842,11 @@ def create_grid_toolbar(
                 ui.badge(str(skipped), color="grey").props("dense")
                 ui.label("Skip").classes("text-sm")
             
+            if adopted > 0:
+                with ui.row().classes("items-center gap-1"):
+                    ui.badge(str(adopted), color="teal").props("dense")
+                    ui.label("Adopted").classes("text-sm")
+            
             with ui.row().classes("items-center gap-1"):
                 ui.badge(str(unadopted), color="purple").props("dense")
                 ui.label("Unadopt").classes("text-sm")
@@ -1859,6 +1881,21 @@ def create_grid_toolbar(
                 icon="download",
                 on_click=on_export_csv,
             ).props("size=sm flat")
+            
+            # Adoption bulk actions
+            if on_adopt_all_matched is not None:
+                ui.button(
+                    f"Adopt All Matched ({adoptable_matched})",
+                    icon="link",
+                    on_click=on_adopt_all_matched,
+                ).props("size=sm flat text-color=teal-6").set_enabled(adoptable_matched > 0)
+            
+            if on_ignore_all_unmatched is not None:
+                ui.button(
+                    f"Ignore Unmatched ({unmatched_pending})",
+                    icon="visibility_off",
+                    on_click=on_ignore_all_unmatched,
+                ).props("size=sm flat text-color=grey-6").set_enabled(unmatched_pending > 0)
 
 
 def export_mappings_to_csv(row_data: list[dict]) -> str:

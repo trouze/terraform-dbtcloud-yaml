@@ -453,6 +453,7 @@ def _create_matching_content(
     create_new_derived = len(derived_rows)  # All derived resources are create_new
     create_new_total = create_new_primary + create_new_derived
     skipped = sum(1 for r in primary_rows if r.get("action") == "skip")
+    adopted = sum(1 for r in primary_rows if r.get("action") == "adopt")
     unadopted = sum(1 for r in primary_rows if r.get("action") == "unadopt")
     
     # Total rows in grid including overrides
@@ -475,6 +476,8 @@ def _create_matching_content(
                 )
         
         _create_stat_card("Skip", skipped, "text-slate-500", "block")
+        if adopted > 0:
+            _create_stat_card("Adopted", adopted, "text-teal-600", "link")
         _create_stat_card("Unadopt", unadopted, "text-purple-500", "link_off")
         
         # Selected source items with total count - shows primary resources + overrides
@@ -581,6 +584,75 @@ def _create_matching_content(
                     state.map.rejected_suggestions.add(row.get("source_key"))
         save_state()
         _persist_target_intent_from_match(state)
+        ui.navigate.reload()
+    
+    def adopt_all_matched():
+        """Bulk adopt all resources that have a target match but aren't already adopted.
+        
+        Sets action='adopt' for all rows that have a target_id and aren't already
+        adopted or unadopted. Adds confirmed mappings for each adopted row.
+        """
+        if not hasattr(state.map, "confirmed_mappings"):
+            state.map.confirmed_mappings = []
+        
+        adopted_count = 0
+        existing_keys = {m.get("source_key") for m in state.map.confirmed_mappings}
+        
+        for row in grid_data_ref["data"]:
+            target_id = row.get("target_id")
+            source_key = row.get("source_key", "")
+            if (
+                target_id
+                and row.get("action") not in ("adopt", "unadopt")
+                and not row.get("is_state_only")
+            ):
+                # Remove existing mapping if any
+                if source_key in existing_keys:
+                    state.map.confirmed_mappings = [
+                        m for m in state.map.confirmed_mappings
+                        if m.get("source_key") != source_key
+                    ]
+                
+                # Add adopt mapping
+                state.map.confirmed_mappings.append({
+                    "source_key": source_key,
+                    "target_id": target_id,
+                    "target_name": row.get("target_name", ""),
+                    "match_type": "bulk_adopt",
+                    "action": "adopt",
+                    "protected": False,
+                })
+                adopted_count += 1
+        
+        save_state()
+        _persist_target_intent_from_match(state)
+        ui.notify(f"Set {adopted_count} matched resources to adopt", type="positive")
+        ui.navigate.reload()
+    
+    def ignore_all_unmatched():
+        """Bulk ignore all resources that have no target match.
+        
+        Sets action='skip' for rows without a target_id. Uses rejected_suggestions
+        to mark them as explicitly rejected (create_new → skip).
+        """
+        ignored_count = 0
+        for row in grid_data_ref["data"]:
+            if (
+                not row.get("target_id")
+                and row.get("action") not in ("skip", "ignore", "unadopt")
+                and not row.get("is_state_only")
+            ):
+                source_key = row.get("source_key", "")
+                if isinstance(state.map.rejected_suggestions, set):
+                    state.map.rejected_suggestions.add(source_key)
+                else:
+                    state.map.rejected_suggestions = set(state.map.rejected_suggestions)
+                    state.map.rejected_suggestions.add(source_key)
+                ignored_count += 1
+        
+        save_state()
+        _persist_target_intent_from_match(state)
+        ui.notify(f"Set {ignored_count} unmatched resources to skip", type="info")
         ui.navigate.reload()
                     
     async def export_csv():
@@ -1681,6 +1753,8 @@ def _create_matching_content(
         on_reset_all=reset_all_mappings,
         on_export_csv=export_csv,
         on_type_filter_change=on_type_filter_change,
+        on_adopt_all_matched=adopt_all_matched,
+        on_ignore_all_unmatched=ignore_all_unmatched,
     )
     
     # Main grid in a card - flex container that grows to fill available space

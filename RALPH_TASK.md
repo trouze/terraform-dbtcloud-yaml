@@ -17,10 +17,10 @@ dependency handling, protection, and deploy integration. All components must be 
 
 ### Phase 1a: Core Adopt Flow (Source-Matched)
 
-1. [ ] `generate_adopt_imports_from_grid()` produces import blocks for adopt rows and skips ignore rows (UT-AD-01, UT-AD-25)
-2. [ ] `generate_adopt_imports_from_grid()` uses `protected_<type>` addresses for protected rows (UT-AD-02)
-3. [ ] `apply_adoption_overrides()` overwrites YAML with target values and preserves protection flag (UT-AD-03, UT-AD-04)
-4. [ ] Import block addresses resolve correctly for all 7 resource types: PRJ, ENV, JOB, REP, PREP, EXTATTR, VAR (UT-AD-05)
+1. [x] `generate_adopt_imports_from_grid()` produces import blocks for adopt rows and skips ignore rows (UT-AD-01, UT-AD-25)
+2. [x] `generate_adopt_imports_from_grid()` uses `protected_<type>` addresses for protected rows (UT-AD-02)
+3. [x] `apply_adoption_overrides()` overwrites YAML with target values and preserves protection flag (UT-AD-03, UT-AD-04)
+4. [x] Import block addresses resolve correctly for all 7 resource types: PRJ, ENV, JOB, REP, PREP, EXTATTR, VAR (UT-AD-05)
 5. [ ] Match grid shows "Adopt Existing" action for source-matched resources; adopt badge visible (E2E, browser_validation: true)
 6. [ ] "Adopt All Matched" and "Ignore All Unmatched" bulk actions work in grid (E2E, browser_validation: true)
 7. [ ] Adoption summary card shows correct counts: adopt matched, create, ignore (E2E, browser_validation: true)
