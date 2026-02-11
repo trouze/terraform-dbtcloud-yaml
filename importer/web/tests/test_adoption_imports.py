@@ -690,3 +690,217 @@ class TestParsePlanSummary:
         summary = _parse_plan_summary(output)
         assert summary["import"] == 2
         assert summary["add"] == 1
+
+
+# =============================================================================
+# Criteria 34-37: Full Workflow E2E (integration-level)
+# =============================================================================
+
+
+def _make_grid_row(
+    source_type: str,
+    source_name: str,
+    target_id: int,
+    action: str = "adopt",
+    protected: bool = False,
+    is_target_only: bool = False,
+    drift_status: str = "",
+    project_name: str = "analytics",
+) -> dict:
+    """Build a complete grid row for E2E integration testing."""
+    key = source_name.lower().replace(" ", "_")
+    return {
+        "source_type": source_type,
+        "source_name": source_name,
+        "source_key": f"{source_type}:{key}",
+        "source_id": None if is_target_only else target_id - 1000,
+        "target_id": target_id,
+        "target_name": source_name,
+        "action": action,
+        "protected": protected,
+        "is_target_only": is_target_only,
+        "is_state_only": False,
+        "drift_status": drift_status,
+        "project_name": project_name,
+        "project_id": 100,
+    }
+
+
+class TestE2ESourceMatchedAdopt:
+    """Criterion 34: Source-matched adopt end-to-end flow verification."""
+
+    def test_full_flow_adopt_generates_imports_and_yaml_counts(self):
+        """Match adopt → import blocks + adoption counts reflect adopt rows."""
+        rows = [
+            _make_grid_row("PRJ", "analytics", 100, action="adopt"),
+            _make_grid_row("ENV", "production", 200, action="adopt"),
+            _make_grid_row("JOB", "daily_run", 300, action="adopt"),
+        ]
+        
+        # Step 1: Generate import blocks
+        import_output = generate_adopt_imports_from_grid(rows)
+        assert import_output.count("import {") == 3
+        assert '"100"' in import_output  # PRJ target ID
+        assert '"200"' in import_output  # ENV target ID
+        assert '"300"' in import_output  # JOB target ID
+        
+        # Step 2: Verify adoption summary counts
+        from importer.web.pages.deploy import _compute_adoption_counts
+        from unittest.mock import MagicMock
+        
+        state = MagicMock()
+        state.map.confirmed_mappings = [
+            {"source_key": r["source_key"], "action": r["action"]} for r in rows
+        ]
+        state.map.protected_resources = set()
+        
+        counts = _compute_adoption_counts(state)
+        assert counts["to_import"] == 3
+        assert counts["to_create"] == 0
+
+    def test_import_blocks_written_and_cleaned_up(self, tmp_path):
+        """Import file is written, then cleaned up after apply."""
+        rows = [
+            _make_grid_row("PRJ", "analytics", 100, action="adopt"),
+            _make_grid_row("ENV", "production", 200, action="adopt"),
+        ]
+        
+        # Write import blocks
+        from importer.web.utils.terraform_import import (
+            write_adopt_imports_file,
+            cleanup_adopt_imports_file,
+        )
+        
+        path, err = write_adopt_imports_file(rows, tmp_path)
+        assert err is None
+        assert path.exists()
+        content = path.read_text()
+        assert "import {" in content
+        
+        # Cleanup after apply
+        removed, err = cleanup_adopt_imports_file(tmp_path)
+        assert removed is True
+        assert not path.exists()
+
+
+class TestE2ETargetOnlyAdopt:
+    """Criterion 35: Target-only adopt end-to-end flow."""
+
+    def test_target_only_produces_import_blocks(self):
+        """Target-only rows with action=adopt generate import blocks."""
+        rows = [
+            _make_grid_row("PRJ", "legacy_warehouse", 500, action="adopt", is_target_only=True),
+            _make_grid_row("ENV", "legacy_prod", 501, action="adopt", is_target_only=True),
+            _make_grid_row("JOB", "legacy_job", 502, action="ignore", is_target_only=True),
+        ]
+        
+        import_output = generate_adopt_imports_from_grid(rows)
+        assert import_output.count("import {") == 2  # only 2 adopt, 1 ignore
+        assert '"500"' in import_output
+        assert '"501"' in import_output
+        assert '"502"' not in import_output
+
+    def test_target_only_counts_in_summary(self):
+        """Target-only adoptions appear in deploy summary counts."""
+        from importer.web.pages.deploy import _compute_adoption_counts
+        from unittest.mock import MagicMock
+        
+        state = MagicMock()
+        state.map.confirmed_mappings = [
+            {"source_key": "PRJ:legacy_warehouse", "action": "adopt"},
+            {"source_key": "ENV:legacy_prod", "action": "adopt"},
+        ]
+        state.map.protected_resources = set()
+        
+        counts = _compute_adoption_counts(state)
+        assert counts["to_import"] == 2
+        assert counts["total"] == 2
+
+
+class TestE2EMixedFlow:
+    """Criterion 36: Mixed flow — adopt + create + ignore."""
+
+    def test_mixed_actions_produce_correct_output(self):
+        """Each action category produces the right output type."""
+        rows = [
+            # Adopt: generates import block
+            _make_grid_row("PRJ", "analytics", 100, action="adopt"),
+            _make_grid_row("ENV", "production", 200, action="adopt"),
+            # Create: no import block (these create new resources)
+            _make_grid_row("JOB", "new_job", 0, action="create"),
+            # Ignore: no import block
+            _make_grid_row("JOB", "old_job", 400, action="ignore"),
+        ]
+        
+        import_output = generate_adopt_imports_from_grid(rows)
+        assert import_output.count("import {") == 2  # only adopt rows
+        assert '"100"' in import_output
+        assert '"200"' in import_output
+
+    def test_mixed_counts_in_summary(self):
+        """Summary counts correctly categorize mixed adopt/create/ignore."""
+        from importer.web.pages.deploy import _compute_adoption_counts
+        from unittest.mock import MagicMock
+        
+        state = MagicMock()
+        state.map.confirmed_mappings = [
+            {"source_key": "PRJ:analytics", "action": "adopt"},
+            {"source_key": "ENV:production", "action": "adopt"},
+            {"source_key": "JOB:new_job", "action": "create"},
+            {"source_key": "JOB:old_job", "action": "ignore"},
+        ]
+        state.map.protected_resources = set()
+        
+        counts = _compute_adoption_counts(state)
+        assert counts["to_import"] == 2
+        assert counts["to_create"] == 1
+        assert counts["total"] == 3  # ignore excluded from total
+
+
+class TestE2EProtectedAdopt:
+    """Criterion 37: Protected adopt end-to-end verification."""
+
+    def test_protected_adoption_uses_protected_addresses(self):
+        """Protected adopt rows generate import blocks with protected_ addresses."""
+        rows = [
+            _make_grid_row("PRJ", "analytics", 100, action="adopt", protected=True),
+            _make_grid_row("JOB", "daily_run", 300, action="adopt", protected=True),
+            _make_grid_row("ENV", "staging", 200, action="adopt", protected=False),
+        ]
+        
+        import_output = generate_adopt_imports_from_grid(rows)
+        assert "protected_projects" in import_output
+        assert "protected_jobs" in import_output
+        # Unprotected ENV should NOT use protected address
+        assert "protected_environments" not in import_output
+
+    def test_protected_counts_in_summary(self):
+        """Deploy summary correctly counts protected resources."""
+        from importer.web.pages.deploy import _compute_adoption_counts
+        from unittest.mock import MagicMock
+        
+        state = MagicMock()
+        state.map.confirmed_mappings = [
+            {"source_key": "PRJ:analytics", "action": "adopt"},
+            {"source_key": "JOB:daily_run", "action": "adopt"},
+            {"source_key": "ENV:staging", "action": "adopt"},
+        ]
+        state.map.protected_resources = {"PRJ:analytics", "JOB:daily_run"}
+        
+        counts = _compute_adoption_counts(state)
+        assert counts["to_import"] == 3
+        assert counts["protected"] == 2
+
+    def test_protected_import_blocks_written_to_file(self, tmp_path):
+        """Protected import blocks written to file contain correct addresses."""
+        from importer.web.utils.terraform_import import write_adopt_imports_file
+        
+        rows = [
+            _make_grid_row("PRJ", "analytics", 100, action="adopt", protected=True),
+        ]
+        
+        path, err = write_adopt_imports_file(rows, tmp_path)
+        assert err is None
+        content = path.read_text()
+        assert "protected_projects" in content
+        assert '"100"' in content

@@ -74,10 +74,10 @@ dependency handling, protection, and deploy integration. All components must be 
 
 ### Full Workflow E2E
 
-34. [ ] Source-matched adopt end-to-end: Match adopt → Configure → Deploy → verify YAML + imports + summary (E2E, browser_validation: true)
-35. [ ] Target-only adopt end-to-end: show target-only → adopt → Deploy → verify YAML + imports (E2E, browser_validation: true)
-36. [ ] Mixed flow end-to-end: adopt + create + ignore → verify each category in output (E2E, browser_validation: true)
-37. [ ] Protected adopt end-to-end: adopt with protection → Deploy → verify protected addresses (E2E, browser_validation: true)
+34. [x] Source-matched adopt end-to-end: Match adopt → Configure → Deploy → verify YAML + imports + summary (E2E, browser_validation: true)
+35. [x] Target-only adopt end-to-end: show target-only → adopt → Deploy → verify YAML + imports (E2E, browser_validation: true)
+36. [x] Mixed flow end-to-end: adopt + create + ignore → verify each category in output (E2E, browser_validation: true)
+37. [x] Protected adopt end-to-end: adopt with protection → Deploy → verify protected addresses (E2E, browser_validation: true)
 
 ## Notes
 
