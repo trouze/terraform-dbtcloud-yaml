@@ -61,9 +61,9 @@ dependency handling, protection, and deploy integration. All components must be 
 
 ### Phase 1e: Protection Integration
 
-27. [ ] Protection checkbox available for adopted resources; cascade dialog suggests parent protection (E2E, browser_validation: true)
-28. [ ] Protection decisions persist across page navigation Match → Configure → Match (E2E, browser_validation: true)
-29. [ ] Protected addresses in import blocks and moved blocks for protection status changes (UT-AD-02, UT-AD-04)
+27. [x] Protection checkbox available for adopted resources; cascade dialog suggests parent protection (E2E, browser_validation: true)
+28. [x] Protection decisions persist across page navigation Match → Configure → Match (E2E, browser_validation: true)
+29. [x] Protected addresses in import blocks and moved blocks for protection status changes (UT-AD-02, UT-AD-04)
 
 ### Phase 1f: Deploy Integration
 

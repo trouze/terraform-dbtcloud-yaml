@@ -422,3 +422,78 @@ class TestMixedSourceAndTargetOnlyRows:
         assert result.count("import {") == 1
         assert '"303"' in result
         assert '"302"' not in result
+
+
+# =============================================================================
+# UT-AD-04: Moved blocks for protection status changes
+# =============================================================================
+
+
+class TestProtectionMovedBlocks:
+    """Criterion 29: generate_moved_blocks produces correct HCL for adoption protection."""
+
+    def test_protect_generates_moved_block(self):
+        """UT-AD-04: Protecting a resource generates a moved block from normal → protected."""
+        from importer.web.utils.protection_manager import ProtectionChange, generate_moved_blocks
+        
+        change = ProtectionChange(
+            resource_key="PRJ:analytics",
+            resource_type="PRJ",
+            name="analytics",
+            direction="protect",
+            from_address='module.dbt_cloud.dbtcloud_project.projects["analytics"]',
+            to_address='module.dbt_cloud.dbtcloud_project.protected_projects["analytics"]',
+        )
+        result = generate_moved_blocks([change])
+        assert "moved {" in result
+        assert 'from = module.dbt_cloud.dbtcloud_project.projects["analytics"]' in result
+        assert 'to   = module.dbt_cloud.dbtcloud_project.protected_projects["analytics"]' in result
+
+    def test_unprotect_generates_moved_block(self):
+        """Unprotecting a resource generates a moved block from protected → normal."""
+        from importer.web.utils.protection_manager import ProtectionChange, generate_moved_blocks
+        
+        change = ProtectionChange(
+            resource_key="ENV:production",
+            resource_type="ENV",
+            name="production",
+            direction="unprotect",
+            from_address='module.dbt_cloud.dbtcloud_environment.protected_environments["production"]',
+            to_address='module.dbt_cloud.dbtcloud_environment.environments["production"]',
+        )
+        result = generate_moved_blocks([change])
+        assert "moved {" in result
+        assert "protected_environments" in result
+        assert 'to   = module.dbt_cloud.dbtcloud_environment.environments["production"]' in result
+
+    def test_no_changes_returns_empty(self):
+        """No protection changes returns empty string."""
+        from importer.web.utils.protection_manager import generate_moved_blocks
+        
+        result = generate_moved_blocks([])
+        assert result == ""
+
+    def test_multiple_changes(self):
+        """Multiple changes produce multiple moved blocks."""
+        from importer.web.utils.protection_manager import ProtectionChange, generate_moved_blocks
+        
+        changes = [
+            ProtectionChange(
+                resource_key="PRJ:a",
+                resource_type="PRJ",
+                name="a",
+                direction="protect",
+                from_address='module.dbt_cloud.dbtcloud_project.projects["a"]',
+                to_address='module.dbt_cloud.dbtcloud_project.protected_projects["a"]',
+            ),
+            ProtectionChange(
+                resource_key="JOB:b",
+                resource_type="JOB",
+                name="b",
+                direction="protect",
+                from_address='module.dbt_cloud.dbtcloud_job.jobs["b"]',
+                to_address='module.dbt_cloud.dbtcloud_job.protected_jobs["b"]',
+            ),
+        ]
+        result = generate_moved_blocks(changes)
+        assert result.count("moved {") == 2
