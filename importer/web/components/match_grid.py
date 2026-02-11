@@ -1099,6 +1099,63 @@ def build_grid_data(
             # Mark as covered to avoid duplicates from multi-address resources
             covered_state_ids.add((res.element_code, dbt_id))
 
+    # Append target-only rows: target resources that are NOT matched to any source
+    # item and NOT already represented by a state-only row. These are resources
+    # that exist in the target account but have no corresponding source resource.
+    # They default to action="ignore" — the user explicitly opts in to adopt them.
+    if target_items:
+        # Collect target IDs already covered by existing rows (source-matched or state-only)
+        covered_target_ids: set[int] = set()
+        for row in rows:
+            tid = row.get("target_id")
+            if tid:
+                try:
+                    covered_target_ids.add(int(tid))
+                except (TypeError, ValueError):
+                    pass
+            sid = row.get("state_id")
+            if sid:
+                try:
+                    covered_target_ids.add(int(sid))
+                except (TypeError, ValueError):
+                    pass
+        
+        for item in target_items:
+            dbt_id = item.get("dbt_id")
+            if dbt_id is None:
+                continue
+            try:
+                dbt_id_int = int(dbt_id)
+            except (TypeError, ValueError):
+                continue
+            if dbt_id_int in covered_target_ids:
+                continue
+            
+            element_type = item.get("element_type_code", "UNK")
+            item_name = item.get("name", "")
+            item_key = item.get("key", "") or f"target__{element_type}_{dbt_id_int}"
+            project_name = item.get("project_name", "")
+            
+            target_only_row = {
+                "source_key": f"target__{item_key}",
+                "source_name": "",  # Empty source column for target-only
+                "source_type": element_type,
+                "source_id": None,
+                "project_name": project_name,
+                "action": "ignore",  # Default to ignore; user opts in to adopt
+                "target_id": str(dbt_id_int),
+                "target_name": item_name,
+                "status": "pending",
+                "confidence": "target_only",
+                "clone_configured": False,
+                "clone_name": "",
+                "state_id": None,
+                "drift_status": DRIFT_NOT_IN_STATE,
+                "state_address": "",
+                "is_target_only": True,
+            }
+            rows.append(target_only_row)
+
     # Post-process: Add protection status to all rows
     # We track THREE separate protection fields:
     # 1. yaml_protected: What's in the YAML config (from protected_resources set)
