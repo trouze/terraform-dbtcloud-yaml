@@ -457,6 +457,19 @@ def _create_matching_content(
     else:
         grid_row_data = grid_row_data_all
     
+    # Apply scope visibility filter: when ON, hide target-only and state-only rows
+    # This is a VISIBILITY filter only — it does not change actions or dispositions.
+    show_scope_only = getattr(state.map, "show_scope_only", False)
+    hidden_by_scope = 0
+    if show_scope_only:
+        visible_rows = []
+        for r in grid_row_data:
+            if r.get("is_target_only") or r.get("is_state_only"):
+                hidden_by_scope += 1
+            else:
+                visible_rows.append(r)
+        grid_row_data = visible_rows
+    
     # First-run dialog: show once when target-only rows are detected
     if adoption_prefs.should_show_first_run_dialog(target_only_in_all > 0):
         def _on_first_run_yes(remember: bool = False):
@@ -561,6 +574,10 @@ def _create_matching_content(
             if create_new_derived > 0:
                 ui.label(f"({len(source_items)} selected + {create_new_derived} derived)").classes(
                     "text-xs text-blue-400"
+                )
+            if show_scope_only and hidden_by_scope > 0:
+                ui.label(f"(filtered — {hidden_by_scope} rows hidden)").classes(
+                    "text-xs text-amber-500"
                 )
         
         _create_stat_card("Existing Target Items", len(target_items), f"color: {DBT_TEAL}", "download")
@@ -762,9 +779,16 @@ def _create_matching_content(
         
         Stores the preference in MapState and reloads to filter the grid.
         """
-        if not hasattr(state.map, "show_target_only"):
-            pass
         state.map.show_target_only = visible
+        save_state()
+        ui.navigate.reload()
+    
+    def toggle_scope_only(visible: bool):
+        """Toggle scope visibility filter.
+        
+        When ON, hides target-only and state-only rows (visibility only).
+        """
+        state.map.show_scope_only = visible
         save_state()
         ui.navigate.reload()
                     
@@ -1871,6 +1895,9 @@ def _create_matching_content(
         on_adopt_all_target_only=adopt_all_target_only,
         on_toggle_target_only=toggle_target_only,
         show_target_only=show_target_only,
+        on_toggle_scope_only=toggle_scope_only,
+        show_scope_only=show_scope_only,
+        hidden_by_scope=hidden_by_scope,
     )
     
     # Main grid in a card - flex container that grows to fill available space

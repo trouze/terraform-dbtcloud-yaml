@@ -1842,6 +1842,9 @@ def create_grid_toolbar(
     on_adopt_all_target_only: Optional[Callable[[], None]] = None,
     on_toggle_target_only: Optional[Callable[[bool], None]] = None,
     show_target_only: bool = True,
+    on_toggle_scope_only: Optional[Callable[[bool], None]] = None,
+    show_scope_only: bool = False,
+    hidden_by_scope: int = 0,
 ) -> None:
     """Create the toolbar above the grid with bulk actions and type filter.
     
@@ -1857,6 +1860,9 @@ def create_grid_toolbar(
         on_adopt_all_target_only: Optional callback for "Adopt All Target-Only" bulk action
         on_toggle_target_only: Optional callback when "Show Target-Only" toggle changes
         show_target_only: Current state of the target-only visibility toggle
+        on_toggle_scope_only: Optional callback when "Show Scoped Only" toggle changes
+        show_scope_only: Current state of scope visibility filter
+        hidden_by_scope: Number of rows hidden by scope filter (for display)
     """
     # Count stats
     pending = sum(1 for r in row_data if r.get("status") == "pending" and r.get("action") == "match")
@@ -1909,6 +1915,17 @@ def create_grid_toolbar(
                 value=show_target_only,
                 on_change=lambda e: on_toggle_target_only(e.value),
             ).props("dense color=teal").classes("text-sm")
+        
+        # Scope visibility filter toggle
+        if on_toggle_scope_only is not None:
+            scope_label = "Show Scoped Only"
+            if show_scope_only and hidden_by_scope > 0:
+                scope_label += f" ({hidden_by_scope} hidden)"
+            ui.switch(
+                scope_label,
+                value=show_scope_only,
+                on_change=lambda e: on_toggle_scope_only(e.value),
+            ).props("dense color=blue-grey").classes("text-sm")
         
         # Stats
         with ui.row().classes("items-center gap-4"):
