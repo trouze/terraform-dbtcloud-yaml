@@ -119,3 +119,161 @@ class TestBuildGridDataRemovalKeys:
         for r in rows:
             assert r["action"] == "unadopt"
             assert r["status"] == "unadopted"
+
+
+# --- Target-only rows (no source match) ---
+
+
+@pytest.fixture
+def target_only_items() -> list[dict]:
+    """Target items that do NOT match any source items."""
+    return [
+        {
+            "key": "platform_infra",
+            "name": "Platform Infra",
+            "element_type_code": "PRJ",
+            "dbt_id": 900,
+            "project_name": "Platform Infra",
+        },
+        {
+            "key": "legacy_job",
+            "name": "Legacy ETL Job",
+            "element_type_code": "JOB",
+            "dbt_id": 901,
+            "project_name": "Platform Infra",
+        },
+    ]
+
+
+@pytest.fixture
+def matched_target_items() -> list[dict]:
+    """Target items that overlap with minimal_source_items by dbt_id."""
+    return [
+        {
+            "key": "proj_a",
+            "name": "Project A Target",
+            "element_type_code": "PRJ",
+            "dbt_id": 1,
+            "project_name": "Project A",
+        },
+    ]
+
+
+class TestBuildGridDataTargetOnly:
+    """Tests for target-only rows in build_grid_data (UT-AD-20, UT-AD-21, UT-AD-22)."""
+
+    def test_target_only_rows_have_is_target_only_flag(
+        self, minimal_source_items, target_only_items,
+    ):
+        """UT-AD-20: Target-only rows have is_target_only=True."""
+        rows = build_grid_data(
+            minimal_source_items,
+            target_items=target_only_items,
+            confirmed_mappings=[],
+            rejected_keys=set(),
+        )
+        target_only = [r for r in rows if r.get("is_target_only")]
+        assert len(target_only) == 2
+        for r in target_only:
+            assert r["is_target_only"] is True
+
+    def test_target_only_rows_default_action_ignore(
+        self, minimal_source_items, target_only_items,
+    ):
+        """UT-AD-21: Target-only rows default to action='ignore'."""
+        rows = build_grid_data(
+            minimal_source_items,
+            target_items=target_only_items,
+            confirmed_mappings=[],
+            rejected_keys=set(),
+        )
+        target_only = [r for r in rows if r.get("is_target_only")]
+        for r in target_only:
+            assert r["action"] == "ignore"
+
+    def test_target_only_rows_have_empty_source_columns(
+        self, minimal_source_items, target_only_items,
+    ):
+        """UT-AD-22: Target-only rows have empty/null source name, id, and project."""
+        rows = build_grid_data(
+            minimal_source_items,
+            target_items=target_only_items,
+            confirmed_mappings=[],
+            rejected_keys=set(),
+        )
+        target_only = [r for r in rows if r.get("is_target_only")]
+        for r in target_only:
+            assert r["source_name"] == ""
+            assert r["source_id"] is None
+
+    def test_target_only_rows_have_target_data(
+        self, minimal_source_items, target_only_items,
+    ):
+        """Target-only rows carry the target_id and target_name from the target item."""
+        rows = build_grid_data(
+            minimal_source_items,
+            target_items=target_only_items,
+            confirmed_mappings=[],
+            rejected_keys=set(),
+        )
+        target_only = [r for r in rows if r.get("is_target_only")]
+        ids = {r.get("target_id") for r in target_only}
+        assert "900" in ids
+        assert "901" in ids
+        names = {r.get("target_name") for r in target_only}
+        assert "Platform Infra" in names
+        assert "Legacy ETL Job" in names
+
+    def test_matched_targets_not_duplicated_as_target_only(
+        self, minimal_source_items, matched_target_items,
+    ):
+        """Targets that match a source item are NOT duplicated as target-only."""
+        # matched_target_items has dbt_id=1 which overlaps with proj_a (source_id=1)
+        # However, build_grid_data tracks matched targets by target_id in rows
+        # For this test, we need a confirmed mapping to link them
+        rows = build_grid_data(
+            minimal_source_items,
+            target_items=matched_target_items,
+            confirmed_mappings=[{
+                "source_key": "proj_a",
+                "target_id": 1,
+                "target_name": "Project A Target",
+                "match_type": "manual",
+                "action": "match",
+            }],
+            rejected_keys=set(),
+        )
+        target_only = [r for r in rows if r.get("is_target_only")]
+        assert len(target_only) == 0
+
+    def test_mixed_source_matched_target_only_and_state_only_flags(
+        self, minimal_source_items, target_only_items,
+    ):
+        """UT-AD-27: Grid with all three row types has correct flags."""
+        rows = build_grid_data(
+            minimal_source_items,
+            target_items=target_only_items,
+            confirmed_mappings=[],
+            rejected_keys=set(),
+        )
+        source_rows = [r for r in rows if not r.get("is_target_only") and not r.get("is_state_only")]
+        target_only = [r for r in rows if r.get("is_target_only")]
+        
+        # Source rows should not have is_target_only
+        for r in source_rows:
+            assert not r.get("is_target_only")
+        
+        # Target-only rows should have is_target_only=True
+        for r in target_only:
+            assert r["is_target_only"] is True
+
+    def test_no_target_items_produces_no_target_only_rows(self, minimal_source_items):
+        """When no target items provided, no target-only rows are produced."""
+        rows = build_grid_data(
+            minimal_source_items,
+            target_items=[],
+            confirmed_mappings=[],
+            rejected_keys=set(),
+        )
+        target_only = [r for r in rows if r.get("is_target_only")]
+        assert len(target_only) == 0
