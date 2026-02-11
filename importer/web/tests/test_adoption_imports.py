@@ -323,6 +323,70 @@ class TestSupportsImportBlocks:
 # =============================================================================
 
 
+# =============================================================================
+# UT-AD-06/07: State cross-reference and already-managed exclusion
+# =============================================================================
+
+
+class TestAlreadyManagedExclusion:
+    """Criteria 21/23: Already-managed resources excluded from import blocks."""
+
+    def test_in_sync_rows_excluded_from_imports(self):
+        """Rows with drift_status=in_sync are action=match, not adopt → excluded."""
+        # An in-sync row has action=match, not adopt
+        in_sync_row = _make_adopt_row("PRJ", "analytics", "Analytics", 100, action="match")
+        result = generate_adopt_imports_from_grid([in_sync_row])
+        assert "import {" not in result
+
+    def test_adopt_rows_with_in_sync_drift_excluded(self):
+        """Rows with action=adopt but drift_status=in_sync are excluded (UT-AD-06)."""
+        # Edge case: user marked adopt but resource is already in sync
+        already_managed_row = _make_adopt_row("PRJ", "analytics", "Analytics", 100)
+        already_managed_row["drift_status"] = "in_sync"
+        already_managed_row["state_id"] = 100
+        already_managed_row["state_address"] = 'module.dbt_cloud.dbtcloud_project.projects["analytics"]'
+        result = generate_adopt_imports_from_grid([already_managed_row])
+        assert "import {" not in result
+
+    def test_adopt_rows_with_id_mismatch_drift_included(self):
+        """Rows with action=adopt and drift_status=id_mismatch are included (UT-AD-07)."""
+        mismatch_row = _make_adopt_row("PRJ", "analytics", "Analytics", 100)
+        mismatch_row["drift_status"] = "id_mismatch"
+        mismatch_row["state_id"] = 99  # Different from target_id
+        result = generate_adopt_imports_from_grid([mismatch_row])
+        assert "import {" in result
+        assert '"100"' in result
+
+    def test_adopt_rows_with_not_in_state_drift_included(self):
+        """Rows with drift_status=not_in_state are included (normal adopt)."""
+        normal_row = _make_adopt_row("PRJ", "analytics", "Analytics", 100)
+        normal_row["drift_status"] = "not_in_state"
+        result = generate_adopt_imports_from_grid([normal_row])
+        assert "import {" in result
+
+    def test_adopt_rows_with_no_state_drift_included(self):
+        """Rows with drift_status=no_state (no TF state loaded) are included."""
+        no_state_row = _make_adopt_row("PRJ", "analytics", "Analytics", 100)
+        no_state_row["drift_status"] = "no_state"
+        result = generate_adopt_imports_from_grid([no_state_row])
+        assert "import {" in result
+
+    def test_mixed_in_sync_and_not_in_state(self):
+        """Only non-in_sync adopt rows produce import blocks."""
+        in_sync_row = _make_adopt_row("PRJ", "analytics", "Analytics", 100)
+        in_sync_row["drift_status"] = "in_sync"
+        in_sync_row["state_id"] = 100
+        
+        not_in_state_row = _make_adopt_row("ENV", "prod", "Production", 200)
+        not_in_state_row["drift_status"] = "not_in_state"
+        
+        result = generate_adopt_imports_from_grid([in_sync_row, not_in_state_row])
+        assert "import {" in result
+        # Only the environment import block should be present
+        assert '"200"' in result
+        assert '"100"' not in result
+
+
 class TestMixedSourceAndTargetOnlyRows:
     """Criterion 10: Import blocks for mixed source-matched and target-only adopt rows."""
 
