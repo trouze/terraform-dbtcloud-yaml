@@ -21,6 +21,7 @@ from importer.web.components.backend_config import (
 )
 from importer.web.components.folder_picker import create_folder_picker_dialog
 from importer.web.utils.terraform_import import (
+    cleanup_adopt_imports_file,
     detect_terraform_version,
     supports_import_blocks,
     generate_import_commands,
@@ -90,6 +91,9 @@ def create_deploy_page(
 
         # Deployment summary
         _create_deployment_summary(state)
+
+        # Adoption summary (import / create / protected counts)
+        _create_adoption_summary_panel(state)
 
         # Output directories section (narrow row above tiles)
         _create_output_directories_section(state, deploy_state)
@@ -279,6 +283,91 @@ def _create_deployment_summary(state: AppState) -> None:
                     # Total
                     total = sum(stats.values())
                     ui.label(f"Total: {total} resources").classes("text-xs text-slate-500")
+
+
+def _compute_adoption_counts(state: AppState) -> dict:
+    """Compute adoption action counts from confirmed mappings.
+    
+    Reads ``state.map.confirmed_mappings`` (set on the Match page) and
+    tallies how many resources will be imported (adopt), created, and
+    how many of those are protected.
+    
+    Returns:
+        Dict with keys: to_import, to_create, protected, total
+    """
+    mappings = getattr(state.map, "confirmed_mappings", None) or []
+    protected_set = getattr(state.map, "protected_resources", None) or set()
+    
+    to_import = 0
+    to_create = 0
+    protected = 0
+    
+    for m in mappings:
+        action = m.get("action", "match")
+        source_key = m.get("source_key", "")
+        
+        if action == "adopt":
+            to_import += 1
+        elif action in ("match", "create"):
+            to_create += 1
+        # else: ignore, etc.
+        
+        if source_key in protected_set:
+            protected += 1
+    
+    return {
+        "to_import": to_import,
+        "to_create": to_create,
+        "protected": protected,
+        "total": to_import + to_create,
+    }
+
+
+def _create_adoption_summary_panel(state: AppState) -> None:
+    """Show adoption import / create / protected counts on the deploy page.
+    
+    Only rendered when there are confirmed mappings with an adopt or
+    create action.
+    """
+    counts = _compute_adoption_counts(state)
+    if counts["total"] == 0:
+        return
+    
+    with ui.card().classes("w-full"):
+        with ui.row().classes("items-center gap-3 mb-2"):
+            ui.icon("import_export", size="md").style(f"color: {DBT_TEAL};")
+            ui.label("Adoption Summary").classes("text-lg font-semibold")
+        
+        with ui.row().classes("w-full gap-4 flex-wrap"):
+            # To Import badge
+            if counts["to_import"] > 0:
+                with ui.row().classes(
+                    "items-center gap-2 px-3 py-2 rounded"
+                ).style("background: #EDE9FE;"):
+                    ui.icon("download", size="sm").classes("text-purple-600")
+                    ui.label(f"{counts['to_import']} to import").classes(
+                        "text-sm font-semibold text-purple-700"
+                    )
+            
+            # To Create badge
+            if counts["to_create"] > 0:
+                with ui.row().classes(
+                    "items-center gap-2 px-3 py-2 rounded"
+                ).style("background: #DCFCE7;"):
+                    ui.icon("add_circle", size="sm").classes("text-green-600")
+                    ui.label(f"{counts['to_create']} to create").classes(
+                        "text-sm font-semibold text-green-700"
+                    )
+            
+            # Protected badge
+            if counts["protected"] > 0:
+                with ui.row().classes(
+                    "items-center gap-2 px-3 py-2 rounded"
+                ).style("background: #FEF3C7;"):
+                    ui.icon("shield", size="sm").classes("text-amber-600")
+                    ui.label(f"{counts['protected']} protected").classes(
+                        "text-sm font-semibold text-amber-700"
+                    )
 
 
 def _create_output_directories_section(state: AppState, deploy_state: dict) -> None:
@@ -2906,6 +2995,14 @@ async def _run_terraform_apply(
             terminal.success("━━━ DEPLOYMENT COMPLETE ━━━")
             state.deploy.apply_complete = True
             save_state()
+            
+            # Clean up adopt import blocks after successful apply
+            # Resources are now in state; leftover import blocks would error on next plan
+            removed, err = cleanup_adopt_imports_file(tf_dir)
+            if removed:
+                terminal.info("Cleaned up adopt_imports.tf (imports are now in state)")
+            elif err:
+                terminal.warning(f"Could not clean up adopt_imports.tf: {err}")
             
             # Detect warnings in output
             has_warnings = "warning" in result.stdout.lower() or "warning" in result.stderr.lower()

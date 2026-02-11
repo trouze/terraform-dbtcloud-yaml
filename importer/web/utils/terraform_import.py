@@ -973,6 +973,34 @@ def write_adopt_imports_file(
         return None, str(e)
 
 
+def cleanup_adopt_imports_file(
+    output_dir: Union[str, Path],
+    filename: str = "adopt_imports.tf",
+) -> tuple[bool, Optional[str]]:
+    """Remove the adopt imports file after a successful apply.
+    
+    After ``terraform apply`` has processed the import blocks, the
+    ``adopt_imports.tf`` file is no longer needed — the resources are
+    now tracked in state.  Leaving it around would cause an "already
+    managed" error on the next plan.
+    
+    Args:
+        output_dir: Directory containing the file
+        filename: Name of the imports file (default ``adopt_imports.tf``)
+        
+    Returns:
+        Tuple of (removed: bool, error_message: Optional[str])
+    """
+    try:
+        file_path = Path(output_dir) / filename
+        if file_path.exists():
+            file_path.unlink()
+            return True, None
+        return False, None  # File didn't exist — nothing to clean up
+    except Exception as e:
+        return False, str(e)
+
+
 def parse_import_errors(output: str) -> dict:
     """Parse Terraform import errors for user-friendly messages.
     

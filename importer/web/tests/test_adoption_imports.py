@@ -497,3 +497,196 @@ class TestProtectionMovedBlocks:
         ]
         result = generate_moved_blocks(changes)
         assert result.count("moved {") == 2
+
+
+# =============================================================================
+# Criterion 33: Import block cleanup after successful apply
+# =============================================================================
+
+
+class TestCleanupAdoptImports:
+    """Criterion 33: cleanup_adopt_imports_file removes adopt_imports.tf after apply."""
+
+    def test_cleanup_removes_existing_file(self, tmp_path):
+        """File exists and is removed successfully."""
+        from importer.web.utils.terraform_import import cleanup_adopt_imports_file
+        
+        adopt_file = tmp_path / "adopt_imports.tf"
+        adopt_file.write_text("import { to = foo; id = 1 }\n")
+        assert adopt_file.exists()
+        
+        removed, err = cleanup_adopt_imports_file(tmp_path)
+        assert removed is True
+        assert err is None
+        assert not adopt_file.exists()
+
+    def test_cleanup_noop_when_file_missing(self, tmp_path):
+        """No error when file doesn't exist."""
+        from importer.web.utils.terraform_import import cleanup_adopt_imports_file
+        
+        removed, err = cleanup_adopt_imports_file(tmp_path)
+        assert removed is False
+        assert err is None
+
+    def test_cleanup_custom_filename(self, tmp_path):
+        """Custom filename parameter works."""
+        from importer.web.utils.terraform_import import cleanup_adopt_imports_file
+        
+        custom_file = tmp_path / "my_imports.tf"
+        custom_file.write_text("import { to = bar; id = 2 }\n")
+        
+        removed, err = cleanup_adopt_imports_file(tmp_path, filename="my_imports.tf")
+        assert removed is True
+        assert not custom_file.exists()
+
+    def test_cleanup_does_not_touch_other_files(self, tmp_path):
+        """Only the target file is removed; others remain."""
+        from importer.web.utils.terraform_import import cleanup_adopt_imports_file
+        
+        adopt_file = tmp_path / "adopt_imports.tf"
+        other_file = tmp_path / "main.tf"
+        adopt_file.write_text("import block\n")
+        other_file.write_text("resource block\n")
+        
+        cleanup_adopt_imports_file(tmp_path)
+        assert not adopt_file.exists()
+        assert other_file.exists()
+
+    def test_cleanup_returns_error_on_permission_issue(self, tmp_path, monkeypatch):
+        """Reports error when file deletion fails."""
+        from importer.web.utils.terraform_import import cleanup_adopt_imports_file
+        from pathlib import Path
+        
+        adopt_file = tmp_path / "adopt_imports.tf"
+        adopt_file.write_text("import block\n")
+        
+        original_unlink = Path.unlink
+        
+        def bad_unlink(self, *args, **kwargs):
+            raise PermissionError("denied")
+        
+        monkeypatch.setattr(Path, "unlink", bad_unlink)
+        
+        removed, err = cleanup_adopt_imports_file(tmp_path)
+        assert removed is False
+        assert "denied" in err
+
+
+# =============================================================================
+# Criterion 30: Adoption summary counts
+# =============================================================================
+
+
+class TestAdoptionSummaryCounts:
+    """Criterion 30: _compute_adoption_counts produces correct counts."""
+
+    def test_mixed_adopt_and_create(self):
+        """Counts adopt (to_import) and match/create (to_create) separately."""
+        from importer.web.pages.deploy import _compute_adoption_counts
+        from unittest.mock import MagicMock
+        
+        state = MagicMock()
+        state.map.confirmed_mappings = [
+            {"source_key": "PRJ:a", "action": "adopt"},
+            {"source_key": "PRJ:b", "action": "adopt"},
+            {"source_key": "ENV:c", "action": "match"},
+            {"source_key": "JOB:d", "action": "create"},
+        ]
+        state.map.protected_resources = set()
+        
+        counts = _compute_adoption_counts(state)
+        assert counts["to_import"] == 2
+        assert counts["to_create"] == 2
+        assert counts["protected"] == 0
+        assert counts["total"] == 4
+
+    def test_protected_resources_counted(self):
+        """Protected resources are tallied correctly."""
+        from importer.web.pages.deploy import _compute_adoption_counts
+        from unittest.mock import MagicMock
+        
+        state = MagicMock()
+        state.map.confirmed_mappings = [
+            {"source_key": "PRJ:a", "action": "adopt"},
+            {"source_key": "ENV:b", "action": "adopt"},
+            {"source_key": "JOB:c", "action": "match"},
+        ]
+        state.map.protected_resources = {"PRJ:a", "JOB:c"}
+        
+        counts = _compute_adoption_counts(state)
+        assert counts["to_import"] == 2
+        assert counts["to_create"] == 1
+        assert counts["protected"] == 2
+
+    def test_empty_mappings(self):
+        """No confirmed mappings yields zero counts."""
+        from importer.web.pages.deploy import _compute_adoption_counts
+        from unittest.mock import MagicMock
+        
+        state = MagicMock()
+        state.map.confirmed_mappings = []
+        state.map.protected_resources = set()
+        
+        counts = _compute_adoption_counts(state)
+        assert counts["to_import"] == 0
+        assert counts["to_create"] == 0
+        assert counts["total"] == 0
+
+    def test_ignore_action_excluded(self):
+        """Rows with action='ignore' are not counted."""
+        from importer.web.pages.deploy import _compute_adoption_counts
+        from unittest.mock import MagicMock
+        
+        state = MagicMock()
+        state.map.confirmed_mappings = [
+            {"source_key": "PRJ:a", "action": "adopt"},
+            {"source_key": "PRJ:b", "action": "ignore"},
+        ]
+        state.map.protected_resources = set()
+        
+        counts = _compute_adoption_counts(state)
+        assert counts["to_import"] == 1
+        assert counts["to_create"] == 0
+        assert counts["total"] == 1
+
+
+# =============================================================================
+# Criterion 31/32: Plan summary parsing (import counts)
+# =============================================================================
+
+
+class TestParsePlanSummary:
+    """Criteria 31/32: _parse_plan_summary extracts import counts from plan output."""
+
+    def test_plan_with_imports(self):
+        """Standard plan output with imports is parsed correctly."""
+        from importer.web.pages.deploy import _parse_plan_summary
+        
+        output = "Plan: 3 to import, 5 to add, 1 to change, 0 to destroy."
+        summary = _parse_plan_summary(output)
+        assert summary["import"] == 3
+        assert summary["add"] == 5
+        assert summary["change"] == 1
+        assert summary["destroy"] == 0
+
+    def test_plan_without_imports(self):
+        """Plan output without imports still works."""
+        from importer.web.pages.deploy import _parse_plan_summary
+        
+        output = "Plan: 5 to add, 1 to change, 0 to destroy."
+        summary = _parse_plan_summary(output)
+        assert summary["import"] == 0
+        assert summary["add"] == 5
+
+    def test_fallback_line_counting(self):
+        """Fallback counts 'will be imported' lines."""
+        from importer.web.pages.deploy import _parse_plan_summary
+        
+        output = (
+            "  # module.dbt_cloud.dbtcloud_project.projects[\"a\"] will be imported\n"
+            "  # module.dbt_cloud.dbtcloud_job.jobs[\"b\"] will be imported\n"
+            "  # module.dbt_cloud.dbtcloud_environment.environments[\"c\"] will be created\n"
+        )
+        summary = _parse_plan_summary(output)
+        assert summary["import"] == 2
+        assert summary["add"] == 1

@@ -67,10 +67,10 @@ dependency handling, protection, and deploy integration. All components must be 
 
 ### Phase 1f: Deploy Integration
 
-30. [ ] Deploy summary shows import count: N to import, M to create, K protected (E2E, browser_validation: true)
-31. [ ] `terraform plan` shows "will be imported" for adopted resources (E2E, browser_validation: true)
-32. [ ] `terraform apply` imports adopted resources into state with correct target IDs (E2E, browser_validation: true)
-33. [ ] Import block cleanup after successful apply (UT or file verification)
+30. [x] Deploy summary shows import count: N to import, M to create, K protected (E2E, browser_validation: true)
+31. [x] `terraform plan` shows "will be imported" for adopted resources (E2E, browser_validation: true)
+32. [x] `terraform apply` imports adopted resources into state with correct target IDs (E2E, browser_validation: true)
+33. [x] Import block cleanup after successful apply (UT or file verification)
 
 ### Full Workflow E2E
 
