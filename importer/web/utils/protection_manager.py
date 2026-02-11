@@ -1191,6 +1191,44 @@ def detect_protection_mismatches(
                     "module": module,
                 }
     
+    # Build per-resource protection map from YAML (environments, jobs, env vars)
+    # These use individual protected flags, not the project-level flag
+    sub_resource_protection = {}  # (type_code, tf_key) -> yaml_protected
+    
+    for project in yaml_config.get("projects", []):
+        project_key = project.get("key", "")
+        if not project_key:
+            continue
+        
+        # Environments: TF key = "{project_key}_{env_key}"
+        for env in project.get("environments", []):
+            env_key = env.get("key", "")
+            if env_key:
+                tf_key = f"{project_key}_{env_key}"
+                sub_resource_protection[("ENV", tf_key)] = env.get("protected", False)
+        
+        # Jobs at project level: TF key = "{project_key}_{job_key}"
+        for job in project.get("jobs", []):
+            job_key = job.get("key", "")
+            if job_key:
+                tf_key = f"{project_key}_{job_key}"
+                sub_resource_protection[("JOB", tf_key)] = job.get("protected", False)
+        
+        # Jobs within environments (legacy structure)
+        for env in project.get("environments", []):
+            for job in env.get("jobs", []):
+                job_key = job.get("key", "")
+                if job_key:
+                    tf_key = f"{project_key}_{job_key}"
+                    sub_resource_protection[("JOB", tf_key)] = job.get("protected", False)
+        
+        # Environment variables: TF key = "{project_key}_{var_name}"
+        for var in project.get("environment_variables", []):
+            var_name = var.get("name", "")
+            if var_name:
+                tf_key = f"{project_key}_{var_name}"
+                sub_resource_protection[("VAR", tf_key)] = var.get("protected", False)
+    
     # Compare YAML protection with state for each project
     for project_key, yaml_protected in yaml_protection.items():
         # Check PROJECT protection status - completely independent
@@ -1253,6 +1291,24 @@ def detect_protection_mismatches(
                     yaml_protected=yaml_protected,
                     state_protected=prep_state_info["protected"],
                     state_address=prep_state_info["address"],
+                    expected_address=expected_address,
+                ))
+    
+    # Compare sub-resource protection (ENV, JOB, VAR) with TF state
+    for (type_code, tf_key), yaml_sub_protected in sub_resource_protection.items():
+        state_info = state_resources.get((type_code, tf_key))
+        if state_info and state_info["protected"] != yaml_sub_protected:
+            if type_code in EXTENDED_RESOURCE_TYPE_MAP:
+                tf_type, unprotected_name, protected_name = EXTENDED_RESOURCE_TYPE_MAP[type_code]
+                resource_name = protected_name if yaml_sub_protected else unprotected_name
+                expected_address = f'{module_prefix}.{tf_type}.{resource_name}["{tf_key}"]'
+                
+                mismatches.append(ProtectionMismatch(
+                    resource_key=tf_key,
+                    resource_type=type_code,
+                    yaml_protected=yaml_sub_protected,
+                    state_protected=state_info["protected"],
+                    state_address=state_info["address"],
                     expected_address=expected_address,
                 ))
     

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-02-11
+
+### Fixed
+- **Terraform Plan Targeting for Moved Blocks**: Plan command now parses `protection_moves.tf` to include all moved block source/destination addresses in `-target` flags, fixing "Moved resource instances excluded by targeting" errors when ENV/JOB mismatches are detected by `detect_protection_mismatches` but not in the intent manager
+- **YAML-vs-State Mismatch Detection for Sub-Resources**: `detect_protection_mismatches` now covers ENV, JOB, VAR, and EXTATTR resources (previously only PRJ, REP, PREP), catching "orphaned" protection flags from prior sessions where intent state was lost
+
 ## [0.21.0] - 2026-02-11
 
 ### Added

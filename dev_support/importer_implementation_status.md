@@ -1,8 +1,8 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2026-02-11  
-**Current Importer Version:** 0.21.0  
-**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix + Match Diagnostics Improvements + AG Grid Standardization + Dialog Width Fix + Protection Mismatch Fix + Adoption Override Data Flow Fix + Debug Logging Standards + View Output Plan Dialog Fix + Independent Protection Architecture + Comprehensive Protection Unit Tests + Repository Key Prefix Matching Fix + Extended Attributes (EXTATTR) Support + Target Intent State File + Protection as Disposition Property + Explicit Global Intent Filtering + Drift Detection + TF State Repo Identity Fixup + Global Resources Configuration + Protection Intent Key Fix + EnvVar Protection + State-Only Resource Fixes + TF Plan Stability
+**Current Importer Version:** 0.21.1  
+**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix + Match Diagnostics Improvements + AG Grid Standardization + Dialog Width Fix + Protection Mismatch Fix + Adoption Override Data Flow Fix + Debug Logging Standards + View Output Plan Dialog Fix + Independent Protection Architecture + Comprehensive Protection Unit Tests + Repository Key Prefix Matching Fix + Extended Attributes (EXTATTR) Support + Target Intent State File + Protection as Disposition Property + Explicit Global Intent Filtering + Drift Detection + TF State Repo Identity Fixup + Global Resources Configuration + Protection Intent Key Fix + EnvVar Protection + State-Only Resource Fixes + TF Plan Stability + Plan Targeting Fix
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
 > 
@@ -666,6 +666,11 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2026-02-11 (v0.21.1)
+- **Version:** Incremented to 0.21.1 (patch - Plan Targeting Fix + Sub-Resource Mismatch Detection)
+- Terraform plan `-target` flags now include all moved block addresses from `protection_moves.tf`, fixing "Moved resource instances excluded by targeting" errors
+- `detect_protection_mismatches` extended to cover ENV, JOB, VAR, and EXTATTR resources, catching orphaned YAML protection flags from prior sessions
 
 ### 2026-02-11 (v0.21.0)
 - **Version:** Incremented to 0.21.0 (minor release - EnvVar Protection + State-Only Resource Fixes + TF Plan Stability)

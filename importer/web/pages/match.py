@@ -2888,6 +2888,15 @@ def _create_matching_content(
                             # Combine: new items + re-analysis items
                             pending = {**pending_yaml, **pending_tf}
                             
+                            # #region agent log
+                            import json as _json_dbg; import time as _time_dbg
+                            _all_intents_summary = {}
+                            for _ik, _iv in protection_intent_manager._intent.items():
+                                _all_intents_summary[_ik] = {"protected": _iv.protected, "applied_to_yaml": _iv.applied_to_yaml, "applied_to_tf_state": _iv.applied_to_tf_state, "needs_tf_move": getattr(_iv, "needs_tf_move", None)}
+                            with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as _f:
+                                _f.write(_json_dbg.dumps({"hypothesisId": "H2_H3_all_intents", "location": "match.py:generate:step1", "message": "All intents vs pending", "data": {"total_intents": len(_all_intents_summary), "pending_yaml_keys": list(pending_yaml.keys()), "pending_tf_keys": list(pending_tf.keys()), "pending_keys": list(pending.keys()), "all_intents": _all_intents_summary}, "timestamp": _time_dbg.time()}) + "\n")
+                            # #endregion
+                            
                             if len(pending_yaml) > 0:
                                 append_output(f"   Found {len(pending_yaml)} resources with pending YAML changes", "#10B981")
                             if len(pending_tf) > 0:
@@ -3066,7 +3075,7 @@ def _create_matching_content(
                             # Step 4: Generate protection_moves.tf
                             append_output("\n🔄 Generating protection_moves.tf...")
                             
-                            from importer.web.utils.protection_manager import generate_repair_moved_blocks, ProtectionMismatch, RESOURCE_TYPE_MAP
+                            from importer.web.utils.protection_manager import generate_repair_moved_blocks, ProtectionMismatch, RESOURCE_TYPE_MAP, detect_protection_mismatches
                             
                             # Build ProtectionMismatch objects from pending intents
                             moves_data = []
@@ -3134,6 +3143,42 @@ def _create_matching_content(
                                     add_mismatch("REP", resource_key, yaml_protected)
                                     add_mismatch("PREP", resource_key, yaml_protected)
                             
+                            # Also detect "orphaned" YAML-vs-TF-state mismatches
+                            # (e.g. ENV/JOB/VAR resources marked protected in YAML from a
+                            # prior session whose moved blocks were never applied)
+                            try:
+                                import json as _json_state; import yaml as _yaml_state
+                                tf_state_file = tf_path / "terraform.tfstate"
+                                if tf_state_file.exists() and yaml_file.exists():
+                                    with open(str(tf_state_file), "r") as _sf:
+                                        _tf_state_raw = _json_state.load(_sf)
+                                    with open(str(yaml_file), "r") as _yf:
+                                        _yaml_config = _yaml_state.safe_load(_yf) or {}
+                                    
+                                    all_mismatches = detect_protection_mismatches(
+                                        _yaml_config, _tf_state_raw, module_prefix
+                                    )
+                                    
+                                    # Merge mismatches not already covered by pending intents
+                                    _new_mismatch_count = 0
+                                    for mm in all_mismatches:
+                                        combo_key = f"{mm.resource_type}:{mm.resource_key}"
+                                        if combo_key not in added_keys:
+                                            added_keys.add(combo_key)
+                                            moves_data.append(mm)
+                                            _new_mismatch_count += 1
+                                    
+                                    if _new_mismatch_count > 0:
+                                        append_output(f"   ✓ Found {_new_mismatch_count} additional YAML-vs-state mismatches", "#60A5FA")
+                                    
+                                    # #region agent log
+                                    with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as _f:
+                                        _f.write(_json_dbg.dumps({"hypothesisId": "H_detect_mismatches", "location": "match.py:generate:step4_detect", "message": "detect_protection_mismatches results", "data": {"total_mismatches": len(all_mismatches), "new_mismatches": _new_mismatch_count, "all_types": [f"{m.resource_type}:{m.resource_key}" for m in all_mismatches], "added_types": [f"{m.resource_type}:{m.resource_key}" for m in moves_data]}, "timestamp": _time_dbg.time()}) + "\n")
+                                    # #endregion
+                            except Exception as _detect_err:
+                                logger.warning(f"detect_protection_mismatches failed (non-fatal): {_detect_err}")
+                                append_output(f"   ⚠️ YAML-vs-state detection skipped: {_detect_err}", "#F59E0B")
+                            
                             # Determine output path for moved blocks - prefer tf_path, fallback to dev_support/samples
                             if tf_path.exists():
                                 moves_file = tf_path / "protection_moves.tf"
@@ -3143,6 +3188,12 @@ def _create_matching_content(
                                 moves_file = samples_dir / "protection_moves.tf"
                             
                             moved_blocks = generate_repair_moved_blocks(moves_data, module_prefix)
+                            
+                            # #region agent log
+                            _moves_summary = [{"resource_type": m.resource_type, "resource_key": m.resource_key, "yaml_protected": m.yaml_protected, "state_protected": m.state_protected, "state_address": m.state_address, "expected_address": m.expected_address} for m in moves_data]
+                            with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as _f:
+                                _f.write(_json_dbg.dumps({"hypothesisId": "H1_H3_moved_blocks", "location": "match.py:generate:step4_moves", "message": "Moved blocks generated", "data": {"num_moves": len(moves_data), "moves": _moves_summary, "has_env_qa": any(m.resource_key == "sse_dm_fin_fido_qa" for m in moves_data), "moves_file": str(moves_file)}, "timestamp": _time_dbg.time()}) + "\n")
+                            # #endregion
                             
                             if moved_blocks:
                                 # Ensure parent directory exists
@@ -3244,6 +3295,19 @@ def _create_matching_content(
                                         _target_addresses.append(get_resource_address(_rtype, _rkey, protected=not _intent.protected))
                                     except (ValueError, KeyError):
                                         pass  # Skip unknown resource types
+                            
+                            # Also include targets from protection_moves.tf
+                            # (catches YAML-vs-state mismatches not in the intent manager)
+                            _moves_tf = tf_path_for_cmd / "protection_moves.tf"
+                            if _moves_tf.exists():
+                                import re as _re_moves
+                                _moves_content = _moves_tf.read_text()
+                                # HCL moved blocks use bare references (not quoted):
+                                #   from = module.dbt_cloud.module.projects_v2[0].dbtcloud_environment.environments["key"]
+                                for _match in _re_moves.finditer(r'(?:from|to)\s*=\s*(module\.\S+)', _moves_content):
+                                    _addr_from_tf = _match.group(1)
+                                    if _addr_from_tf not in _target_addresses:
+                                        _target_addresses.append(_addr_from_tf)
                             
                             _target_flags: list[str] = []
                             for _addr in _target_addresses:
