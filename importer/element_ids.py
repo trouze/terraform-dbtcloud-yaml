@@ -125,13 +125,19 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
         # Environment variables
         for var in project.get("environment_variables", []):
             variant = "secret" if str(var.get("name", "")).startswith("DBT_ENV_SECRET") else "regular"
+            # Use project-scoped identifier so that same-named vars in different
+            # projects get distinct element_mapping_ids (e.g. "bt_data_ops_db:DBT_ENVIRONMENT_NAME"
+            # vs "sse_dm_fin_fido:DBT_ENVIRONMENT_NAME").
+            var_project_key = project.get("key") or ""
+            var_name = var.get("name") or ""
             _register(
                 records,
                 var,
                 "VAR",
-                name=var.get("name"),
+                name=var_name,
+                identifier=f"{var_project_key}:{var_name}" if var_project_key else None,
                 extra={
-                    "project_key": project.get("key"),
+                    "project_key": var_project_key,
                     "project_name": project_name,
                     "variant": variant,
                     "parent_project_id": project_mapping_id,

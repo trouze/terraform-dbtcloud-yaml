@@ -32,6 +32,7 @@ RESOURCE_TYPE_MAP = {
     "REP": ("dbtcloud_repository", "repositories", "protected_repositories"),
     "PREP": ("dbtcloud_project_repository", "project_repositories", "protected_project_repositories"),
     "EXTATTR": ("dbtcloud_extended_attributes", "extended_attrs", "protected_extended_attrs"),
+    "VAR": ("dbtcloud_environment_variable", "environment_variables", "protected_environment_variables"),
 }
 
 
@@ -172,6 +173,18 @@ def extract_protected_resources(yaml_config: dict) -> list[ProtectedResource]:
                     protected=True,
                 ))
 
+        # Check environment variables
+        for env_var in project.get("environment_variables", []):
+            env_var_name = env_var.get("name", "")
+            composite_key = f"{project_key}_{env_var_name}"
+            if env_var.get("protected", False):
+                protected.append(ProtectedResource(
+                    resource_key=composite_key,
+                    resource_type="VAR",
+                    name=env_var_name,
+                    protected=True,
+                ))
+
     # Check global repositories
     globals_config = yaml_config.get("globals", {})
     for repo in globals_config.get("repositories", []):
@@ -303,6 +316,7 @@ def generate_moved_blocks(
             "JOB": "Job",
             "REP": "Repository",
             "EXTATTR": "Extended Attributes",
+            "VAR": "Env Variable",
         }.get(change.resource_type, change.resource_type)
         
         lines.extend([
@@ -604,6 +618,7 @@ def format_protection_warnings(warnings: list[ProtectedDestroyWarning]) -> str:
         "JOB": "Job",
         "REP": "Repository",
         "EXTATTR": "Extended Attributes",
+        "VAR": "Env Variable",
     }
     
     for warning in warnings:
@@ -990,6 +1005,7 @@ EXTENDED_RESOURCE_TYPE_MAP = {
     "ENV": ("dbtcloud_environment", "environments", "protected_environments"),
     "JOB": ("dbtcloud_job", "jobs", "protected_jobs"),
     "EXTATTR": ("dbtcloud_extended_attributes", "extended_attrs", "protected_extended_attrs"),
+    "VAR": ("dbtcloud_environment_variable", "environment_variables", "protected_environment_variables"),
 }
 
 
@@ -1160,6 +1176,12 @@ def detect_protection_mismatches(
                 type_code = "PREP"
             elif rtype == "dbtcloud_extended_attributes":
                 type_code = "EXTATTR"
+            elif rtype == "dbtcloud_environment_variable":
+                type_code = "VAR"
+            elif rtype == "dbtcloud_environment":
+                type_code = "ENV"
+            elif rtype == "dbtcloud_job":
+                type_code = "JOB"
             
             if type_code:
                 state_resources[(type_code, index_key)] = {
@@ -1269,9 +1291,12 @@ def generate_repair_moved_blocks(
     
     type_names = {
         "PRJ": "project",
+        "ENV": "environment",
+        "JOB": "job",
         "REP": "repository",
         "PREP": "project_repository link",
         "EXTATTR": "extended_attributes",
+        "VAR": "environment_variable",
     }
     
     for project_key, project_mismatches in sorted(by_project.items()):
@@ -1453,9 +1478,12 @@ def format_mismatches_for_display(mismatches: list[ProtectionMismatch]) -> str:
     
     type_names = {
         "PRJ": "Project",
+        "ENV": "Environment",
+        "JOB": "Job",
         "REP": "Repository",
         "PREP": "Project-Repository Link",
         "EXTATTR": "Extended Attributes",
+        "VAR": "Env Variable",
     }
     
     by_project = {}

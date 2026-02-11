@@ -361,6 +361,8 @@ def _create_matching_content(
         DRIFT_ID_MISMATCH,
         DRIFT_NOT_IN_STATE,
         DRIFT_ATTR_MISMATCH,
+        NAME_KEYED_TYPES,
+        PROJECT_SCOPED_TYPES,
     )
     from importer.web.components.clone_dialog import show_clone_dialog
     from importer.web.state import CloneConfig
@@ -726,6 +728,26 @@ def _create_matching_content(
                 return _get_intent_key_for_row(row)
         return source_key
     
+    # Known resource type prefixes for intent keys
+    _KNOWN_TYPE_PREFIXES = frozenset({
+        "PRJ:", "ENV:", "JOB:", "CON:", "REP:", "PREP:", "REPO:",
+        "VAR:", "JEVO:", "CRD:", "EXTATTR:",
+    })
+    
+    def _make_prefixed_intent_key(source_type: str, intent_key: str) -> str:
+        """Build a prefixed intent key like 'ENV:sse_dm_fin_fido_dev'.
+        
+        Handles project-scoped keys (e.g., 'hash:project_name') correctly by
+        checking for known type prefixes rather than just presence of ':'.
+        """
+        if not source_type:
+            return intent_key
+        # Check if already prefixed with a known type code
+        has_prefix = any(intent_key.startswith(p) for p in _KNOWN_TYPE_PREFIXES)
+        if has_prefix:
+            return intent_key
+        return f"{source_type}:{intent_key}"
+    
     def _find_source_key_for_intent_key(prefixed_key: str) -> str:
         """Reverse lookup: find the source_key in grid data for a given intent key.
         
@@ -788,7 +810,7 @@ def _create_matching_content(
             # Use TF state key for sub-project resources (ENV, JOB, EXTATTR)
             source_type = key_to_type.get(key, "")
             intent_key = _get_intent_key_for_source_key(key, source_type)
-            prefixed_key = f"{source_type}:{intent_key}" if source_type and ":" not in intent_key else intent_key
+            prefixed_key = _make_prefixed_intent_key(source_type, intent_key)
             
             # Record intent - this is the source of truth for user decisions
             protection_intent.set_intent(
@@ -865,7 +887,7 @@ def _create_matching_content(
             # Use TF state key for sub-project resources (ENV, JOB, EXTATTR)
             source_type = key_to_type.get(key, "")
             intent_key = _get_intent_key_for_source_key(key, source_type)
-            prefixed_key = f"{source_type}:{intent_key}" if source_type and ":" not in intent_key else intent_key
+            prefixed_key = _make_prefixed_intent_key(source_type, intent_key)
             
             # Record intent - this is the source of truth for user decisions
             protection_intent.set_intent(
@@ -949,7 +971,7 @@ def _create_matching_content(
                 # For sub-project resources (ENV, JOB, EXTATTR), use the TF state key
                 # which includes the project prefix (e.g., "sse_dm_fin_fido_dev" not just "dev")
                 intent_key = _get_intent_key_for_row(row_data)
-                prefixed_key = f"{source_type}:{intent_key}" if source_type else intent_key
+                prefixed_key = _make_prefixed_intent_key(source_type, intent_key)
                 protection_intent.set_intent(
                     key=prefixed_key,
                     protected=True,
@@ -991,7 +1013,7 @@ def _create_matching_content(
                 source_type = row_data.get("source_type", "")
                 # For sub-project resources (ENV, JOB, EXTATTR), use the TF state key
                 intent_key = _get_intent_key_for_row(row_data)
-                prefixed_key = f"{source_type}:{intent_key}" if source_type else intent_key
+                prefixed_key = _make_prefixed_intent_key(source_type, intent_key)
                 protection_intent.set_intent(
                     key=prefixed_key,
                     protected=False,
@@ -1061,12 +1083,25 @@ def _create_matching_content(
         ui.navigate.reload()
     
     def find_source_item(source_key: str) -> Optional[dict]:
-        """Find source item by key, checking both 'key' and 'element_mapping_id'."""
-        # Items with key=null use element_mapping_id as their key
+        """Find source item by key, checking both 'key' and 'element_mapping_id'.
+        
+        Handles project-scoped keys for NAME_KEYED_TYPES (VAR, JEVO) where the
+        grid may append ':project_name' to make keys unique across projects.
+        """
+        # First try exact match
         for s in source_items:
             item_key = s.get("key") or s.get("element_mapping_id", "")
             if item_key == source_key:
                 return s
+        # Fall back: for project-scoped keys like "hash:project_name",
+        # try matching base key + project_name from the source item
+        if ":" in source_key:
+            base_key, proj_suffix = source_key.rsplit(":", 1)
+            for s in source_items:
+                item_key = s.get("key") or s.get("element_mapping_id", "")
+                item_project = s.get("project_name", "") or s.get("project_key", "")
+                if item_key == base_key and item_project == proj_suffix:
+                    return s
         return None
     
     def on_view_details(source_key: str):
@@ -1175,6 +1210,93 @@ def _create_matching_content(
                 ui.notify(f"Parent project not found for repository link: {source_key}", type="warning")
             return
         
+        # #region agent log
+        import json as _json_dbg; import time as _time_dbg
+        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as _f:
+            _f.write(_json_dbg.dumps({"hypothesisId":"H3_H4","location":"match.py:on_view_details","message":"on_view_details called","data":{"source_key":source_key,"starts_with_state":source_key.startswith("state__")},"timestamp":_time_dbg.time()}) + "\n")
+        # #endregion
+        
+        # Handle state-only resources (in TF state but not in source selection)
+        if source_key.startswith("state__"):
+            # #region agent log
+            with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as _f:
+                _f.write(_json_dbg.dumps({"hypothesisId":"H3_H4","location":"match.py:on_view_details:state_only","message":"State-only resource detected","data":{"source_key":source_key},"timestamp":_time_dbg.time()}) + "\n")
+            # #endregion
+            
+            # Find the grid row for this state-only resource
+            grid_row = None
+            for row in grid_data_ref["data"]:
+                if row.get("source_key") == source_key:
+                    grid_row = row
+                    break
+            
+            if not grid_row:
+                ui.notify(f"Grid row not found for state resource: {source_key}", type="warning")
+                return
+            
+            source_type = grid_row.get("source_type", "")
+            target_id = grid_row.get("target_id")
+            target_name_val = grid_row.get("target_name", "")
+            project_name = grid_row.get("project_name", "")
+            state_address = grid_row.get("state_address", "")
+            
+            # Build a synthetic source_item from state/grid data for the detail dialog
+            synthetic_source = {
+                "element_type_code": source_type,
+                "name": target_name_val or grid_row.get("source_name", ""),
+                "key": source_key,
+                "element_mapping_id": source_key,
+                "project_name": project_name,
+                "dbt_id": target_id,
+                "is_state_only": True,
+            }
+            
+            # Find target data
+            target_data = None
+            if target_id and target_id not in ("", "None"):
+                for t in target_items_ref.get("items", []):
+                    if str(t.get("dbt_id")) == str(target_id):
+                        target_data = t
+                        break
+            
+            # Fallback target by (type, project, name)
+            if not target_data and target_name_val:
+                for t in target_items_ref.get("items", []):
+                    t_type = t.get("element_type_code", "")
+                    t_name = t.get("name", "")
+                    t_proj = t.get("project_name", "")
+                    if t_type == source_type and t_name == target_name_val and t_proj == project_name:
+                        target_data = t
+                        break
+            
+            # Find state resource
+            state_resource = None
+            state_id = grid_row.get("state_id")
+            if state_ref.get("state_result") and state_ref["state_result"].resources:
+                for res in state_ref["state_result"].resources:
+                    if res.address == state_address:
+                        state_resource = {
+                            "address": res.address,
+                            "dbt_id": res.dbt_id,
+                            "name": res.name,
+                            "tf_name": res.tf_name,
+                            "element_code": res.element_code,
+                            "project_id": res.project_id,
+                            "resource_index": res.resource_index,
+                            **res.attributes,
+                        }
+                        break
+            
+            from importer.web.components.entity_table import show_match_detail_dialog
+            show_match_detail_dialog(
+                source_data=synthetic_source,
+                grid_row=grid_row,
+                target_data=target_data,
+                state_resource=state_resource,
+                has_state_loaded=True,
+            )
+            return
+        
         # Regular resource - use enhanced match detail dialog with drift info
         source_item = find_source_item(source_key)
         if source_item:
@@ -1193,18 +1315,40 @@ def _create_matching_content(
             # Find target data if matched
             target_data = None
             target_id = grid_row.get("target_id")
-            if target_id:
+            source_type = source_item.get("element_type_code", "") if source_item else grid_row.get("source_type", "")
+            if target_id and target_id not in ("", "None"):
                 # Use target_items_ref which stores the target items passed to this function
                 for t in target_items_ref.get("items", []):
                     if str(t.get("dbt_id")) == str(target_id):
                         target_data = t
                         break
             
+            # Fallback for NAME_KEYED_TYPES (VAR, JEVO) and PROJECT_SCOPED_TYPES:
+            # These may not have a usable dbt_id. Match by (type, project, name) instead.
+            if not target_data and grid_row.get("target_name"):
+                target_name_val = grid_row.get("target_name", "")
+                target_project = grid_row.get("project_name", "")
+                for t in target_items_ref.get("items", []):
+                    t_type = t.get("element_type_code", "")
+                    t_name = t.get("name", "")
+                    t_proj = t.get("project_name", "")
+                    if t_type == source_type and t_name == target_name_val:
+                        # For project-scoped types, also require project match
+                        if source_type in PROJECT_SCOPED_TYPES:
+                            if t_proj == target_project:
+                                target_data = t
+                                break
+                        else:
+                            target_data = t
+                            break
+            
             # Find state resource data if available
             state_resource = None
             state_id = grid_row.get("state_id")
+            state_address_from_grid = grid_row.get("state_address", "")
             if state_ref.get("state_result") and state_ref["state_result"].resources:
-                source_type = source_item.get("element_type_code", "")
+                if not source_type:
+                    source_type = source_item.get("element_type_code", "")
                 # Try to find by ID first
                 if state_id:
                     for res in state_ref["state_result"].resources:
@@ -1220,6 +1364,47 @@ def _create_matching_content(
                                 **res.attributes,
                             }
                             break
+                
+                # Fallback for NAME_KEYED_TYPES (VAR, JEVO): state_id is always None.
+                # Match by state_address (most reliable) or by (element_code, name) with project.
+                if not state_resource and source_type in NAME_KEYED_TYPES:
+                    source_name_val = grid_row.get("source_name", "") or (source_item.get("name", "") if source_item else "")
+                    project_name_val = grid_row.get("project_name", "")
+                    # First try matching by state_address from the grid (most precise)
+                    if state_address_from_grid:
+                        for res in state_ref["state_result"].resources:
+                            if res.address == state_address_from_grid:
+                                state_resource = {
+                                    "address": res.address,
+                                    "dbt_id": res.dbt_id,
+                                    "name": res.name,
+                                    "tf_name": res.tf_name,
+                                    "element_code": res.element_code,
+                                    "project_id": res.project_id,
+                                    "resource_index": res.resource_index,
+                                    **res.attributes,
+                                }
+                                break
+                    # Then try by (element_code, project, name) using resource_index
+                    if not state_resource and source_name_val:
+                        expected_suffix = "_" + source_name_val
+                        for res in state_ref["state_result"].resources:
+                            if res.element_code == source_type and res.name == source_name_val:
+                                # Check project scope via resource_index
+                                if project_name_val and res.resource_index and res.resource_index.endswith(expected_suffix):
+                                    res_project = res.resource_index[:-len(expected_suffix)]
+                                    if res_project == project_name_val:
+                                        state_resource = {
+                                            "address": res.address,
+                                            "dbt_id": res.dbt_id,
+                                            "name": res.name,
+                                            "tf_name": res.tf_name,
+                                            "element_code": res.element_code,
+                                            "project_id": res.project_id,
+                                            "resource_index": res.resource_index,
+                                            **res.attributes,
+                                        }
+                                        break
             
             # Callback to handle manual target selection from dropdown
             def handle_target_selected(selected_target: dict):
@@ -2764,6 +2949,73 @@ def _create_matching_content(
                             else:
                                 from importer.web.utils.adoption_yaml_updater import apply_protection_from_set, apply_unprotection_from_set
                                 
+                                # Pre-step: Merge missing sub-resources from target baseline
+                                # into the deployment YAML. This ensures resources that exist
+                                # in the target/state but weren't part of the source selection
+                                # are present in the YAML so protection flags can be applied.
+                                try:
+                                    baseline_yaml_path = normalize_target_fetch(state)
+                                    if baseline_yaml_path:
+                                        import yaml as _yaml_merge
+                                        from importer.web.utils.adoption_yaml_updater import merge_yaml_configs
+                                        
+                                        with open(baseline_yaml_path, "r") as _bf:
+                                            baseline_config = _yaml_merge.safe_load(_bf) or {}
+                                        with open(str(yaml_file), "r") as _df:
+                                            deploy_config = _yaml_merge.safe_load(_df) or {}
+                                        
+                                        # Filter baseline to only projects already in deploy config.
+                                        # Without this filter, ALL target projects (including ones
+                                        # that exist in target but aren't adopted/managed) would be
+                                        # introduced into the deploy YAML, causing TF to create them.
+                                        # We only want to fill sub-resources (env vars, etc.) within
+                                        # projects that the user has already selected for management.
+                                        deploy_project_keys = {
+                                            p.get("key") for p in deploy_config.get("projects", [])
+                                            if p.get("key")
+                                        }
+                                        if baseline_config.get("projects"):
+                                            baseline_config["projects"] = [
+                                                p for p in baseline_config["projects"]
+                                                if p.get("key") in deploy_project_keys
+                                            ]
+                                        
+                                        # Merge: baseline is the base (preserves all its items),
+                                        # deploy is the source (deploy values win where both exist).
+                                        # Result: deploy customizations preserved + baseline-only
+                                        # sub-resources (like missing env vars) are filled in.
+                                        merged = merge_yaml_configs(baseline_config, deploy_config)
+                                        
+                                        # #region agent log
+                                        import json as _json_merge; import time as _time_merge
+                                        _baseline_proj_keys = [p.get("key") for p in baseline_config.get("projects", [])]
+                                        _deploy_proj_keys = list(deploy_project_keys)
+                                        _merged_proj_keys = [p.get("key") for p in merged.get("projects", [])]
+                                        _not_tf_in_baseline = "not_terraform" in _baseline_proj_keys
+                                        _not_tf_in_deploy = "not_terraform" in _deploy_proj_keys
+                                        _not_tf_in_merged = "not_terraform" in _merged_proj_keys
+                                        # Check if sse_dm_fin_fido env vars got merged
+                                        _fido_envvars_before = []
+                                        _fido_envvars_after = []
+                                        for p in deploy_config.get("projects", []):
+                                            if p.get("key") == "sse_dm_fin_fido":
+                                                _fido_envvars_before = [v.get("name") for v in p.get("environment_variables", [])]
+                                        for p in merged.get("projects", []):
+                                            if p.get("key") == "sse_dm_fin_fido":
+                                                _fido_envvars_after = [v.get("name") for v in p.get("environment_variables", [])]
+                                        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as _f:
+                                            _f.write(_json_merge.dumps({"hypothesisId":"H1_baseline_filter","location":"match.py:generate_protection:baseline_merge","message":"Baseline merge with project filter","data":{"baseline_projects_filtered":len(_baseline_proj_keys),"deploy_projects":len(_deploy_proj_keys),"merged_projects":len(_merged_proj_keys),"not_terraform_in_baseline":_not_tf_in_baseline,"not_terraform_in_deploy":_not_tf_in_deploy,"not_terraform_in_merged":_not_tf_in_merged,"fido_envvars_before":_fido_envvars_before,"fido_envvars_after":_fido_envvars_after},"timestamp":_time_merge.time()}) + "\n")
+                                        # #endregion
+                                        
+                                        with open(str(yaml_file), "w") as _wf:
+                                            _yaml_merge.dump(merged, _wf, default_flow_style=False, sort_keys=False, allow_unicode=True)
+                                        append_output("   ✓ Merged target baseline into deployment YAML (fills missing resources)", "#60A5FA")
+                                    else:
+                                        append_output("   ⚠️ No target baseline available — resources not in YAML may not be updated", "#F59E0B")
+                                except Exception as merge_err:
+                                    logger.warning(f"Baseline merge failed (non-fatal): {merge_err}")
+                                    append_output(f"   ⚠️ Baseline merge skipped: {merge_err}", "#F59E0B")
+                                
                                 # Separate keys by protection status
                                 keys_to_protect = {k for k, i in pending.items() if i.protected}
                                 keys_to_unprotect = {k for k, i in pending.items() if not i.protected}
@@ -2786,10 +3038,35 @@ def _create_matching_content(
                                 close_btn.set_visibility(True)
                                 return
                             
+                            # Step 3b: Regenerate Terraform HCL from the updated YAML
+                            # This is CRITICAL - moves resource declarations between
+                            # protected/unprotected for_each maps so moved blocks work.
+                            append_output("\n🔧 Regenerating Terraform HCL files...")
+                            try:
+                                from importer.yaml_converter import YamlToTerraformConverter
+                                converter = YamlToTerraformConverter()
+                                await asyncio.to_thread(
+                                    converter.convert,
+                                    str(yaml_file),
+                                    str(tf_path),
+                                )
+                                append_output(f"   ✓ Terraform HCL regenerated from {yaml_file.name}", "#10B981")
+                            except Exception as e:
+                                append_output(f"   ⚠️ HCL regeneration warning: {e}", "#F59E0B")
+                                append_output("   Continuing with moved blocks generation...", "#F59E0B")
+                            
+                            await asyncio.sleep(0.2)
+                            
+                            if cancelled["value"]:
+                                append_output("\n❌ Cancelled by user", "#F59E0B")
+                                cancel_btn.set_visibility(False)
+                                close_btn.set_visibility(True)
+                                return
+                            
                             # Step 4: Generate protection_moves.tf
                             append_output("\n🔄 Generating protection_moves.tf...")
                             
-                            from importer.web.utils.protection_manager import generate_repair_moved_blocks, ProtectionMismatch
+                            from importer.web.utils.protection_manager import generate_repair_moved_blocks, ProtectionMismatch, RESOURCE_TYPE_MAP
                             
                             # Build ProtectionMismatch objects from pending intents
                             moves_data = []
@@ -2799,38 +3076,30 @@ def _create_matching_content(
                             added_keys = set()
                             
                             def add_mismatch(res_type: str, res_key: str, is_protected: bool):
-                                """Helper to add a ProtectionMismatch for a resource."""
+                                """Helper to add a ProtectionMismatch for a resource.
+                                
+                                Uses RESOURCE_TYPE_MAP to support all resource types:
+                                PRJ, ENV, JOB, REP, PREP, EXTATTR.
+                                """
                                 combo_key = f"{res_type}:{res_key}"
                                 if combo_key in added_keys:
                                     return
+                                
+                                if res_type not in RESOURCE_TYPE_MAP:
+                                    return  # Unknown type not in RESOURCE_TYPE_MAP
+                                
                                 added_keys.add(combo_key)
+                                
+                                tf_type, unprotected_name, protected_name = RESOURCE_TYPE_MAP[res_type]
                                 
                                 if is_protected:
                                     # Moving from unprotected to protected
-                                    if res_type == "PRJ":
-                                        state_addr = f'{module_prefix}.dbtcloud_project.projects["{res_key}"]'
-                                        expected_addr = f'{module_prefix}.dbtcloud_project.protected_projects["{res_key}"]'
-                                    elif res_type == "REP":
-                                        state_addr = f'{module_prefix}.dbtcloud_repository.repositories["{res_key}"]'
-                                        expected_addr = f'{module_prefix}.dbtcloud_repository.protected_repositories["{res_key}"]'
-                                    elif res_type == "PREP":
-                                        state_addr = f'{module_prefix}.dbtcloud_project_repository.project_repositories["{res_key}"]'
-                                        expected_addr = f'{module_prefix}.dbtcloud_project_repository.protected_project_repositories["{res_key}"]'
-                                    else:
-                                        return  # Unknown type, skip
+                                    state_addr = f'{module_prefix}.{tf_type}.{unprotected_name}["{res_key}"]'
+                                    expected_addr = f'{module_prefix}.{tf_type}.{protected_name}["{res_key}"]'
                                 else:
                                     # Moving from protected to unprotected
-                                    if res_type == "PRJ":
-                                        state_addr = f'{module_prefix}.dbtcloud_project.protected_projects["{res_key}"]'
-                                        expected_addr = f'{module_prefix}.dbtcloud_project.projects["{res_key}"]'
-                                    elif res_type == "REP":
-                                        state_addr = f'{module_prefix}.dbtcloud_repository.protected_repositories["{res_key}"]'
-                                        expected_addr = f'{module_prefix}.dbtcloud_repository.repositories["{res_key}"]'
-                                    elif res_type == "PREP":
-                                        state_addr = f'{module_prefix}.dbtcloud_project_repository.protected_project_repositories["{res_key}"]'
-                                        expected_addr = f'{module_prefix}.dbtcloud_project_repository.project_repositories["{res_key}"]'
-                                    else:
-                                        return  # Unknown type, skip
+                                    state_addr = f'{module_prefix}.{tf_type}.{protected_name}["{res_key}"]'
+                                    expected_addr = f'{module_prefix}.{tf_type}.{unprotected_name}["{res_key}"]'
                                 
                                 mismatch = ProtectionMismatch(
                                     resource_key=res_key,
@@ -2947,6 +3216,8 @@ def _create_matching_content(
                             # avoiding surfacing unrelated drift in the full terraform configuration.
                             # Uses needs_tf_move to exclude sync_from_tf_state entries and intents
                             # where TF state already matched at decision time.
+                            # IMPORTANT: Target BOTH source (old) and destination (new) addresses
+                            # so Terraform can process moved blocks correctly.
                             _target_addresses = []
                             for _ikey, _intent in protection_intent_manager._intent.items():
                                 if _intent.needs_tf_move:
@@ -2959,18 +3230,18 @@ def _create_matching_content(
                                         _rkey = _ikey
                                     else:
                                         # Unprefixed key without resource_type (legacy project-level intent)
-                                        # Target PRJ + REP + PREP for the project key
+                                        # Target PRJ + REP + PREP for the project key (both old and new)
                                         for _legacy_type in ("PRJ", "REP", "PREP"):
                                             try:
-                                                _addr = get_resource_address(_legacy_type, _ikey, protected=_intent.protected)
-                                                _target_addresses.append(_addr)
+                                                _target_addresses.append(get_resource_address(_legacy_type, _ikey, protected=_intent.protected))
+                                                _target_addresses.append(get_resource_address(_legacy_type, _ikey, protected=not _intent.protected))
                                             except (ValueError, KeyError):
                                                 pass
                                         continue
                                     try:
-                                        # Target the NEW address (where resource should end up after move)
-                                        _addr = get_resource_address(_rtype, _rkey, protected=_intent.protected)
-                                        _target_addresses.append(_addr)
+                                        # Target BOTH new (destination) and old (source) addresses
+                                        _target_addresses.append(get_resource_address(_rtype, _rkey, protected=_intent.protected))
+                                        _target_addresses.append(get_resource_address(_rtype, _rkey, protected=not _intent.protected))
                                     except (ValueError, KeyError):
                                         pass  # Skip unknown resource types
                             
@@ -3167,14 +3438,107 @@ def _create_matching_content(
                             dialog = create_plan_viewer_dialog(output, "Terraform Apply Output")
                             dialog.open()
                         
-                        # Buttons row - action buttons
+                        def show_generate_output():
+                            """Show the generate output in a dialog."""
+                            output = tf_outputs_local.get("generate", "")
+                            if not output:
+                                ui.notify("No generate output available. Run generate first.", type="warning")
+                                return
+                            from importer.web.utils.yaml_viewer import create_plan_viewer_dialog
+                            dialog = create_plan_viewer_dialog(output, "Terraform Generate Output")
+                            dialog.open()
+                        
+                        # Generate TF function - regenerates HCL from YAML so resource
+                        # declarations move between protected/unprotected for_each maps
+                        async def run_tf_generate():
+                            """Regenerate Terraform HCL files from the updated YAML.
+                            
+                            This is the critical step that moves resource declarations
+                            between protected_*/unprotected for_each maps so that 
+                            `moved` blocks in protection_moves.tf can be processed.
+                            """
+                            import asyncio
+                            from importer.yaml_converter import YamlToTerraformConverter
+                            
+                            with tf_cmd_output:
+                                tf_cmd_output.clear()
+                                ui.label("Regenerating Terraform files from YAML...").classes("text-xs text-blue-500")
+                            
+                            # Find the YAML config file
+                            yaml_file = tf_path_for_cmd / "dbt-cloud-config.yml"
+                            if not yaml_file.exists():
+                                if state.fetch.output_dir:
+                                    fetch_yaml = Path(state.fetch.output_dir) / "dbt-cloud-config.yml"
+                                    if fetch_yaml.exists():
+                                        import shutil
+                                        shutil.copy2(fetch_yaml, yaml_file)
+                            
+                            if not yaml_file.exists():
+                                # Try finding any YAML file matching our naming pattern
+                                samples_dir = Path(__file__).parent.parent.parent.resolve() / "dev_support" / "samples"
+                                yaml_files = list(samples_dir.glob("*__yaml__*.yml")) + list(samples_dir.glob("account_*.yml"))
+                                if yaml_files:
+                                    yaml_file = sorted(yaml_files, key=lambda f: f.stat().st_mtime, reverse=True)[0]
+                            
+                            if not yaml_file.exists():
+                                with tf_cmd_output:
+                                    tf_cmd_output.clear()
+                                    ui.label(f"❌ YAML config not found at {yaml_file}").classes("text-xs text-red-600 font-semibold")
+                                ui.notify("YAML config file not found", type="negative")
+                                return
+                            
+                            try:
+                                converter = YamlToTerraformConverter()
+                                await asyncio.to_thread(
+                                    converter.convert,
+                                    str(yaml_file),
+                                    str(tf_path_for_cmd),
+                                )
+                                
+                                gen_msg = f"Terraform files regenerated from YAML\nSource: {yaml_file.name}\nOutput: {tf_path_for_cmd}"
+                                tf_outputs_local["generate"] = gen_msg
+                                
+                                with tf_cmd_output:
+                                    tf_cmd_output.clear()
+                                    ui.label("✅ Terraform files regenerated from YAML").classes("text-xs text-green-600 font-semibold")
+                                    ui.label(f"   Source: {yaml_file.name}").classes("text-xs text-slate-400")
+                                    ui.label(f"   Output: {tf_path_for_cmd}").classes("text-xs text-slate-400")
+                                
+                                ui.notify("Terraform files regenerated! Run Init → Plan next.", type="positive")
+                            except Exception as e:
+                                gen_err = f"Regeneration failed: {e}"
+                                tf_outputs_local["generate"] = gen_err
+                                with tf_cmd_output:
+                                    tf_cmd_output.clear()
+                                    ui.label(f"❌ Regeneration failed: {e}").classes("text-xs text-red-600 font-semibold")
+                                ui.notify(f"Failed to regenerate: {e}", type="negative")
+                        
+                        # Credentials gate: check if API token is available
+                        _has_credentials = bool(state.target_credentials.api_token)
+                        
+                        if not _has_credentials:
+                            with ui.row().classes("items-center gap-2 w-full p-2").style(
+                                "background-color: #FEF3C7; border: 1px solid #F59E0B; border-radius: 4px;"
+                            ):
+                                ui.icon("warning", size="sm").style("color: #D97706;")
+                                ui.label(
+                                    "Credentials needed for Init/Plan/Apply. Load credentials on the Fetch Target page. Generate works without credentials."
+                                ).classes("text-xs text-amber-800")
+                        
+                        # Buttons row - action buttons (disabled if no credentials)
                         with ui.row().classes("gap-2 items-center"):
-                            ui.button("Init", icon="downloading", on_click=run_tf_init).props("outline").style("min-width: 80px;")
-                            ui.button("Plan", icon="visibility", on_click=run_tf_plan).props("outline").style("min-width: 80px;")
-                            ui.button("Apply", icon="play_arrow", on_click=run_tf_apply).props("color=green").style("min-width: 80px;")
+                            _gen_btn = ui.button("Generate", icon="build", on_click=run_tf_generate).props("color=amber").style("min-width: 100px; color: black !important;").tooltip("Regenerate TF files from YAML so moved blocks work")
+                            _init_btn = ui.button("Init", icon="downloading", on_click=run_tf_init).props("outline").style("min-width: 80px;")
+                            _plan_btn = ui.button("Plan", icon="visibility", on_click=run_tf_plan).props("outline").style("min-width: 80px;")
+                            _apply_btn = ui.button("Apply", icon="play_arrow", on_click=run_tf_apply).props("color=green").style("min-width: 80px;")
+                            if not _has_credentials:
+                                _init_btn.disable()
+                                _plan_btn.disable()
+                                _apply_btn.disable()
                         
                         # View output buttons row
                         with ui.row().classes("gap-2 items-center mt-1"):
+                            ui.button("View Generate", icon="build_circle", on_click=show_generate_output).props("flat dense").style("min-width: 110px;")
                             ui.button("View Init", icon="article", on_click=show_init_output).props("flat dense").style("min-width: 90px;")
                             ui.button("View Plan", icon="description", on_click=show_plan_output).props("flat dense").style("min-width: 90px;")
                             ui.button("View Apply", icon="fact_check", on_click=show_apply_output).props("flat dense").style("min-width: 90px;")

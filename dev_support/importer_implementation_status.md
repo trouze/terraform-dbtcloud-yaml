@@ -1,8 +1,8 @@
 # Importer Implementation Status & Tracking
 
 **Last Updated:** 2026-02-11  
-**Current Importer Version:** 0.20.0  
-**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix + Match Diagnostics Improvements + AG Grid Standardization + Dialog Width Fix + Protection Mismatch Fix + Adoption Override Data Flow Fix + Debug Logging Standards + View Output Plan Dialog Fix + Independent Protection Architecture + Comprehensive Protection Unit Tests + Repository Key Prefix Matching Fix + Extended Attributes (EXTATTR) Support + Target Intent State File + Protection as Disposition Property + Explicit Global Intent Filtering + Drift Detection + TF State Repo Identity Fixup + Global Resources Configuration + Protection Intent Key Fix
+**Current Importer Version:** 0.21.0  
+**Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix + Match Diagnostics Improvements + AG Grid Standardization + Dialog Width Fix + Protection Mismatch Fix + Adoption Override Data Flow Fix + Debug Logging Standards + View Output Plan Dialog Fix + Independent Protection Architecture + Comprehensive Protection Unit Tests + Repository Key Prefix Matching Fix + Extended Attributes (EXTATTR) Support + Target Intent State File + Protection as Disposition Property + Explicit Global Intent Filtering + Drift Detection + TF State Repo Identity Fixup + Global Resources Configuration + Protection Intent Key Fix + EnvVar Protection + State-Only Resource Fixes + TF Plan Stability
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
 > 
@@ -420,7 +420,7 @@ Before starting end-to-end testing with a real account, verify:
 ## Version Tracking
 
 ### Importer Version
-- **Current:** 0.20.0
+- **Current:** 0.21.0
 - **File:** `importer/VERSION`
 - **Last Updated:** 2026-02-09
 
@@ -666,6 +666,15 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2026-02-11 (v0.21.0)
+- **Version:** Incremented to 0.21.0 (minor release - EnvVar Protection + State-Only Resource Fixes + TF Plan Stability)
+- Full protection lifecycle for dbt Cloud environment variables (VARs) — TF module split, protection manager, YAML updater
+- State-only resource detail panel now correctly displays target/state data
+- Terraform plan no longer destroys protected VARs when deploy YAML has empty `environment_variables: []`
+- Baseline merge no longer introduces target-only projects (e.g., `not_terraform`) into deploy config
+- Protection key mismatch fixed for state-only resources (normalized `state__<tf_address>` → `TYPE:short_key`)
+- Project-scoped element IDs prevent cross-project VAR matching collisions
 
 ### 2026-02-11 (v0.20.0)
 - **Version:** Incremented to 0.20.0 (minor release - Global Resources Configuration + Protection Intent Key Fix + Undo Handler Fix)

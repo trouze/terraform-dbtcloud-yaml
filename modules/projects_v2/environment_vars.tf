@@ -29,9 +29,32 @@ locals {
     ]
   ])
 
-  # Create map keyed by project_key_env_var_name
-  env_vars_map = {
+  #############################################
+  # Protection: Split env vars into protected/unprotected
+  #############################################
+
+  # Protected environment variables (protected: true in env_var_data)
+  protected_environment_variables = [
     for item in local.all_environment_variables :
+    item
+    if try(item.env_var_data.protected, false) == true
+  ]
+
+  # Unprotected environment variables (protected: false or not set)
+  unprotected_environment_variables = [
+    for item in local.all_environment_variables :
+    item
+    if try(item.env_var_data.protected, false) != true
+  ]
+
+  # Create maps keyed by project_key_env_var_name
+  env_vars_map = {
+    for item in local.unprotected_environment_variables :
+    "${item.project_key}_${item.env_var_key}" => item
+  }
+
+  protected_env_vars_map = {
+    for item in local.protected_environment_variables :
     "${item.project_key}_${item.env_var_key}" => item
   }
 
@@ -42,6 +65,19 @@ locals {
     for item in local.all_environments :
     "${item.project_key}_${item.env_data.name}" => "${item.project_key}_${item.env_key}"
   }
+
+  # Merged environment name lookup - resolves from either protected or unprotected environments
+  # This allows env vars to reference their parent environment regardless of protection status
+  env_resolved_name = merge(
+    {
+      for key, env in dbtcloud_environment.environments :
+      key => env.name
+    },
+    {
+      for key, env in dbtcloud_environment.protected_environments :
+      key => env.name
+    }
+  )
 }
 
 # Create project-scoped environment variables
@@ -61,9 +97,9 @@ resource "dbtcloud_environment_variable" "environment_variables" {
     env_key == "project" ? "project" : (
       # Try to find the environment resource key for this environment name
       contains(keys(local.env_name_to_resource_key), "${each.value.project_key}_${env_key}") ?
-      # Reference the created environment resource to create implicit dependency
-      # Use the environment's name (which matches what the API expects)
-      dbtcloud_environment.environments[local.env_name_to_resource_key["${each.value.project_key}_${env_key}"]].name :
+      # Reference the merged environment lookup to create implicit dependency
+      # This resolves from either protected or unprotected environments
+      local.env_resolved_name[local.env_name_to_resource_key["${each.value.project_key}_${env_key}"]] :
       # Fallback to env_key if environment not found (will cause API error, but that's expected)
       env_key
       ) => (
@@ -72,6 +108,35 @@ resource "dbtcloud_environment_variable" "environment_variables" {
       lookup(var.token_map, replace(env_value, "secret_", ""), env_value) :
       env_value
     )
+  }
+}
+
+#############################################
+# Protected Environment Variables - prevent_destroy lifecycle
+#############################################
+
+resource "dbtcloud_environment_variable" "protected_environment_variables" {
+  for_each = local.protected_env_vars_map
+
+  name       = each.value.env_var_data.name
+  project_id = each.value.project_id
+
+  # Map environment values (same logic as unprotected)
+  environment_values = {
+    for env_key, env_value in each.value.env_var_data.environment_values :
+    env_key == "project" ? "project" : (
+      contains(keys(local.env_name_to_resource_key), "${each.value.project_key}_${env_key}") ?
+      local.env_resolved_name[local.env_name_to_resource_key["${each.value.project_key}_${env_key}"]] :
+      env_key
+      ) => (
+      can(regex("^secret_", env_value)) ?
+      lookup(var.token_map, replace(env_value, "secret_", ""), env_value) :
+      env_value
+    )
+  }
+
+  lifecycle {
+    prevent_destroy = true
   }
 }
 
@@ -112,6 +177,7 @@ resource "dbtcloud_environment_variable_job_override" "job_overrides" {
 
   depends_on = [
     dbtcloud_environment_variable.environment_variables,
+    dbtcloud_environment_variable.protected_environment_variables,
     dbtcloud_job.jobs
   ]
 }
