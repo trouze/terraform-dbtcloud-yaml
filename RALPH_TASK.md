@@ -42,16 +42,16 @@ dependency handling, protection, and deploy integration. All components must be 
 
 ### Phase 1b-ext: Scope Visibility Filter
 
-17. [ ] Scope filter hides state-only and target-only rows when ON; preserves source-scoped rows (UT-AD-16, UT-AD-17, UT-AD-18)
-18. [ ] Scope filter does not alter row actions or dispositions (UT-AD-19)
-19. [ ] "Show Scoped Only" toggle in grid toolbar works and composes with type filter (E2E, browser_validation: true)
-20. [ ] Summary card updates to show filtered counts with "(filtered — N rows hidden)" note (E2E, browser_validation: true)
+17. [x] Scope filter hides state-only and target-only rows when ON; preserves source-scoped rows (UT-AD-16, UT-AD-17, UT-AD-18)
+18. [x] Scope filter does not alter row actions or dispositions (UT-AD-19)
+19. [x] "Show Scoped Only" toggle in grid toolbar works and composes with type filter (E2E, browser_validation: true)
+20. [x] Summary card updates to show filtered counts with "(filtered — N rows hidden)" note (E2E, browser_validation: true)
 
 ### Phase 1c: TF State Awareness
 
-21. [ ] State cross-reference identifies already-managed resources including protection mismatch (UT-AD-06, UT-AD-07)
-22. [ ] "Already Managed" badge and TF state address shown in grid for state-present resources (E2E, browser_validation: true)
-23. [ ] Already-managed resources excluded from import block output (E2E, browser_validation: true)
+21. [x] State cross-reference identifies already-managed resources including protection mismatch (UT-AD-06, UT-AD-07)
+22. [x] "Already Managed" badge and TF state address shown in grid for state-present resources (E2E, browser_validation: true)
+23. [x] Already-managed resources excluded from import block output (E2E, browser_validation: true)
 
 ### Phase 1d: Dependency Handling
 

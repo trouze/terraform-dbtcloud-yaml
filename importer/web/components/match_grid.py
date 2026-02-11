@@ -1207,6 +1207,15 @@ def build_grid_data(
         
         # Combined value for UI display (protected if either source says so)
         row["protected"] = is_effective_protected or is_state_protected
+        
+        # Protection mismatch: resource is in TF state but protection level disagrees
+        # with what the user intends (e.g., state has protected but user wants unprotected,
+        # or state has unprotected but user wants protected)
+        drift = row.get("drift_status", "")
+        has_state = drift in (DRIFT_IN_SYNC, DRIFT_ID_MISMATCH, DRIFT_ATTR_MISMATCH)
+        row["protection_mismatch"] = (
+            has_state and is_effective_protected != is_state_protected
+        )
     
     # Post-process: Apply removal_keys (unadopt) so persisted intent shows on load
     for row in rows:
@@ -1372,7 +1381,13 @@ def create_match_grid(
                 if (params.data && params.data.is_state_only) {
                     return '<span style="background: #6366F1; color: white; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-family: sans-serif;">In State</span>';
                 }
-                return params.value || '';
+                var val = params.value || '';
+                if (params.data && params.data.drift_status === 'in_sync') {
+                    var addr = params.data.state_address || '';
+                    var addrHtml = addr ? ' <span style="color: #6366F1; font-size: 10px; font-family: monospace;" title="' + addr + '">' + addr + '</span>' : '';
+                    return val + ' <span style="background: #6366F1; color: white; padding: 1px 5px; border-radius: 3px; font-size: 10px; font-family: sans-serif;">Managed</span>' + addrHtml;
+                }
+                return val;
             }""",
         },
         {
@@ -1460,16 +1475,31 @@ def create_match_grid(
                     'id_mismatch': '⚠️ Mismatch',
                     'not_in_state': '➕ Not in TF',
                     'state_only': '📌 In State',
+                    'attr_mismatch': '⚠️ Attr Diff',
                 };
-                return labels[params.value] || params.value || '—';
+                var label = labels[params.value] || params.value || '—';
+                if (params.data && params.data.protection_mismatch) {
+                    label += ' 🛡️';
+                }
+                return label;
             }""",
             "cellClassRules": {
                 "drift-sync": "x === 'in_sync'",
-                "drift-mismatch": "x === 'id_mismatch'",
+                "drift-mismatch": "x === 'id_mismatch' || x === 'attr_mismatch'",
                 "drift-missing": "x === 'not_in_state'",
                 "drift-state-only": "x === 'state_only'",
                 "drift-none": "x === 'no_state' || !x",
             },
+        },
+        {
+            "field": "state_address",
+            "colId": "state_address",
+            "headerName": "TF Address",
+            "headerTooltip": "Terraform state resource address (shown when resource is already managed)",
+            "width": 180,
+            "hide": True,  # Hidden by default; user can enable via column menu
+            "cellStyle": {"fontFamily": "monospace", "fontSize": "10px", "color": "#6366F1"},
+            ":valueFormatter": "params => params.value || ''",
         },
         {
             "field": "status",

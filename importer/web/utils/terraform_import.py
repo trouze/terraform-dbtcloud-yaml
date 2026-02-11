@@ -662,6 +662,13 @@ def generate_adopt_imports_from_grid(
         target_id = row.get("target_id")
         if not target_id:
             continue
+        
+        # Exclude already-managed resources (in_sync drift status).
+        # These are already tracked in TF state with the correct ID,
+        # so generating an import block would be redundant / cause errors.
+        drift_status = row.get("drift_status", "")
+        if drift_status == "in_sync":
+            continue
         _debug_log({
             "sessionId": "debug-session",
             "runId": "run1",
