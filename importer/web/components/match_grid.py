@@ -75,12 +75,19 @@ DRIFT_ATTR_MISMATCH = "attr_mismatch"  # ID matches but identity attrs differ (e
 # These don't have a single dbt_id - they use composite keys like project_id:name
 NAME_KEYED_TYPES = {"VAR", "JEVO"}
 
+# Resource types that are project-scoped (names can repeat across projects)
+# These need project-scoped matching to avoid cross-project collisions
+# Derived from ENTITY_PARENT_TYPES hierarchy: types with PRJ as a (direct/indirect) parent
+# CRD is excluded because it has its own environment-based matching (target_crd_by_env)
+# REP is excluded because it has its own repository-based matching (target_repo_by_remote_url)
+PROJECT_SCOPED_TYPES = {"ENV", "JOB", "VAR", "JEVO", "EXTATTR"}
+
 
 def _compute_drift_status(
     source_type: str,
     source_name: str,
     target_id: Optional[int],
-    state_by_name: dict[tuple[str, str], dict],
+    state_by_name: dict[tuple, dict],
     has_state: bool,
     state_by_id: Optional[dict[tuple[str, int], dict]] = None,
     project_name: Optional[str] = None,
@@ -117,9 +124,13 @@ def _compute_drift_status(
     source_name = _normalize_name_for_lookup(source_name)
     
     # Name-keyed resources (VAR, JEVO) don't have single numeric IDs
-    # They use composite keys like project_id:name, so we only check by name
+    # They use composite keys like project_id:name, so we check by (type, project, name)
     if source_type in NAME_KEYED_TYPES:
-        state_resource = state_by_name.get((source_type, source_name))
+        # Try project-scoped lookup first (3-tuple key)
+        state_resource = state_by_name.get((source_type, project_name, source_name))
+        # Fallback to unscoped key for backward compat (old state without resource_index)
+        if not state_resource:
+            state_resource = state_by_name.get((source_type, source_name))
         if state_resource:
             # Found by name - that's all we can check for name-keyed resources
             return None, DRIFT_IN_SYNC, state_resource.get("address")
@@ -255,7 +266,7 @@ def build_grid_data(
     
     # Build state lookup by (element_code, dbt_id) for finding state resources
     # Also build name-based lookup as fallback for "create new" scenarios
-    state_by_name: dict[tuple[str, str], dict] = {}
+    state_by_name: dict[tuple, dict] = {}  # Keys: (type, name) or (type, project, name) for NAME_KEYED
     state_by_id: dict[tuple[str, int], dict] = {}
     if state_result and state_result.resources:
         for res in state_result.resources:
@@ -275,8 +286,18 @@ def build_grid_data(
                 "project_id": res.project_id,
             }
             # Index by name if available (used only for "create new" scenarios)
+            # For NAME_KEYED_TYPES, scope by project to avoid cross-project collisions
             if res.name:
-                key = (res.element_code, res.name)
+                if res.element_code in NAME_KEYED_TYPES and res.resource_index and res.name:
+                    # Extract project key from resource_index (e.g., "sse_mlp_fs_DBT_ENVIRONMENT_NAME" → "sse_mlp_fs")
+                    suffix = "_" + res.name
+                    if res.resource_index.endswith(suffix):
+                        state_project_key = res.resource_index[:-len(suffix)]
+                        key = (res.element_code, state_project_key, res.name)
+                    else:
+                        key = (res.element_code, res.name)
+                else:
+                    key = (res.element_code, res.name)
                 state_by_name[key] = state_info
             # Also index by tf_name as fallback (for repos without name field)
             if res.tf_name:
@@ -360,7 +381,13 @@ def build_grid_data(
         name = item.get("name", "")
         
         # Global lookup by (type, name) for auto-matching
-        key = (element_type, name)
+        # For PROJECT_SCOPED_TYPES, scope by project to avoid cross-project collisions
+        # (e.g., "PROD_CI" env exists in many projects, "DBT_ENVIRONMENT_NAME" var likewise)
+        if element_type in PROJECT_SCOPED_TYPES:
+            proj = item.get("project_name", "")
+            key = (element_type, proj, name)
+        else:
+            key = (element_type, name)
         if key not in target_by_type_name:
             target_by_type_name[key] = item
         
@@ -587,7 +614,11 @@ def build_grid_data(
         # Note: We match by name only. Source IDs are from different account and not used.
         # Strip display prefixes (e.g., "  ↳ ") for lookup - these are added for hierarchy display
         normalized_source_name = _normalize_name_for_lookup(source_name)
-        lookup_key = (source_type, normalized_source_name)
+        # For PROJECT_SCOPED_TYPES, scope lookup by project to avoid cross-project collisions
+        if source_type in PROJECT_SCOPED_TYPES:
+            lookup_key = (source_type, project_name, normalized_source_name)
+        else:
+            lookup_key = (source_type, normalized_source_name)
         clone_config = clone_by_key.get(source_key)
         target = target_by_type_name.get(lookup_key)
         match_confidence = "exact_match" if target else "none"
@@ -613,8 +644,12 @@ def build_grid_data(
                 state_resource = state_repo_by_project.get(project_name)
             # Fall back to name-based lookup for other types or if not found
             # Use normalized name to strip display prefixes
+            # For NAME_KEYED_TYPES, use project-scoped key first
             if not state_resource:
-                state_resource = state_by_name.get((source_type, normalized_source_name))
+                if source_type in NAME_KEYED_TYPES:
+                    state_resource = state_by_name.get((source_type, project_name, normalized_source_name))
+                if not state_resource:
+                    state_resource = state_by_name.get((source_type, normalized_source_name))
             
             # If we have a state resource with a valid ID, look up in targets
             if state_resource and state_resource.get("dbt_id"):
