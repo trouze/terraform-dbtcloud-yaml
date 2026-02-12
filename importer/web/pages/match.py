@@ -536,68 +536,68 @@ def _create_matching_content(
     # Total rows in grid including overrides
     total_grid_rows = len(grid_row_data)
     
-    # Stat cards with selection info
-    with ui.row().classes("w-full gap-4 mb-4 items-center"):
-        _create_stat_card("Pending", pending, "text-amber-600", "hourglass_empty")
-        _create_stat_card("Confirmed", confirmed, "text-green-600", "check_circle")
-        
-        # Create New card - show total with breakdown if overrides exist
-        with ui.card().classes("p-3 min-w-[100px]"):
-            with ui.row().classes("items-center gap-2"):
-                ui.icon("add_circle", size="sm").classes("text-orange-500")
-                ui.label(str(create_new_total)).classes("text-2xl font-bold text-orange-500")
-            ui.label("Create New").classes("text-xs text-slate-500")
-            if create_new_derived > 0:
-                ui.label(f"({create_new_primary} + {create_new_derived} derived)").classes(
-                    "text-xs text-orange-400"
+    # Drift count (computed before stat bar)
+    drift_count = sum(
+        1 for r in grid_row_data
+        if r.get("drift_status") in [DRIFT_ID_MISMATCH, DRIFT_NOT_IN_STATE, DRIFT_ATTR_MISMATCH]
+    )
+
+    # Compact stat bar — uniform-height chips in a single card, two rows
+    with ui.card().classes("w-full p-2 mb-4"):
+        # Row 1: Action status chips
+        with ui.row().classes("w-full gap-3 items-center flex-wrap"):
+            _create_stat_chip("Pending", str(pending), "text-amber-600", "hourglass_empty")
+            _create_stat_chip("Confirmed", str(confirmed), "text-green-600", "check_circle")
+            _create_stat_chip(
+                "Create New",
+                str(create_new_total),
+                "text-orange-500",
+                "add_circle",
+                subtitle=f"{create_new_primary}+{create_new_derived} derived" if create_new_derived > 0 else "",
+            )
+            _create_stat_chip("Skip", str(skipped), "text-slate-500", "block")
+            if adopted > 0:
+                _create_stat_chip("Adopted", str(adopted), "text-teal-600", "link")
+            _create_stat_chip("Unadopt", str(unadopted), "text-purple-500", "link_off")
+
+        # Horizontal divider between groups
+        ui.separator().classes("my-1")
+
+        # Row 2: Resource context chips + detail info
+        with ui.row().classes("w-full gap-3 items-center flex-wrap"):
+            _create_stat_chip(
+                "Resources",
+                f"{total_grid_rows}/{total_source_count + create_new_derived}",
+                "text-blue-600",
+                "upload",
+                subtitle=(
+                    f"{len(source_items)} sel+{create_new_derived} derived"
+                    if create_new_derived > 0
+                    else ""
+                ),
+            )
+            _create_stat_chip(
+                "Target",
+                str(len(target_items)),
+                f"color: {DBT_TEAL}",
+                "download",
+            )
+            if state_ref["state_loaded"]:
+                _create_stat_chip(
+                    "Drift",
+                    str(drift_count),
+                    "text-amber-500" if drift_count > 0 else "text-green-500",
+                    "warning" if drift_count > 0 else "check_circle",
                 )
-        
-        _create_stat_card("Skip", skipped, "text-slate-500", "block")
-        if adopted > 0:
-            _create_stat_card("Adopted", adopted, "text-teal-600", "link")
-        _create_stat_card("Unadopt", unadopted, "text-purple-500", "link_off")
-        
-        # Selected source items with total count - shows primary resources + overrides
-        with ui.card().classes("p-3 min-w-[120px]"):
-            with ui.row().classes("items-center gap-2"):
-                ui.icon("upload", size="sm").classes("text-blue-600")
-                ui.label(f"{total_grid_rows} of {total_source_count + create_new_derived}").classes(
-                    "text-2xl font-bold text-blue-600"
-                )
-            with ui.row().classes("items-center gap-2"):
-                ui.label("Total Resources").classes("text-xs text-slate-500")
-                if on_step_change and total_source_count > len(source_items):
-                    ui.button(
-                        "Adjust",
-                        icon="tune",
-                        on_click=lambda: on_step_change(WorkflowStep.SCOPE),
-                    ).props("flat dense size=xs")
-            if create_new_derived > 0:
-                ui.label(f"({len(source_items)} selected + {create_new_derived} derived)").classes(
-                    "text-xs text-blue-400"
-                )
+            # Inline detail info when extra context applies
             if show_scope_only and hidden_by_scope > 0:
-                ui.label(f"(filtered — {hidden_by_scope} rows hidden)").classes(
-                    "text-xs text-amber-500"
-                )
-        
-        _create_stat_card("Existing Target Items", len(target_items), f"color: {DBT_TEAL}", "download")
-        
-        # Drift stats (only show if state is loaded)
-        drift_count = sum(
-            1 for r in grid_row_data 
-            if r.get("drift_status") in [DRIFT_ID_MISMATCH, DRIFT_NOT_IN_STATE, DRIFT_ATTR_MISMATCH]
-        )
-        if state_ref["state_loaded"]:
-            with ui.card().classes("p-3 min-w-[100px]"):
-                with ui.row().classes("items-center gap-2"):
-                    if drift_count > 0:
-                        ui.icon("warning", size="sm").classes("text-amber-500")
-                        ui.label(str(drift_count)).classes("text-2xl font-bold text-amber-500")
-                    else:
-                        ui.icon("check_circle", size="sm").classes("text-green-500")
-                        ui.label("0").classes("text-2xl font-bold text-green-500")
-                ui.label("Drift").classes("text-xs text-slate-500")
+                ui.label(f"filtered — {hidden_by_scope} rows hidden").classes("text-xs text-amber-500")
+            if on_step_change and total_source_count > len(source_items):
+                ui.button(
+                    "Adjust scope",
+                    icon="tune",
+                    on_click=lambda: on_step_change(WorkflowStep.SCOPE),
+                ).props("flat dense size=xs")
     
     # Store grid row data in a mutable container for callbacks
     # "data" = visible rows (after filtering), "all" = all rows (before filtering)
@@ -1372,6 +1372,130 @@ def _create_matching_content(
         old_protected = source_key in state.map.protected_resources
         
         if new_protected and not old_protected:
+            # ── Guard: target-only ignored resources cannot be protected ──
+            # If the resource is target-only (action != "adopt" and
+            # drift_status "not_in_state") and the user tries to protect it,
+            # show a dialog asking if they want to adopt AND protect.
+            row_action = row_data.get("action", "")
+            row_drift = row_data.get("drift_status", "")
+            is_target_only_ignored = (
+                row_action != "adopt"
+                and row_drift in ("not_in_state", "id_mismatch")
+                and row_data.get("is_target_only", False)
+            )
+            if is_target_only_ignored:
+                display_name = row_data.get("source_name") or row_data.get("target_name") or row_data.get("name") or source_key
+
+                def _revert_protection_in_grid():
+                    """Revert the grid row's protected flag back to False."""
+                    row_data["protected"] = False
+                    row_data["yaml_protected"] = False
+                    for i, r in enumerate(grid_data_ref["data"]):
+                        if r.get("source_key") == source_key:
+                            grid_data_ref["data"][i] = row_data
+                            break
+
+                def _adopt_and_protect_from_match(sk=source_key, st=row_data.get("source_type", "")):
+                    """Set action=adopt and protected=true, then persist."""
+                    # Update grid data
+                    row_data["action"] = "adopt"
+                    row_data["protected"] = True
+                    row_data["yaml_protected"] = True
+                    for i, r in enumerate(grid_data_ref["data"]):
+                        if r.get("source_key") == sk:
+                            grid_data_ref["data"][i] = row_data
+                            break
+                    # Update confirmed_mappings
+                    _found = False
+                    for mapping in state.map.confirmed_mappings:
+                        mk = mapping.get("source_key", "")
+                        if mk == sk or mk == f"target__{sk}":
+                            mapping["action"] = "adopt"
+                            _found = True
+                            break
+                    if not _found:
+                        state.map.confirmed_mappings.append({
+                            "source_key": sk,
+                            "action": "adopt",
+                            "resource_type": st,
+                            "target_id": str(row_data.get("target_id", "")),
+                            "target_name": row_data.get("target_name", ""),
+                            "match_type": "manual",
+                        })
+                    # Also persist the mapping to the target intent file (source of truth on reload)
+                    try:
+                        from importer.web.utils.target_intent import SourceToTargetMapping
+                        _ti_mgr = state.get_target_intent_manager()
+                        _ti_obj = _ti_mgr.load()
+                        if _ti_obj:
+                            _new_m = SourceToTargetMapping.from_confirmed_mapping({
+                                "source_key": sk,
+                                "action": "adopt",
+                                "resource_type": st,
+                                "target_id": str(row_data.get("target_id", "")),
+                                "target_name": row_data.get("target_name", ""),
+                                "match_type": "manual",
+                            })
+                            _ti_found = False
+                            for _idx, _m in enumerate(_ti_obj.match_mappings.source_to_target):
+                                if _m.source_key == sk:
+                                    _ti_obj.match_mappings.source_to_target[_idx] = _new_m
+                                    _ti_found = True
+                                    break
+                            if not _ti_found:
+                                _ti_obj.match_mappings.source_to_target.append(_new_m)
+                            _ti_mgr.save(_ti_obj)
+                    except Exception as _ti_err:
+                        logging.warning(f"Failed to persist adopt mapping to target intent: {_ti_err}")
+                    # Persist protection intent — strip target__ prefix for consistent keys
+                    _intent_bare = sk.removeprefix("target__")
+                    intent_key = _make_prefixed_intent_key(st, _intent_bare)
+                    protection_intent = state.get_protection_intent_manager()
+                    protection_intent.set_intent(
+                        key=intent_key,
+                        protected=True,
+                        source="match_page_adopt_guard",
+                        reason="Adopt-and-protect from Match page guard dialog",
+                        resource_type=st or None,
+                    )
+                    protection_intent.save()
+                    bare_key = sk.removeprefix("target__")
+                    state.map.protected_resources.add(bare_key)
+                    save_state()
+                    # #region agent log
+                    import json as _json_dbg1, time as _time_dbg1; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log","a").write(_json_dbg1.dumps({"hypothesisId":"H1,H2","location":"match.py:adopt_and_protect","message":"stored_keys","data":{"sk":sk,"bare_key":bare_key,"intent_key":intent_key,"protected_resources":list(state.map.protected_resources)[:20]},"timestamp":int(_time_dbg1.time()*1000)})+"\n")
+                    # #endregion
+                    ui.notify(f"Adopted & protected: {display_name}", type="positive")
+                    ui.navigate.reload()
+
+                # Show the dialog
+                with ui.dialog() as guard_dlg, ui.card().classes("p-6").style("min-width: 400px;"):
+                    ui.label("Protection Requires Adoption").classes("text-lg font-semibold mb-2")
+                    ui.label(
+                        f'The resource "{display_name}" is currently not adopted. '
+                        "Protection only applies to resources that are imported into "
+                        "Terraform state."
+                    ).classes("text-sm text-slate-600 dark:text-slate-400 mb-4")
+                    ui.label(
+                        "Would you like to adopt and protect this resource?"
+                    ).classes("text-sm font-medium mb-4")
+                    with ui.row().classes("gap-4 justify-end"):
+                        def _on_guard_no():
+                            _revert_protection_in_grid()
+                            guard_dlg.close()
+
+                        def _on_guard_yes():
+                            guard_dlg.close()
+                            _adopt_and_protect_from_match()
+
+                        ui.button("No", on_click=_on_guard_no).props("outline")
+                        ui.button(
+                            "Yes — Adopt & Protect",
+                            on_click=_on_guard_yes,
+                        ).props("color=primary")
+                guard_dlg.open()
+                return  # Wait for dialog
+
             # User is protecting this resource - check for cascade
             target_resource, parents_to_protect = get_resources_to_protect(
                 source_key, hierarchy_index, source_items, state.map.protected_resources
@@ -1493,11 +1617,46 @@ def _create_matching_content(
             })
         
         # If action is skip, create_new, ignore, or unadopt, remove from confirmed if present
+        _protection_was_cleared = False
         if action in ("skip", "create_new", "unadopt", "ignore"):
             state.map.confirmed_mappings = [
                 m for m in state.map.confirmed_mappings
                 if m.get("source_key") != source_key
             ]
+            # ── Clear protection when action becomes non-adopt ──
+            if source_key in state.map.protected_resources:
+                state.map.protected_resources.discard(source_key)
+                # Also strip target__ prefix variant
+                bare_key = source_key.removeprefix("target__")
+                state.map.protected_resources.discard(bare_key)
+                row_data["protected"] = False
+                row_data["yaml_protected"] = False
+                # Update the grid_data_ref so UI reflects the change
+                for i, r in enumerate(grid_data_ref["data"]):
+                    if r.get("source_key") == source_key:
+                        grid_data_ref["data"][i]["protected"] = False
+                        grid_data_ref["data"][i]["yaml_protected"] = False
+                        break
+                # Update protection intent file
+                try:
+                    protection_intent = state.get_protection_intent_manager()
+                    source_type = row_data.get("source_type", "")
+                    intent_key = _get_intent_key_for_row(row_data)
+                    prefixed_key = _make_prefixed_intent_key(source_type, intent_key)
+                    tf_state_at_decision = "protected" if row_data.get("state_protected") else "unprotected"
+                    protection_intent.set_intent(
+                        key=prefixed_key,
+                        protected=False,
+                        source="action_change",
+                        reason=f"Protection cleared: action changed to '{action}'",
+                        resource_type=source_type or None,
+                        tf_state_at_decision=tf_state_at_decision,
+                        yaml_state_before=True,
+                    )
+                    protection_intent.save()
+                except Exception as _pi_err:
+                    logging.warning(f"Failed to clear protection intent on action change: {_pi_err}")
+                _protection_was_cleared = True
         if action == "unadopt":
             if not isinstance(getattr(state.map, "removal_keys", None), set):
                 state.map.removal_keys = set(state.map.removal_keys or [])
@@ -1507,6 +1666,10 @@ def _create_matching_content(
 
         save_state()
         _persist_target_intent_from_match(state)
+        # If protection was cleared due to action change, reload to refresh grid
+        if _protection_was_cleared:
+            ui.navigate.reload()
+            return
     
     def on_accept(source_key: str):
         """Accept a single suggestion."""
@@ -5555,13 +5718,31 @@ moved {{
     )
 
 
-def _create_stat_card(label: str, value: int, color_class: str, icon_name: str) -> None:
-    """Create a stat card."""
-    with ui.card().classes("p-3 min-w-[120px]"):
-        with ui.row().classes("items-center gap-2"):
-            ui.icon(icon_name, size="sm").classes(color_class)
-            ui.label(str(value)).classes(f"text-2xl font-bold {color_class}")
+def _create_stat_chip(
+    label: str,
+    value: str,
+    color_class: str,
+    icon_name: str,
+    subtitle: str = "",
+) -> None:
+    """Create a compact inline stat chip (icon + value + label).
+
+    All chips render at a uniform single-line height so the stat bar
+    stays visually consistent regardless of how many items are shown.
+    """
+    is_inline_style = "color:" in color_class
+    with ui.row().classes("items-center gap-1 px-2 py-1 rounded hover:bg-slate-50"):
+        icon = ui.icon(icon_name, size="xs")
+        val = ui.label(value).classes("text-sm font-bold")
+        if is_inline_style:
+            icon.style(color_class)
+            val.style(color_class)
+        else:
+            icon.classes(color_class)
+            val.classes(color_class)
         ui.label(label).classes("text-xs text-slate-500")
+        if subtitle:
+            ui.label(f"({subtitle})").classes("text-xs text-slate-400")
 
 
 def _create_navigation_with_grid_data(
