@@ -16,6 +16,7 @@ from importer.web.pages.scope import create_scope_page
 from importer.web.pages.fetch_target import create_fetch_target_page
 from importer.web.pages.explore_target import create_explore_target_page
 from importer.web.pages.match import create_match_page
+from importer.web.pages.adopt import create_adopt_page
 from importer.web.pages.configure import create_configure_page
 from importer.web.pages.deploy import create_deploy_page
 from importer.web.pages.destroy import create_destroy_page
@@ -379,6 +380,8 @@ def create_page_content(state: AppState) -> None:
         create_explore_target_page(state, navigate_to_step, save_state)
     elif step == WorkflowStep.MATCH:
         create_match_page(state, navigate_to_step, save_state)
+    elif step == WorkflowStep.ADOPT:
+        create_adopt_page(state, navigate_to_step, save_state)
     elif step == WorkflowStep.CONFIGURE:
         create_configure_page(state, navigate_to_step, save_state)
     elif step == WorkflowStep.TARGET_CREDENTIALS:
@@ -536,6 +539,21 @@ def match_page() -> None:
     if not _require_migration_license(state):
         return
     state.current_step = WorkflowStep.MATCH
+    save_state()
+    setup_page(state)
+
+    with ui.column().classes("w-full"):
+        create_progress_header(state)
+        create_page_content(state)
+
+
+@ui.page("/adopt")
+def adopt_page() -> None:
+    """Adopt step page route — automated terraform state rm + import."""
+    state = get_state()
+    if not _require_migration_license(state):
+        return
+    state.current_step = WorkflowStep.ADOPT
     save_state()
     setup_page(state)
 

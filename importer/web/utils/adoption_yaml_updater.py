@@ -106,6 +106,11 @@ def apply_adoption_overrides(
         if not source_key or not target_id:
             continue
         
+        # Strip "target__" prefix — target-only resources use prefixed
+        # source_keys but YAML config uses bare names.
+        if source_key.startswith("target__"):
+            source_key = source_key[len("target__"):]
+        
         # Skip if target_id is the string "None" (common for unmatched resources like credentials)
         if target_id == "None" or target_id is None:
             continue
@@ -517,8 +522,15 @@ def apply_protection_from_set(
     all_unprefixed = set()  # Fallback for unprefixed keys
     
     for key in protected_keys:
+        # Strip "target__" prefix — target-only resources use prefixed
+        # keys but YAML config uses bare names.
+        if key.startswith("target__"):
+            key = key[len("target__"):]
         if ":" in key:
             prefix, resource_key = key.split(":", 1)
+            # Also strip target__ from the resource_key portion
+            if resource_key.startswith("target__"):
+                resource_key = resource_key[len("target__"):]
             if prefix == "PRJ":
                 project_keys_to_protect.add(resource_key)
             elif prefix == "REP":
@@ -735,8 +747,15 @@ def apply_unprotection_from_set(
     all_unprefixed = set()
     
     for key in unprotected_keys:
+        # Strip "target__" prefix — target-only resources use prefixed
+        # keys but YAML config uses bare names.
+        if key.startswith("target__"):
+            key = key[len("target__"):]
         if ":" in key:
             prefix, resource_key = key.split(":", 1)
+            # Also strip target__ from the resource_key portion
+            if resource_key.startswith("target__"):
+                resource_key = resource_key[len("target__"):]
             if prefix == "PRJ":
                 project_keys_to_unprotect.add(resource_key)
             elif prefix == "REP":
@@ -1062,3 +1081,303 @@ def _merge_list_by_key_inline(target_list: list, source_list: list) -> None:
     Same recursive deep-merge logic as _merge_list_by_key.
     """
     _merge_keyed_list_inplace(target_list, source_list)
+
+
+# ---------------------------------------------------------------------------
+# Adopt-step config injection: add YAML entries for target-only resources
+# ---------------------------------------------------------------------------
+
+# Map element_type_code → YAML location under globals
+_GLOBAL_RESOURCE_YAML_KEY: dict[str, str] = {
+    "GRP": "groups",
+    "CON": "connections",
+    "TOK": "service_tokens",
+    "NOT": "notifications",
+    "PLE": "privatelink_endpoints",
+}
+
+
+def cleanup_unadopted_yaml_configs(
+    deployment_yaml: str,
+    all_grid_rows: list[dict],
+) -> tuple[str, int]:
+    """Remove YAML config entries for target-only resources that are NOT being adopted.
+
+    When the user changes a previously adopted resource to "ignore", the YAML
+    entry injected by ``inject_adopted_resource_configs`` in a prior plan run
+    must be removed.  Otherwise Terraform sees a config block with no matching
+    import block and plans to **create** the resource.
+
+    Only target-only resources (``source_key`` starting with ``target__``) are
+    eligible for cleanup — entries created by the normal migration workflow are
+    never removed.
+
+    Args:
+        deployment_yaml: Path to the deployment YAML (``dbt-cloud-config.yml``).
+        all_grid_rows: Full grid rows (adopt AND ignore).
+
+    Returns:
+        Tuple of (output_path, number_of_entries_removed).
+    """
+    dep_path = Path(deployment_yaml)
+    if not dep_path.exists():
+        return deployment_yaml, 0
+
+    # Collect keys of target-only resources that are NOT adopted.
+    # These are candidates for cleanup.
+    ignore_keys: set[tuple[str, str]] = set()  # (element_code, bare_key)
+    adopt_keys: set[tuple[str, str]] = set()
+    for row in all_grid_rows:
+        code = row.get("source_type", "")
+        raw_key = row.get("source_key", "")
+        if not code or not raw_key:
+            continue
+        # Only consider target-only resources (those we might have injected)
+        if not raw_key.startswith("target__"):
+            continue
+        bare_key = raw_key[len("target__"):]
+        if not bare_key:
+            continue
+        if row.get("action") == "adopt":
+            adopt_keys.add((code, bare_key))
+        else:
+            ignore_keys.add((code, bare_key))
+
+    # Only clean up keys that are ignored AND not also adopted
+    keys_to_remove = ignore_keys - adopt_keys
+    # region agent log
+    try:
+        import json as _json, time as _time
+        with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as _lf:
+            _lf.write(_json.dumps({"runId":"cleanup","hypothesisId":"H_CLEANUP","location":"adoption_yaml_updater.py:cleanup","message":"cleanup_unadopted_yaml_configs","data":{"ignore_keys":list(map(str,ignore_keys)),"adopt_keys":list(map(str,adopt_keys)),"keys_to_remove":list(map(str,keys_to_remove))},"timestamp":int(_time.time()*1000)})+"\n")
+    except Exception:
+        pass
+    # endregion
+    if not keys_to_remove:
+        return deployment_yaml, 0
+
+    with open(dep_path, "r") as f:
+        dep_config = yaml.safe_load(f) or {}
+
+    removed = 0
+    dep_globals = dep_config.get("globals", {})
+
+    for code, bare_key in keys_to_remove:
+        # --- Global resources ---
+        yaml_list_key = _GLOBAL_RESOURCE_YAML_KEY.get(code)
+        if yaml_list_key:
+            entries = dep_globals.get(yaml_list_key, [])
+            before_len = len(entries)
+            entries[:] = [e for e in entries if e.get("key") != bare_key]
+            diff = before_len - len(entries)
+            if diff > 0:
+                logger.info("  Removed %s key=%s from globals.%s", code, bare_key, yaml_list_key)
+                removed += diff
+            continue
+
+        # --- Projects ---
+        if code == "PRJ":
+            dep_projects = dep_config.get("projects", [])
+            before_len = len(dep_projects)
+            dep_projects[:] = [p for p in dep_projects if p.get("key") != bare_key]
+            diff = before_len - len(dep_projects)
+            if diff > 0:
+                logger.info("  Removed project key=%s from deployment YAML", bare_key)
+                removed += diff
+            continue
+
+    if removed == 0:
+        return deployment_yaml, 0
+
+    with open(dep_path, "w") as f:
+        yaml.dump(dep_config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+    logger.info("Cleaned up %d stale adoption config(s) from %s", removed, deployment_yaml)
+    return deployment_yaml, removed
+
+
+def inject_adopted_resource_configs(
+    deployment_yaml: str,
+    adopt_rows: list[dict],
+    target_baseline_yaml: str,
+    output_path: Optional[str] = None,
+) -> tuple[str, int]:
+    """Inject YAML config entries for adopted target-only resources.
+
+    When a resource exists in the target account but is absent from the
+    deployment YAML (``dbt-cloud-config.yml``), Terraform has no config block
+    to import into — ``terraform plan`` fails with
+    *"Configuration for import target does not exist"*.
+
+    This function reads the already-normalised target baseline YAML and copies
+    entries for every adopted resource into the deployment YAML **before**
+    import blocks are written and ``terraform plan`` is run.
+
+    Args:
+        deployment_yaml: Path to the deployment YAML (e.g. ``dbt-cloud-config.yml``).
+        adopt_rows: List of adopt grid rows with ``action="adopt"``.
+            Each row must have ``source_key``, ``source_type`` (element code).
+        target_baseline_yaml: Path to the normalised target YAML produced by
+            the target-fetch step (``state.target_fetch.target_baseline_yaml``).
+        output_path: Optional path to write updated YAML (defaults to
+            overwriting ``deployment_yaml``).
+
+    Returns:
+        Tuple of (output_path, number_of_resources_injected).
+    """
+    import copy
+
+    if not adopt_rows:
+        return deployment_yaml, 0
+
+    # --- Load deployment YAML ------------------------------------------------
+    dep_path = Path(deployment_yaml)
+    if not dep_path.exists():
+        logger.warning("Deployment YAML not found: %s", deployment_yaml)
+        return deployment_yaml, 0
+
+    with open(dep_path, "r") as f:
+        dep_config = yaml.safe_load(f) or {}
+
+    # --- Load target baseline YAML -------------------------------------------
+    baseline_path = Path(target_baseline_yaml)
+    if not baseline_path.exists():
+        logger.warning("Target baseline YAML not found: %s", target_baseline_yaml)
+        return deployment_yaml, 0
+
+    with open(baseline_path, "r") as f:
+        baseline_config = yaml.safe_load(f) or {}
+
+    baseline_globals = baseline_config.get("globals", {})
+    baseline_projects = baseline_config.get("projects", [])
+
+    # --- Build lookup: (element_code, key) → baseline entry ------------------
+    baseline_global_by_code_key: dict[tuple[str, str], dict] = {}
+    for code, yaml_key in _GLOBAL_RESOURCE_YAML_KEY.items():
+        for entry in baseline_globals.get(yaml_key, []):
+            entry_key = entry.get("key")
+            if entry_key:
+                baseline_global_by_code_key[(code, entry_key)] = entry
+
+    # Also index projects
+    baseline_project_by_key: dict[str, dict] = {}
+    for proj in baseline_projects:
+        pkey = proj.get("key")
+        if pkey:
+            baseline_project_by_key[pkey] = proj
+
+    # Index project-level resources (ENV, JOB, REP) from baseline
+    # Key: (code, resource_key) → entry dict
+    baseline_project_resource_by_code_key: dict[tuple[str, str], dict] = {}
+    for proj in baseline_projects:
+        for env in proj.get("environments", []):
+            ekey = env.get("key")
+            if ekey:
+                baseline_project_resource_by_code_key[("ENV", ekey)] = env
+        for job in proj.get("jobs", []):
+            jkey = job.get("key")
+            if jkey:
+                baseline_project_resource_by_code_key[("JOB", jkey)] = job
+        for repo in proj.get("repositories", []):
+            rkey = repo.get("key")
+            if rkey:
+                baseline_project_resource_by_code_key[("REP", rkey)] = repo
+
+    # Also index globals.repositories
+    for repo in baseline_globals.get("repositories", []):
+        rkey = repo.get("key")
+        if rkey:
+            baseline_global_by_code_key[("REP", rkey)] = repo
+
+    # --- Determine which resources need injection ----------------------------
+    injected = 0
+    dep_globals = dep_config.setdefault("globals", {})
+
+    for row in adopt_rows:
+        if row.get("action") != "adopt":
+            continue
+
+        code: str = row.get("source_type", "")
+        rkey: str = row.get("source_key", "")
+        if not code or not rkey:
+            continue
+
+        # Strip "target__" prefix — target-only resources use prefixed
+        # source_keys (e.g. "target__everyone") but the baseline YAML
+        # stores entries under the bare name ("everyone").
+        if rkey.startswith("target__"):
+            rkey = rkey[len("target__"):]
+        if not rkey:
+            continue
+
+        # --- Global resources (GRP, CON, TOK, NOT, PLE, REP under globals) ---
+        yaml_list_key = _GLOBAL_RESOURCE_YAML_KEY.get(code)
+        if yaml_list_key or code == "REP":
+            # Determine which baseline lookup to use
+            baseline_entry = baseline_global_by_code_key.get((code, rkey))
+            if not baseline_entry and code == "REP":
+                # Fallback: check project-level repos
+                baseline_entry = baseline_project_resource_by_code_key.get((code, rkey))
+            if not baseline_entry:
+                logger.info(
+                    "  No baseline entry for %s key=%s — skipping config injection", code, rkey
+                )
+                continue
+
+            # Use the correct yaml_list_key for REP (which falls under "repositories" in globals)
+            if code == "REP" and not yaml_list_key:
+                yaml_list_key = "repositories"
+
+            existing_list = dep_globals.setdefault(yaml_list_key, [])
+
+            # Check if already present
+            existing_keys = {e.get("key") for e in existing_list if e.get("key")}
+            if rkey in existing_keys:
+                logger.info(
+                    "  %s key=%s already in deployment YAML — skipping", code, rkey
+                )
+                continue
+
+            # Inject a deep-copy of the baseline entry
+            logger.info(
+                "  Injecting %s key=%s into deployment YAML globals.%s",
+                code, rkey, yaml_list_key,
+            )
+            existing_list.append(copy.deepcopy(baseline_entry))
+            injected += 1
+            continue
+
+        # --- Projects (PRJ) --------------------------------------------------
+        if code == "PRJ":
+            baseline_proj = baseline_project_by_key.get(rkey)
+            if not baseline_proj:
+                logger.info("  No baseline project for key=%s — skipping", rkey)
+                continue
+
+            dep_projects = dep_config.setdefault("projects", [])
+            existing_proj_keys = {p.get("key") for p in dep_projects if p.get("key")}
+            if rkey in existing_proj_keys:
+                logger.info("  Project key=%s already in deployment YAML — skipping", rkey)
+                continue
+
+            logger.info("  Injecting project key=%s into deployment YAML", rkey)
+            dep_projects.append(copy.deepcopy(baseline_proj))
+            injected += 1
+            continue
+
+        # --- Project-level resources (ENV, JOB) — skip for now ---------------
+        # These are nested under projects and require matching the project key
+        # first.  The adopt flow currently only handles global resources and
+        # projects.  If needed, extend here.
+        logger.debug("  Skipping config injection for %s key=%s (not a global resource)", code, rkey)
+
+    if injected == 0:
+        return deployment_yaml, 0
+
+    # --- Write updated YAML --------------------------------------------------
+    out_path = output_path or deployment_yaml
+    with open(out_path, "w") as f:
+        yaml.dump(dep_config, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+    logger.info("Injected %d adopted resource config(s) into %s", injected, out_path)
+    return out_path, injected

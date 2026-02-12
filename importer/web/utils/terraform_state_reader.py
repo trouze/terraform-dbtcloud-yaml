@@ -137,6 +137,22 @@ async def read_terraform_state(
             error_message=f"Directory does not exist: {tf_dir}",
         )
     
+    # Temporarily move import .tf files out of the way if present.
+    # These files contain `import {}` blocks that are only needed during
+    # `terraform apply` but cause `terraform show` to fail when they
+    # reference duplicate or already-imported addresses.
+    _moved_import_files: list[tuple[Path, Path]] = []
+    for import_filename in ("adopt_imports.tf", "reconcile_imports.tf"):
+        import_file = tf_dir / import_filename
+        import_backup = tf_dir / f"{import_filename}.bak"
+        if import_file.exists():
+            try:
+                import_file.rename(import_backup)
+                _moved_import_files.append((import_file, import_backup))
+                logger.info(f"Temporarily moved {import_filename} aside for terraform show")
+            except OSError as e:
+                logger.warning(f"Could not move {import_filename} aside: {e}")
+    
     try:
         logger.info(f"Reading Terraform state from {tf_dir}")
         
@@ -196,6 +212,15 @@ async def read_terraform_state(
             success=False,
             error_message=f"Error reading state: {e}",
         )
+    finally:
+        # Restore any import files we moved aside
+        for orig_path, backup_path in _moved_import_files:
+            if backup_path.exists():
+                try:
+                    backup_path.rename(orig_path)
+                    logger.info(f"Restored {orig_path.name} after terraform show")
+                except OSError as e:
+                    logger.warning(f"Could not restore {orig_path.name}: {e}")
 
 
 def parse_state_json(state_json: dict) -> StateReadResult:

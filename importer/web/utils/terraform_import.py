@@ -48,6 +48,7 @@ RESOURCE_TYPE_TO_TF = {
     "WEB": "dbtcloud_webhook",
     "VAR": "dbtcloud_environment_variable",
     "EXTATTR": "dbtcloud_extended_attributes",
+    "JCTG": "dbtcloud_job_completion_trigger",
 }
 
 
@@ -435,6 +436,7 @@ def generate_reconcile_import_blocks(
     blocks.append("")
     
     import_count = 0
+    seen_addresses: set[str] = set()  # Deduplicate by TF address — each address can only have one import block
     
     for drift in drift_results:
         # Handle both DriftResult objects and dicts
@@ -457,6 +459,13 @@ def generate_reconcile_import_blocks(
                 drift_type = drift_type_str
             element_code = drift.get("element_code", "")
             resource_name = drift.get("resource_name", "")
+            # Strip "target__" prefix from target-only resources.
+            # Target-only resources (those in the target account but not in the
+            # source) have source_keys like "target__everyone".  The prefix must
+            # be removed before generating Terraform addresses or looking up
+            # YAML configuration entries, which use the bare resource name.
+            if resource_name.startswith("target__"):
+                resource_name = resource_name[len("target__"):]
             state_address = drift.get("state_address")
             target_id = drift.get("target_id")
             adopt = drift.get("adopt", False)
@@ -487,31 +496,87 @@ def generate_reconcile_import_blocks(
             tf_address = f"module.{module_name}.{tf_type}.{safe_name}"
             address_reason = "default"
 
-            # Special-case repositories in v2 module layout
-            if element_code == "REP":
+            # ── v2 module address overrides ──────────────────────────────
+            # All resources live inside module.projects_v2[0] and use
+            # for_each maps keyed by the YAML "key" field.  The default
+            # flat address above is only a fallback for unknown types.
+            _v2 = f"module.{module_name}.module.projects_v2[0]"
+
+            # Check protected flag from drift context
+            _is_protected = False
+            if isinstance(drift, dict):
+                _is_protected = drift.get("protected", False)
+
+            if element_code == "PRJ":
+                _prj_res = "protected_projects" if _is_protected else "projects"
+                tf_address = f"{_v2}.dbtcloud_project.{_prj_res}[\"{safe_name}\"]"
+                address_reason = "projects_v2_project"
+
+            elif element_code == "GRP":
+                tf_address = f"{_v2}.dbtcloud_group.groups[\"{safe_name}\"]"
+                address_reason = "projects_v2_group"
+
+            elif element_code == "CON":
+                tf_address = f"{_v2}.dbtcloud_global_connection.connections[\"{safe_name}\"]"
+                address_reason = "projects_v2_connection"
+
+            elif element_code == "TOK":
+                tf_address = f"{_v2}.dbtcloud_service_token.service_tokens[\"{safe_name}\"]"
+                address_reason = "projects_v2_service_token"
+
+            elif element_code == "NOT":
+                tf_address = f"{_v2}.dbtcloud_notification.notifications[\"{safe_name}\"]"
+                address_reason = "projects_v2_notification"
+
+            elif element_code == "JOB":
+                _job_res = "protected_jobs" if _is_protected else "jobs"
+                tf_address = f"{_v2}.dbtcloud_job.{_job_res}[\"{safe_name}\"]"
+                address_reason = "projects_v2_job"
+
+            elif element_code == "REP":
                 project_name = ""
                 if isinstance(drift, dict):
                     context = drift.get("context") or {}
                     if isinstance(context, dict):
                         project_name = context.get("project_name", "") or ""
                 if project_name:
-                    tf_address = (
-                        f"module.{module_name}.module.projects_v2[0]."
-                        f"dbtcloud_repository.repositories[\"{project_name}\"]"
-                    )
+                    _rep_res = "protected_repositories" if _is_protected else "repositories"
+                    tf_address = f"{_v2}.dbtcloud_repository.{_rep_res}[\"{project_name}\"]"
                     address_reason = "projects_v2_repo"
-            if element_code == "PREP":
+
+            elif element_code == "PREP":
                 project_name = ""
                 if isinstance(drift, dict):
                     context = drift.get("context") or {}
                     if isinstance(context, dict):
                         project_name = context.get("project_name", "") or ""
                 if project_name:
-                    tf_address = (
-                        f"module.{module_name}.module.projects_v2[0]."
-                        f"dbtcloud_project_repository.project_repositories[\"{project_name}\"]"
-                    )
+                    _prep_res = "protected_project_repositories" if _is_protected else "project_repositories"
+                    tf_address = f"{_v2}.dbtcloud_project_repository.{_prep_res}[\"{project_name}\"]"
                     address_reason = "projects_v2_project_repository"
+
+            elif element_code == "ENV":
+                _env_res = "protected_environments" if _is_protected else "environments"
+                tf_address = f"{_v2}.dbtcloud_environment.{_env_res}[\"{safe_name}\"]"
+                address_reason = "projects_v2_environment"
+
+            elif element_code == "VAR":
+                _var_res = "protected_environment_variables" if _is_protected else "environment_variables"
+                tf_address = f"{_v2}.dbtcloud_environment_variable.{_var_res}[\"{safe_name}\"]"
+                address_reason = "projects_v2_env_var"
+
+            elif element_code == "EXTATTR":
+                _ext_res = "protected_extended_attrs" if _is_protected else "extended_attrs"
+                tf_address = f"{_v2}.dbtcloud_extended_attributes.{_ext_res}[\"{safe_name}\"]"
+                address_reason = "projects_v2_extended_attrs"
+
+            elif element_code == "WEB":
+                tf_address = f"{_v2}.dbtcloud_webhook.webhooks[\"{safe_name}\"]"
+                address_reason = "projects_v2_webhook"
+
+            elif element_code == "JCTG":
+                tf_address = f"{_v2}.dbtcloud_job_completion_trigger.job_triggers[\"{safe_name}\"]"
+                address_reason = "projects_v2_job_trigger"
         _debug_log({
             "sessionId": "debug-session",
             "runId": "run1",
@@ -544,6 +609,14 @@ def generate_reconcile_import_blocks(
                     project_id = context.get("project_id")
             if project_id:
                 import_id = f"{project_id}:{target_id}"
+        
+        # Deduplicate: Terraform only allows one import block per address.
+        # Keep the first occurrence; skip subsequent duplicates.
+        if tf_address in seen_addresses:
+            blocks.append(f"# SKIPPED duplicate: {resource_name} → {tf_address} (id={import_id})")
+            blocks.append("")
+            continue
+        seen_addresses.add(tf_address)
         
         # Add comment with context
         if drift_type == DriftType.ID_MISMATCH:
@@ -708,10 +781,16 @@ def generate_adopt_imports_from_grid(
                 pass  # Fall back to default address computation
         
         # Convert to drift result format
+        # Strip "target__" prefix from resource names of target-only resources.
+        # These resources were never on the Match page, so their source_name
+        # may be "target__everyone" instead of "everyone".
+        _raw_name = row.get("source_name", "").lstrip(" ↳")
+        if _raw_name.startswith("target__"):
+            _raw_name = _raw_name[len("target__"):]
         drift_result = {
             "drift_type": DriftType.ID_MISMATCH.value,  # Treat adopt as ID mismatch
             "element_code": element_code,
-            "resource_name": row.get("source_name", "").lstrip(" ↳"),  # Remove indent chars
+            "resource_name": _raw_name,
             "state_address": pre_computed_address,  # Use protected address if set, else computed
             "target_id": int(target_id) if target_id else None,
             "adopt": True,
@@ -769,7 +848,8 @@ def generate_adopt_imports_from_grid(
     if not drift_results:
         return "# No resources selected for adoption\n"
     
-    return generate_reconcile_import_blocks(drift_results, module_name)
+    result = generate_reconcile_import_blocks(drift_results, module_name)
+    return result
 
 
 def generate_state_rm_commands(grid_rows: list[dict]) -> list[str]:

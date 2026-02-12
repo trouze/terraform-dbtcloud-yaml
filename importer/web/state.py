@@ -34,6 +34,8 @@ class WorkflowStep(IntEnum):
     JAC_GENERATE = 17  # Preview and export
     # Utilities
     UTILITIES = 18  # Protection intent management and utilities
+    # Adoption step (between Match and Configure in Migration workflow)
+    ADOPT = 19  # Automated terraform state rm + import for adopted resources
 
 
 class WorkflowType(str, Enum):
@@ -67,6 +69,8 @@ STEP_NAMES = {
     WorkflowStep.JAC_GENERATE: "Generate YAML",
     # Utilities
     WorkflowStep.UTILITIES: "Protection Management",
+    # Adoption step
+    WorkflowStep.ADOPT: "Adopt Resources",
 }
 
 STEP_ICONS = {
@@ -91,6 +95,8 @@ STEP_ICONS = {
     WorkflowStep.JAC_GENERATE: "code",
     # Utilities
     WorkflowStep.UTILITIES: "security",
+    # Adoption step
+    WorkflowStep.ADOPT: "download_for_offline",
 }
 
 
@@ -109,6 +115,7 @@ WORKFLOW_STEPS = {
         WorkflowStep.FETCH_TARGET,
         WorkflowStep.EXPLORE_TARGET,
         WorkflowStep.MATCH,
+        WorkflowStep.ADOPT,
         WorkflowStep.CONFIGURE,
         WorkflowStep.TARGET_CREDENTIALS,
         WorkflowStep.DEPLOY,
@@ -131,6 +138,7 @@ WORKFLOW_STEPS = {
         WorkflowStep.FETCH_TARGET,
         WorkflowStep.EXPLORE_TARGET,
         WorkflowStep.MATCH,
+        WorkflowStep.ADOPT,
         WorkflowStep.CONFIGURE,
         WorkflowStep.TARGET_CREDENTIALS,
         WorkflowStep.DEPLOY,
@@ -493,6 +501,9 @@ class MapState:
     # Target-only visibility: when True, target-only rows are visible in the grid
     show_target_only: bool = True
     
+    # Target-only exclusive: when True, show ONLY target-only rows (hide everything else)
+    target_only_exclusive: bool = False
+    
     # Scope visibility filter: when True, only show rows related to source scope
     show_scope_only: bool = False
 
@@ -617,6 +628,15 @@ class DeployState:
     reconcile_imports_generated: bool = False  # True after imports.tf generated for reconciliation
     reconcile_adopt_rows: list = field(default_factory=list)  # Full grid row data for adopted resources (includes target_id, source_type, etc.)
     reconcile_execution_logs: list = field(default_factory=list)  # Execution logs: [(timestamp, cmd, success, output, cwd), ...]
+    
+    # Adopt step state (PRD 43.02)
+    adopt_step_complete: bool = False  # True after adopt step finishes or is skipped
+    adopt_step_skipped: bool = False  # True if user clicked "Skip"
+    adopt_step_running: bool = False  # True while execution is in progress
+    adopt_step_status: str = ""  # "idle", "backup", "state_rm", "write_imports", "init", "apply", "verify", "complete", "failed"
+    adopt_step_backup_path: str = ""  # Path to terraform.tfstate.adopt-backup
+    adopt_step_last_output: str = ""  # Last execution output for display
+    adopt_step_error: str = ""  # Error message if failed
 
     def has_state_file(self) -> bool:
         """Check if a Terraform state file exists.

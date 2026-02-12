@@ -565,14 +565,15 @@ def build_grid_data(
                 state_repo_by_project=state_repo_by_project,
             )
             
-            # Determine action: use stored action, or compute based on drift
+            # Determine action: use stored action, or default to "match"
+            # Adoption requires explicit user opt-in (bulk "Adopt All" or per-row dropdown)
+            # However, if the resource is in_sync, override any stored "adopt" back to "match"
+            # since the resource is already correctly managed in TF state.
             stored_action = confirmed.get("action")
-            if stored_action:
+            if stored_action == "adopt" and drift_status not in (DRIFT_NOT_IN_STATE, DRIFT_ID_MISMATCH, DRIFT_ATTR_MISMATCH):
+                action = "match"  # Resource is in_sync — adopt is no longer needed
+            elif stored_action:
                 action = stored_action
-            elif drift_status == DRIFT_NOT_IN_STATE:
-                action = "adopt"  # Target exists but not in state - needs adoption
-            elif drift_status == DRIFT_ID_MISMATCH:
-                action = "adopt"  # ID mismatch - needs state rm + import
             else:
                 action = "match"
             
@@ -724,11 +725,9 @@ def build_grid_data(
                 source_remote_url=_src_remote_url,
             )
             
-            # If matched but not in state, or ID mismatch, default to "adopt"
-            if drift_status in (DRIFT_NOT_IN_STATE, DRIFT_ID_MISMATCH, DRIFT_ATTR_MISMATCH):
-                default_action = "adopt"
-            else:
-                default_action = "match"
+            # Default to "match" — adoption requires explicit user opt-in
+            # (bulk "Adopt All Matched" or per-row dropdown change)
+            default_action = "match"
             
             row = {
                 "source_key": source_key,
@@ -1136,16 +1135,22 @@ def build_grid_data(
             item_key = item.get("key", "") or f"target__{element_type}_{dbt_id_int}"
             project_name = item.get("project_name", "")
             
+            target_source_key = f"target__{item_key}"
+            
+            # Check if this target-only resource has a confirmed mapping (e.g., adopt)
+            confirmed = confirmed_by_source_key.get(target_source_key)
+            confirmed_action = confirmed.get("action", "ignore") if confirmed else "ignore"
+            
             target_only_row = {
-                "source_key": f"target__{item_key}",
+                "source_key": target_source_key,
                 "source_name": "",  # Empty source column for target-only
                 "source_type": element_type,
                 "source_id": None,
                 "project_name": project_name,
-                "action": "ignore",  # Default to ignore; user opts in to adopt
+                "action": confirmed_action,  # Use confirmed action or default to ignore
                 "target_id": str(dbt_id_int),
                 "target_name": item_name,
-                "status": "pending",
+                "status": "confirmed" if confirmed else "pending",
                 "confidence": "target_only",
                 "clone_configured": False,
                 "clone_name": "",
@@ -1279,6 +1284,7 @@ def create_match_grid(
     removal_keys: Optional[set[str]] = None,
     protected_resources: Optional[set[str]] = None,
     protection_intent_manager: Optional["ProtectionIntentManager"] = None,
+    row_data_override: Optional[list[dict]] = None,
 ) -> tuple:
     """Create the editable matching grid.
     
@@ -1299,19 +1305,23 @@ def create_match_grid(
         removal_keys: Optional set of source_keys marked for unadopt (persisted, applied on load)
         protected_resources: Optional set of source_keys that are protected
         protection_intent_manager: Optional intent manager for effective protection lookup
+        row_data_override: Optional pre-filtered row data; when provided, skips build_grid_data
         
     Returns:
         Tuple of (grid component, row data list)
     """
-    # Build row data
-    removal_keys = removal_keys or set()
-    row_data = build_grid_data(
-        source_items, target_items, confirmed_mappings, rejected_keys, clone_configs,
-        state_result=state_result,
-        protected_resources=protected_resources,
-        protection_intent_manager=protection_intent_manager,
-        removal_keys=removal_keys,
-    )
+    # Build row data (or use override if provided, e.g. for filtered views)
+    if row_data_override is not None:
+        row_data = row_data_override
+    else:
+        removal_keys = removal_keys or set()
+        row_data = build_grid_data(
+            source_items, target_items, confirmed_mappings, rejected_keys, clone_configs,
+            state_result=state_result,
+            protected_resources=protected_resources,
+            protection_intent_manager=protection_intent_manager,
+            removal_keys=removal_keys,
+        )
     
     # Build target options for autocomplete
     target_options = [
@@ -1368,6 +1378,35 @@ def create_match_grid(
             },
         },
         {
+            "field": "row_origin",
+            "colId": "row_origin",
+            "headerName": "Origin",
+            "headerTooltip": "Resource origin: source-matched, target-only, in TF state, or managed",
+            "width": 100,
+            "sortable": True,
+            "filter": True,
+            ":valueGetter": """params => {
+                if (!params.data) return '';
+                if (params.data.is_target_only) return 'target_only';
+                if (params.data.is_state_only) return 'state_only';
+                if (params.data.drift_status === 'in_sync') return 'managed';
+                return 'source';
+            }""",
+            ":cellRenderer": """params => {
+                if (!params.data) return '';
+                if (params.data.is_target_only) {
+                    return '<span style="background: #0D9488; color: white; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-family: sans-serif;">Target Only</span>';
+                }
+                if (params.data.is_state_only) {
+                    return '<span style="background: #6366F1; color: white; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-family: sans-serif;">In State</span>';
+                }
+                if (params.data.drift_status === 'in_sync') {
+                    return '<span style="background: #6366F1; color: white; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-family: sans-serif;">Managed</span>';
+                }
+                return '<span style="color: #94A3B8; font-size: 11px;">Source</span>';
+            }""",
+        },
+        {
             "field": "source_name",
             "colId": "source_name",
             "headerName": "Source Name",
@@ -1375,17 +1414,11 @@ def create_match_grid(
             "filter": "agTextColumnFilter",
             "cellStyle": {"fontFamily": "monospace", "fontSize": "12px"},
             ":cellRenderer": """params => {
-                if (params.data && params.data.is_target_only) {
-                    return '<span style="background: #0D9488; color: white; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-family: sans-serif;">Target Only</span>';
-                }
-                if (params.data && params.data.is_state_only) {
-                    return '<span style="background: #6366F1; color: white; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-family: sans-serif;">In State</span>';
-                }
                 var val = params.value || '';
                 if (params.data && params.data.drift_status === 'in_sync') {
                     var addr = params.data.state_address || '';
                     var addrHtml = addr ? ' <span style="color: #6366F1; font-size: 10px; font-family: monospace;" title="' + addr + '">' + addr + '</span>' : '';
-                    return val + ' <span style="background: #6366F1; color: white; padding: 1px 5px; border-radius: 3px; font-size: 10px; font-family: sans-serif;">Managed</span>' + addrHtml;
+                    return val + addrHtml;
                 }
                 return val;
             }""",
@@ -1414,6 +1447,7 @@ def create_match_grid(
                     'skip': '⏭️ Skip',
                     'adopt': '📥 Adopt',
                     'unadopt': '🔓 Unadopt',
+                    'ignore': '🚫 Ignore',
                 };
                 return labels[params.value] || params.value;
             }""",
@@ -1423,6 +1457,7 @@ def create_match_grid(
                 "action-skip": "x === 'skip'",
                 "action-adopt": "x === 'adopt'",
                 "action-unadopt": "x === 'unadopt'",
+                "action-ignore": "x === 'ignore'",
             },
         },
         {
@@ -1739,6 +1774,7 @@ def create_match_grid(
         .action-create { color: #F59E0B !important; font-weight: 500; }
         .action-skip { color: #6B7280 !important; font-style: italic; }
         .action-adopt { color: #8B5CF6 !important; font-weight: 600; background-color: rgba(139, 92, 246, 0.15) !important; }
+        .action-ignore { color: #9CA3AF !important; font-style: italic; text-decoration: line-through; }
         
         /* Status column colors */
         .status-pending { color: #D97706 !important; }
@@ -1838,7 +1874,7 @@ def create_match_grid(
 
 
 # Allowed values for the Action column (match grid)
-ACTION_VALUES = ["match", "create_new", "skip", "adopt", "unadopt"]
+ACTION_VALUES = ["match", "create_new", "skip", "adopt", "unadopt", "ignore"]
 
 # Type labels for match grid filter dropdown (same codes as source_type column)
 MATCH_GRID_TYPE_LABELS = {
@@ -1870,8 +1906,10 @@ def create_grid_toolbar(
     on_adopt_all_matched: Optional[Callable[[], None]] = None,
     on_ignore_all_unmatched: Optional[Callable[[], None]] = None,
     on_adopt_all_target_only: Optional[Callable[[], None]] = None,
-    on_toggle_target_only: Optional[Callable[[bool], None]] = None,
+    on_toggle_target_only: Optional[Callable[[str], None]] = None,
     show_target_only: bool = True,
+    target_only_exclusive: bool = False,
+    target_only_total: int = 0,
     on_toggle_scope_only: Optional[Callable[[bool], None]] = None,
     show_scope_only: bool = False,
     hidden_by_scope: int = 0,
@@ -1889,9 +1927,11 @@ def create_grid_toolbar(
         on_adopt_all_matched: Optional callback for "Adopt All Matched" bulk action
         on_ignore_all_unmatched: Optional callback for "Ignore All Unmatched" bulk action
         on_adopt_all_target_only: Optional callback for "Adopt All Target-Only" bulk action
-        on_toggle_target_only: Optional callback when "Show Target-Only" toggle changes
+        on_toggle_target_only: Optional callback when target-only filter changes (receives "hide"/"include"/"only")
         show_target_only: Current state of the target-only visibility toggle
-        on_toggle_scope_only: Optional callback when "Show Scoped Only" toggle changes
+        target_only_exclusive: When True, show ONLY target-only rows
+        target_only_total: Total target-only rows in unfiltered data (for showing the dropdown even when hidden)
+        on_toggle_scope_only: Optional callback when "Show Source Selected Only" toggle changes
         show_scope_only: Current state of scope visibility filter
         hidden_by_scope: Number of rows hidden by scope filter (for display)
     """
@@ -1939,17 +1979,30 @@ def create_grid_toolbar(
             on_change=lambda e: on_type_filter_change(e.value) if on_type_filter_change else None,
         ).props("outlined dense").classes("min-w-[200px]")
         
-        # Target-only toggle (only show if target-only rows exist)
-        if target_only_count > 0 and on_toggle_target_only is not None:
-            ui.switch(
-                f"Show Target-Only ({target_only_count})",
-                value=show_target_only,
+        # Target-only filter (3-way dropdown when target-only rows exist in unfiltered data)
+        _to_total = target_only_total if target_only_total > 0 else target_only_count
+        if _to_total > 0 and on_toggle_target_only is not None:
+            target_filter_options = {
+                "hide": f"Hide Target-Only ({_to_total})",
+                "include": f"Include Target-Only ({_to_total})",
+                "only": f"Target-Only Only ({_to_total})",
+            }
+            # Derive initial value from current state
+            if target_only_exclusive:
+                _initial_target_filter = "only"
+            elif show_target_only:
+                _initial_target_filter = "include"
+            else:
+                _initial_target_filter = "hide"
+            ui.select(
+                options=target_filter_options,
+                value=_initial_target_filter,
                 on_change=lambda e: on_toggle_target_only(e.value),
-            ).props("dense color=teal").classes("text-sm")
+            ).props("outlined dense").classes("min-w-[200px] text-sm")
         
-        # Scope visibility filter toggle
+        # Source-selected visibility filter toggle
         if on_toggle_scope_only is not None:
-            scope_label = "Show Scoped Only"
+            scope_label = "Show Source Selected Only"
             if show_scope_only and hidden_by_scope > 0:
                 scope_label += f" ({hidden_by_scope} hidden)"
             ui.switch(

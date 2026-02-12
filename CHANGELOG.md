@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-02-12
+
+### Added
+- **Dedicated Adopt Resources Page** (`/adopt`): New step 7 in the Migration Workflow that automates `terraform import` for resources marked "adopt" on the Match page
+  - AG Grid with Type, Name, Target ID, Drift, Protected, and editable Action column (Adopt/Ignore)
+  - Reactive summary counters (top cards, grid title, bottom label) update on action changes
+  - Detail popup reuses the same tabbed dialog as the Match page for consistency
+- **Two-Step Plan/Apply Workflow**: Split adoption execution into separate "Plan Adoption" and "Apply Adoption" buttons
+  - Plan output auto-opens in a color-coded viewer dialog (same style as Deploy page)
+  - "View Plan" and "View Output" buttons available at any time for reviewing full logs
+  - Re-plan support: changing any Adopt/Ignore selection re-enables the Plan button
+- **Targeted Terraform Plan**: Import plans use `-target` flags scoped to only the adopted resource addresses, avoiding unrelated drift in the plan output
+- **Automatic YAML Config Injection**: Target-only adopted resources (not in source) get their configuration dynamically injected into `dbt-cloud-config.yml` from the target baseline, resolving `Configuration for import target does not exist` errors
+- **YAML Config Cleanup**: Switching a previously adopted resource to "Ignore" automatically removes its injected config entry, preventing Terraform from planning unwanted resource creation
+- **Comprehensive Resource Type Address Mapping**: Correct `projects_v2` module Terraform addresses for all resource types: PRJ, GRP, CON, TOK, NOT, JOB, REP, PREP, ENV, VAR, EXTATTR, JCTG, WEB — including protected/unprotected variants
+- **Import Plan Explanatory Note**: Plan viewer prepends a NOTE banner explaining that "update in-place" and "Changes to Outputs" are normal import behavior, reducing confusion for novice Terraform users
+- **State Backup & Restore**: Automatic state backup before adoption with a "Restore Backup" button for safe rollback
+
+### Fixed
+- **Target-Only Resource Name Display**: Stripped `target__` prefix from resource names in the Adopt grid for clean display
+- **Action Propagation from Match Page**: Adopt page correctly respects Ignore/Adopt actions set on the Match page, checking both bare and `target__`-prefixed keys in `confirmed_mappings`
+- **Consistent `target__` Prefix Handling**: All code paths (Terraform address generation, YAML injection, YAML cleanup, protection/unprotection) consistently strip the `target__` prefix before lookups
+
 ## [0.21.2] - 2026-02-11
 
 ### Fixed
