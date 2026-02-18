@@ -6,7 +6,6 @@ import re
 import shutil
 import subprocess
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -18,8 +17,8 @@ from importer.web.utils.terraform_helpers import (
     build_target_flags,
     get_terraform_env,
     resolve_deployment_paths,
-    run_terraform_command,
 )
+from importer.web.utils.generate_pipeline import run_generate_pipeline
 
 # region agent log
 _DEBUG_LOG_PATH = Path("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-65e6e9.log")
@@ -445,8 +444,6 @@ def _create_protection_management_section(
         1 for intent in protection_intent._intent.values()
         if intent.applied_to_yaml and intent.applied_to_tf_state
     )
-    total_intents = protection_intent.intent_count
-    
     with ui.card().classes("w-full p-4"):
         with ui.row().classes("w-full items-center gap-2 mb-3"):
             ui.icon("shield", size="md").classes("text-slate-600")
@@ -682,13 +679,9 @@ def _create_protection_management_section(
             async def generate_all_pending():
                 """Process all pending-generate intents at once.
                 
-                This follows the same workflow as Match page:
-                1. Read pending intents
-                2. Apply intents to YAML
-                3. Generate protection_moves.tf from state comparison
-                4. Regenerate Terraform files from YAML (shared converter path)
+                Uses the canonical headless generation pipeline:
+                run_generate_pipeline(include_adopt=False).
                 """
-                # Get both pending YAML updates AND pending TF apply items
                 pending_yaml = protection_intent.get_pending_yaml_updates()
                 pending_tf = {k: i for k, i in protection_intent._intent.items()
                              if i.applied_to_yaml and not i.applied_to_tf_state}
@@ -711,175 +704,75 @@ def _create_protection_management_section(
                 if not pending:
                     ui.notify("No pending intents to generate", type="warning")
                     return
-                
-                tf_path, yaml_file, _baseline = resolve_deployment_paths(state)
-                if not yaml_file.exists():
-                    ui.notify(f"YAML file not found: {yaml_file}", type="negative")
-                    return
-                # region agent log
-                _agent_debug_log(
-                    "H1",
-                    "utilities.py:generate_all_pending",
-                    "selected yaml file for generation",
-                    {
-                        "tf_path": str(tf_path),
-                        "yaml_file": str(yaml_file),
-                        "merged_exists": (tf_path / "dbt-cloud-config-merged.yml").exists(),
-                        "base_exists": (tf_path / "dbt-cloud-config.yml").exists(),
-                    },
-                )
-                # endregion
-                
-                # Step 1: Apply intents to YAML
+
                 try:
-                    from importer.web.utils.adoption_yaml_updater import apply_protection_from_set, apply_unprotection_from_set
-                    
-                    keys_to_protect = {k for k, i in pending.items() if i.protected}
-                    keys_to_unprotect = {k for k, i in pending.items() if not i.protected}
-                    
-                    if keys_to_protect:
-                        apply_protection_from_set(str(yaml_file), keys_to_protect)
-                    if keys_to_unprotect:
-                        apply_unprotection_from_set(str(yaml_file), keys_to_unprotect)
-                    
-                    # Mark as applied to YAML
-                    protection_intent.mark_applied_to_yaml(set(pending_yaml.keys()))
-                    protection_intent.save()
+                    pipeline_log: list[str] = []
+
+                    def _on_progress(msg: str) -> None:
+                        pipeline_log.append(msg)
+
+                    result = await run_generate_pipeline(
+                        state,
+                        include_adopt=False,
+                        include_protection_moves=True,
+                        merge_baseline=True,
+                        regenerate_hcl=True,
+                        on_progress=_on_progress,
+                    )
+
+                    if result.errors:
+                        ui.notify(
+                            f"Generate pipeline failed: {'; '.join(result.errors)}",
+                            type="negative",
+                        )
+                        return
+
+                    # region agent log
+                    _agent_debug_log(
+                        "H1",
+                        "utilities.py:generate_all_pending",
+                        "pipeline generation complete",
+                        {
+                            "pending_count": len(pending),
+                            "moves_count": result.moves_count,
+                            "imports_count": result.imports_count,
+                            "target_count": len(result.target_addresses),
+                            "pipeline_steps_logged": len(pipeline_log),
+                        },
+                    )
+                    # endregion
+
                     if save_state:
                         save_state()
-                except Exception as e:
-                    import traceback
-                    ui.notify(f"Error applying YAML changes: {e}", type="negative")
-                    traceback.print_exc()
-                    return
-                
-                # Step 2: Generate protection_moves.tf by comparing YAML to state
-                try:
-                    from importer.web.utils.protection_manager import (
-                        ProtectionChange,
-                        generate_moved_blocks_from_state,
-                        get_resource_address,
-                        load_yaml_config,
-                        write_moved_blocks_file,
+
+                    ui.notify(
+                        f"Processed {len(pending)} intent(s): "
+                        f"{result.moves_count} move(s), {len(result.target_addresses)} target(s)",
+                        type="positive",
                     )
-
-                    yaml_config = load_yaml_config(str(yaml_file))
-                    protection_changes: list[ProtectionChange] = []
-
-                    # Prefer loaded reconcile state (from terraform show -json) so
-                    # move direction matches what the UI mismatch cards display.
-                    if state.deploy.reconcile_state_loaded and state.deploy.reconcile_state_resources:
-                        # Build YAML protection map for PRJ/REP/PREP.
-                        yaml_protection: dict[tuple[str, str], bool] = {}
-                        project_keys = set()
-                        for project in yaml_config.get("projects", []):
-                            project_key = project.get("key", "")
-                            project_keys.add(project_key)
-                            yaml_protection[("PRJ", project_key)] = bool(project.get("protected", False))
-                        for repo in yaml_config.get("globals", {}).get("repositories", []):
-                            repo_key = repo.get("key", "")
-                            repo_protected = bool(repo.get("protected", False))
-                            yaml_protection[("REP", repo_key)] = repo_protected
-                            for project_key in project_keys:
-                                if project_key in repo_key or repo_key.endswith(project_key):
-                                    yaml_protection[("REP", project_key)] = repo_protected
-                                    yaml_protection[("PREP", project_key)] = repo_protected
-                                    break
-
-                        # region agent log
-                        _agent_debug_log(
-                            "H6",
-                            "utilities.py:generate_all_pending",
-                            "using reconcile_state_resources as move generation source",
-                            {
-                                "resource_count": len(state.deploy.reconcile_state_resources),
-                                "has_fido_reconcile": any(r.get("resource_index") == "sse_dm_fin_fido" for r in state.deploy.reconcile_state_resources),
-                            },
-                        )
-                        # endregion
-
-                        for resource in state.deploy.reconcile_state_resources:
-                            element_code = resource.get("element_code", "")
-                            resource_index = resource.get("resource_index", "")
-                            tf_name = resource.get("tf_name", "")
-                            if element_code not in ("PRJ", "REP", "PREP") or not resource_index:
-                                continue
-                            state_protected = "protected_" in tf_name
-                            yaml_protected = yaml_protection.get((element_code, resource_index), False)
-                            if yaml_protected == state_protected:
-                                continue
-                            direction = "protect" if yaml_protected else "unprotect"
-                            protection_changes.append(
-                                ProtectionChange(
-                                    resource_key=resource_index,
-                                    resource_type=element_code,
-                                    name=resource_index,
-                                    direction=direction,
-                                    from_address=get_resource_address(element_code, resource_index, protected=state_protected),
-                                    to_address=get_resource_address(element_code, resource_index, protected=yaml_protected),
-                                )
-                            )
-                    else:
-                        state_file = tf_path / "terraform.tfstate"
-                        # region agent log
-                        _agent_debug_log(
-                            "H2",
-                            "utilities.py:generate_all_pending",
-                            "starting terraform.tfstate comparison for moved block generation",
-                            {
-                                "yaml_file": str(yaml_file),
-                                "state_file": str(state_file),
-                                "state_file_exists": state_file.exists(),
-                            },
-                        )
-                        # endregion
-                        if state_file.exists():
-                            protection_changes = generate_moved_blocks_from_state(yaml_config, str(state_file))
-                        else:
-                            ui.notify("YAML updated - no state file found to compare", type="info")
-
-                    if protection_changes:
-                        moved_file = write_moved_blocks_file(
-                            protection_changes,
-                            str(tf_path),
-                            filename="protection_moves.tf",
-                            preserve_existing=False,
-                        )
-                        if moved_file:
-                            ui.notify(f"Generated {len(protection_changes)} moved block(s) → {moved_file.name}", type="positive")
-                    else:
-                        # Clear stale generated moves to prevent old directions from
-                        # blocking plan/apply with "Moved object still exists".
-                        moves_file = tf_path / "protection_moves.tf"
-                        if moves_file.exists():
-                            moves_file.write_text(
-                                "# Protection moves cleared - no pending protection moves\n",
-                                encoding="utf-8",
-                            )
-                        ui.notify("YAML updated - no moved blocks needed (state already matches)", type="info")
+                    ui.navigate.reload()
                 except Exception as e:
-                    import traceback
-                    ui.notify(f"Error generating moved blocks: {e}", type="negative")
-                    traceback.print_exc()
-
-                # Step 3: Regenerate Terraform files so moved blocks can apply
-                # (moves fail if HCL still declares resources in protected_* blocks).
-                try:
-                    from importer.yaml_converter import YamlToTerraformConverter
-
-                    converter = YamlToTerraformConverter()
-                    await asyncio.to_thread(
-                        converter.convert,
-                        str(yaml_file),
-                        str(tf_path),
-                    )
-                    ui.notify("Regenerated Terraform files from updated YAML", type="positive")
-                except Exception as e:
-                    ui.notify(f"Error regenerating Terraform files: {e}", type="negative")
-                    return
-                
-                ui.notify(f"Processed {len(pending)} protection intent(s)", type="positive")
-                ui.navigate.reload()
+                    # region agent log
+                    try:
+                        import traceback as _tb_dbg
+                        with Path("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-0c67c5.log").open("a", encoding="utf-8") as _f:
+                            _f.write(json.dumps({
+                                "sessionId": "0c67c5",
+                                "runId": "run1",
+                                "hypothesisId": "G",
+                                "location": "utilities.py:generate_all_pending:except",
+                                "message": "generate_all_pending exception",
+                                "data": {
+                                    "error": str(e),
+                                    "error_type": type(e).__name__,
+                                    "traceback": _tb_dbg.format_exc()[-4000:],
+                                },
+                                "timestamp": int(time.time() * 1000),
+                            }, default=str) + "\n")
+                    except Exception:
+                        pass
+                    # endregion
+                    ui.notify(f"Generate pipeline error: {e}", type="negative")
             
             def export_json():
                 """Download protection-intent.json."""
@@ -1536,7 +1429,7 @@ def _create_audit_history_section(protection_intent) -> None:
             {"name": "source", "label": "Source", "field": "source", "align": "left"},
         ]
         
-        table = ui.table(columns=columns, rows=table_data, row_key="timestamp").classes("w-full")
+        ui.table(columns=columns, rows=table_data, row_key="timestamp").classes("w-full")
         
         # View All link
         if len(history) > 20:

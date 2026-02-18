@@ -423,7 +423,7 @@ resource "dbtcloud_service_token" "service_tokens" {
   state = try(each.value.state, 1)
 
   dynamic "service_token_permissions" {
-    for_each = try(each.value.service_token_permissions, [])
+    for_each = var.skip_global_project_permissions ? [] : try(each.value.service_token_permissions, [])
     content {
       permission_set = service_token_permissions.value.permission_set
       all_projects   = try(service_token_permissions.value.all_projects, false)
@@ -443,11 +443,20 @@ resource "dbtcloud_service_token" "service_tokens" {
       )
     }
   }
+  dynamic "service_token_permissions" {
+    for_each = var.skip_global_project_permissions ? try(each.value.service_token_permissions, []) : []
+    content {
+      permission_set = service_token_permissions.value.permission_set
+      # Preserve valid shape while avoiding project resource references.
+      all_projects = true
+      project_id   = null
+      writable_environment_categories = try(
+        service_token_permissions.value.writable_environment_categories,
+        []
+      )
+    }
+  }
 
-  depends_on = [
-    dbtcloud_project.projects,
-    dbtcloud_project.protected_projects
-  ]
 }
 
 #############################################
@@ -460,7 +469,7 @@ resource "dbtcloud_service_token" "protected_service_tokens" {
   state = try(each.value.state, 1)
 
   dynamic "service_token_permissions" {
-    for_each = try(each.value.service_token_permissions, [])
+    for_each = var.skip_global_project_permissions ? [] : try(each.value.service_token_permissions, [])
     content {
       permission_set = service_token_permissions.value.permission_set
       all_projects   = try(service_token_permissions.value.all_projects, false)
@@ -478,11 +487,18 @@ resource "dbtcloud_service_token" "protected_service_tokens" {
       )
     }
   }
-
-  depends_on = [
-    dbtcloud_project.projects,
-    dbtcloud_project.protected_projects
-  ]
+  dynamic "service_token_permissions" {
+    for_each = var.skip_global_project_permissions ? try(each.value.service_token_permissions, []) : []
+    content {
+      permission_set = service_token_permissions.value.permission_set
+      all_projects   = true
+      project_id     = null
+      writable_environment_categories = try(
+        service_token_permissions.value.writable_environment_categories,
+        []
+      )
+    }
+  }
 
   lifecycle {
     prevent_destroy = true
@@ -500,20 +516,25 @@ resource "dbtcloud_group" "groups" {
   sso_mapping_groups = try(each.value.sso_mapping_groups, [])
 
   dynamic "group_permissions" {
-    for_each = try(each.value.group_permissions, [])
+    for_each = var.skip_global_project_permissions ? [] : try(each.value.group_permissions, [])
     content {
       permission_set = group_permissions.value.permission_set
       all_projects   = try(group_permissions.value.all_projects, false)
-      # Resolve project_key to target project_id, or use explicit project_id if provided
-      # Check both protected and unprotected projects
-      project_id = (
-        try(group_permissions.value.project_key, null) != null
-        ? coalesce(
-            try(dbtcloud_project.projects[group_permissions.value.project_key].id, null),
-            try(dbtcloud_project.protected_projects[group_permissions.value.project_key].id, null)
-          )
-        : try(group_permissions.value.project_id, null)
+      # Avoid implicit project graph coupling during scoped group adoption.
+      # We only honor explicit numeric project_id in this path.
+      project_id = try(group_permissions.value.project_id, null)
+      writable_environment_categories = try(
+        group_permissions.value.writable_environment_categories,
+        []
       )
+    }
+  }
+  dynamic "group_permissions" {
+    for_each = var.skip_global_project_permissions ? try(each.value.group_permissions, []) : []
+    content {
+      permission_set = group_permissions.value.permission_set
+      all_projects   = true
+      project_id     = null
       writable_environment_categories = try(
         group_permissions.value.writable_environment_categories,
         []
@@ -521,10 +542,6 @@ resource "dbtcloud_group" "groups" {
     }
   }
 
-  depends_on = [
-    dbtcloud_project.projects,
-    dbtcloud_project.protected_projects
-  ]
 }
 
 #############################################
@@ -538,29 +555,31 @@ resource "dbtcloud_group" "protected_groups" {
   sso_mapping_groups = try(each.value.sso_mapping_groups, [])
 
   dynamic "group_permissions" {
-    for_each = try(each.value.group_permissions, [])
+    for_each = var.skip_global_project_permissions ? [] : try(each.value.group_permissions, [])
     content {
       permission_set = group_permissions.value.permission_set
       all_projects   = try(group_permissions.value.all_projects, false)
-      project_id = (
-        try(group_permissions.value.project_key, null) != null
-        ? coalesce(
-            try(dbtcloud_project.projects[group_permissions.value.project_key].id, null),
-            try(dbtcloud_project.protected_projects[group_permissions.value.project_key].id, null)
-          )
-        : try(group_permissions.value.project_id, null)
-      )
+      # Avoid implicit project graph coupling during scoped group adoption.
+      # We only honor explicit numeric project_id in this path.
+      project_id = try(group_permissions.value.project_id, null)
       writable_environment_categories = try(
         group_permissions.value.writable_environment_categories,
         []
       )
     }
   }
-
-  depends_on = [
-    dbtcloud_project.projects,
-    dbtcloud_project.protected_projects
-  ]
+  dynamic "group_permissions" {
+    for_each = var.skip_global_project_permissions ? try(each.value.group_permissions, []) : []
+    content {
+      permission_set = group_permissions.value.permission_set
+      all_projects   = true
+      project_id     = null
+      writable_environment_categories = try(
+        group_permissions.value.writable_environment_categories,
+        []
+      )
+    }
+  }
 
   lifecycle {
     prevent_destroy = true

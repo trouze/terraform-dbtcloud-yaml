@@ -13,6 +13,10 @@ from importer.web.utils.log_export import (
     generate_log_filename,
 )
 
+def _dbg_673991(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    """Debug logging disabled after fix verification."""
+    return
+
 
 class LogLevel(Enum):
     """Log level for terminal messages."""
@@ -69,6 +73,7 @@ class TerminalOutput:
         self._min_level = default_level
         self._container: Optional[ui.column] = None
         self._scroll_area: Optional[ui.scroll_area] = None
+        self._ui_detached = False
 
     def create(self, height: str = "300px", title: str = "Output") -> None:
         """Create the terminal output UI component.
@@ -199,12 +204,27 @@ class TerminalOutput:
             self.messages = self.messages[-self.max_lines:]
 
         # Add to UI if container exists and level passes filter
-        if self._container is not None and self._should_display(level):
-            self._add_message_to_ui(msg)
-
-            # Auto-scroll if enabled
-            if self.auto_scroll and self._scroll_area is not None:
-                self._scroll_area.scroll_to(percent=1.0)
+        if self._container is not None and self._should_display(level) and not self._ui_detached:
+            try:
+                self._add_message_to_ui(msg)
+                # Auto-scroll if enabled
+                if self.auto_scroll and self._scroll_area is not None:
+                    self._scroll_area.scroll_to(percent=1.0)
+            except RuntimeError as e:
+                # Client disconnects during long async operations can invalidate the
+                # NiceGUI slot/client; keep buffering logs but stop UI writes.
+                if "client this element belongs to has been deleted" in str(e).lower():
+                    self._ui_detached = True
+                    # region agent log
+                    _dbg_673991(
+                        "H11",
+                        "terminal_output.py:log",
+                        "terminal detached, disabling UI log writes",
+                        {"error": str(e), "level": level.value},
+                    )
+                    # endregion
+                else:
+                    raise
 
     def info(self, text: str) -> None:
         """Log an info message."""

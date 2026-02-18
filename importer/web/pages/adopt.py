@@ -7,12 +7,11 @@ the terraform state rm + terraform apply (import) cycle that was previously manu
 """
 
 import asyncio
+import json
 import logging
-import os
 import re
 import shutil
 import subprocess
-from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
@@ -22,19 +21,12 @@ from importer.web.state import AppState, WorkflowStep
 from importer.web.components.terminal_output import TerminalOutput
 from importer.web.utils.terraform_import import (
     generate_state_rm_commands,
-    write_adopt_imports_file,
-)
-from importer.web.utils.adoption_yaml_updater import (
-    apply_protection_from_set,
-    apply_unprotection_from_set,
-    cleanup_unadopted_yaml_configs,
-    inject_adopted_resource_configs,
 )
 from importer.web.utils.terraform_helpers import (
     get_terraform_env as _get_terraform_env_shared,
     resolve_deployment_paths,
-    run_terraform_command,
 )
+from importer.web.utils.generate_pipeline import run_generate_pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +43,11 @@ PHASE_COLORS = {
     "apply": "#22c55e",      # green
     "verify": "#06b6d4",     # cyan
 }
+
+
+def _dbg_673991(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    """Debug logging disabled after fix verification."""
+    return
 
 
 def _get_terraform_dir(state: AppState) -> Path:
@@ -228,12 +225,20 @@ def _get_grid_rows_from_state(state: AppState) -> list[dict]:
     # Get protection intent manager for effective protection lookup (matches match.py)
     protection_intent_manager = state.get_protection_intent_manager()
 
-    # #region agent log
-    import json as _json_dbg_adopt, time as _time_dbg_adopt
-    _dbg_adopt = {"timestamp": int(_time_dbg_adopt.time()*1000), "location": "adopt.py:_get_grid_rows_from_state", "message": "build_grid_data call params", "hypothesisId": "A", "data": {"has_intent_mgr": protection_intent_manager is not None, "protected_resources": sorted(list(state.map.protected_resources))[:20] if state.map.protected_resources else [], "protected_resources_count": len(state.map.protected_resources) if state.map.protected_resources else 0}}
-    with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as _f_dbg_adopt:
-        _f_dbg_adopt.write(_json_dbg_adopt.dumps(_dbg_adopt) + "\n")
-    # #endregion
+    # region agent log
+    _dbg_673991(
+        "H2",
+        "adopt.py:_get_grid_rows_from_state",
+        "build_grid_data inputs",
+        {
+            "has_intent_mgr": protection_intent_manager is not None,
+            "protected_resources_count": len(state.map.protected_resources or set()),
+            "source_items_count": len(source_items),
+            "target_items_count": len(target_items),
+            "confirmed_mappings_count": len(state.map.confirmed_mappings or []),
+        },
+    )
+    # endregion
 
     grid_data = build_grid_data(
         source_items,
@@ -271,8 +276,10 @@ def _get_grid_rows_from_confirmed_mappings_fallback(state: AppState) -> list[dic
     return rows
 
 
-# Drift statuses that indicate the resource needs to be imported into TF state
-_ADOPTABLE_DRIFT = {"not_in_state", "id_mismatch", "attr_mismatch"}
+# Drift statuses that indicate the resource can be imported into TF state.
+# Include "no_state" so mapped global groups (e.g. owner/everyone) remain
+# visible/editable on Adopt when they are not yet tracked in Terraform state.
+_ADOPTABLE_DRIFT = {"not_in_state", "id_mismatch", "attr_mismatch", "no_state"}
 
 
 def _compute_adopt_summary(
@@ -324,6 +331,31 @@ def _compute_adopt_summary(
                 r["action"] = "ignore"
             adopt_rows.append(r)
 
+    # region agent log
+    grp_rows = [r for r in grid_rows if r.get("source_type") == "GRP"]
+    grp_not_adoptable = [
+        {
+            "source_key": r.get("source_key"),
+            "source_name": r.get("source_name"),
+            "drift_status": r.get("drift_status"),
+            "has_target_id": bool(r.get("target_id")),
+        }
+        for r in grp_rows
+        if not (r.get("drift_status") in _ADOPTABLE_DRIFT and r.get("target_id"))
+    ]
+    _dbg_673991(
+        "H2",
+        "adopt.py:_compute_adopt_summary",
+        "adoptability filter results",
+        {
+            "grid_rows_count": len(grid_rows),
+            "grp_rows_count": len(grp_rows),
+            "grp_not_adoptable": grp_not_adoptable[:20],
+            "adoptable_drift_values": sorted(list(_ADOPTABLE_DRIFT)),
+        },
+    )
+    # endregion
+
     adopt_count = sum(1 for r in adopt_rows if r.get("action") == "adopt")
     protected_count = sum(1 for r in adopt_rows if r.get("protected") and r.get("action") == "adopt")
     state_rm_cmds = generate_state_rm_commands(grid_rows) if adopt_rows else []
@@ -359,6 +391,27 @@ async def _run_adopt_plan(
     """
     adopt_rows = summary["adopt_rows"]
     state_rm_cmds = summary["state_rm_commands"]
+    _adopt_project_rows = [
+        r for r in adopt_rows
+        if r.get("action") == "adopt" and r.get("source_type") == "PRJ"
+    ]
+    _adopt_non_project_only = bool(summary.get("adopt_count", 0) > 0 and not _adopt_project_rows)
+    # region agent log
+    _dbg_673991(
+        "H1",
+        "adopt.py:_run_adopt_plan:entry",
+        "adopt plan starting",
+        {
+            "adopt_count": summary.get("adopt_count", 0),
+            "row_count": len(adopt_rows),
+            "adopt_non_project_only": _adopt_non_project_only,
+            "adopt_project_keys": sorted([
+                str(r.get("source_key") or r.get("source_name"))
+                for r in _adopt_project_rows
+            ])[:50],
+        },
+    )
+    # endregion
 
     state.deploy.adopt_step_running = True
     state.deploy.adopt_step_status = "backup"
@@ -367,11 +420,6 @@ async def _run_adopt_plan(
     env = _get_terraform_env(state)
     tfstate_file = tf_path / "terraform.tfstate"
     backup_file = tf_path / "terraform.tfstate.adopt-backup"
-
-    # Track whether we set aside protection_moves.tf (used in finally)
-    protection_moves_file = tf_path / "protection_moves.tf"
-    protection_moves_aside = tf_path / "protection_moves.tf.aside"
-    _protection_moves_set_aside = False
 
     try:
         # ── Phase 1: Backup ──────────────────────────────────────────────
@@ -429,156 +477,54 @@ async def _run_adopt_plan(
             terminal.info("━━━ PHASE 2: STATE RM — SKIPPED (no mismatches) ━━━")
             terminal.info("")
 
-        # ── Phase 3: Inject Adopted Resource Configs ─────────────────────
-        # For target-only resources being adopted, the deployment YAML
-        # (dbt-cloud-config.yml) may not contain a matching config block.
-        # Without it Terraform has nothing to import into and plan fails
-        # with "Configuration for import target does not exist".
-        # This phase reads the target baseline YAML (normalised from the
-        # target fetch) and copies the entries for adopted resources into
-        # the deployment YAML.
-        terminal.set_title("Output — INJECT CONFIG")
-        terminal.info("━━━ PHASE 3: INJECT ADOPTED CONFIG ━━━")
-
-        # Filter to only action="adopt" rows for import block generation.
-        # adopt_rows contains ALL adoptable rows (including ignored) for display.
-        rows_to_import = [r for r in adopt_rows if r.get("action") == "adopt"]
-
-        deployment_yaml_path = tf_path / "dbt-cloud-config.yml"
-        target_baseline = state.target_fetch.target_baseline_yaml
-
-        # Step 3a: Clean up stale YAML entries from previous plan runs.
-        # If the user switched a resource from "adopt" to "ignore" since the
-        # last plan, the old injected config entry must be removed or
-        # Terraform will try to CREATE the resource instead of importing it.
-        if deployment_yaml_path.exists():
-            try:
-                _, cleanup_count = cleanup_unadopted_yaml_configs(
-                    deployment_yaml=str(deployment_yaml_path),
-                    all_grid_rows=adopt_rows,
-                )
-                if cleanup_count > 0:
-                    terminal.info(
-                        f"  Cleaned up {cleanup_count} stale config(s) from prior plan run"
-                    )
-            except Exception as exc:
-                terminal.warning(f"  Config cleanup warning: {exc}")
-
-        # Step 3b: Inject config entries for currently adopted resources.
-        if target_baseline and deployment_yaml_path.exists():
-            try:
-                updated_yaml, inject_count = inject_adopted_resource_configs(
-                    deployment_yaml=str(deployment_yaml_path),
-                    adopt_rows=rows_to_import,
-                    target_baseline_yaml=target_baseline,
-                )
-                if inject_count > 0:
-                    terminal.success(
-                        f"✓ Injected {inject_count} adopted resource config(s) into {deployment_yaml_path.name}"
-                    )
-                    for row in rows_to_import:
-                        terminal.info(
-                            f"  • {row.get('source_type', '?')}: "
-                            f"{row.get('source_name', row.get('source_key', '?'))}"
-                        )
-                else:
-                    terminal.info("  All adopted resources already have config entries — no injection needed")
-            except Exception as exc:
-                terminal.warning(f"  Config injection warning: {exc}")
-                terminal.info("  Proceeding — terraform plan will report any missing config")
-        else:
-            if not target_baseline:
-                terminal.info("  No target baseline YAML available — skipping config injection")
-            elif not deployment_yaml_path.exists():
-                terminal.info(f"  {deployment_yaml_path.name} not found — skipping config injection")
-
-        # Step 3c: Sync protection flags in YAML for all adopted resources.
-        # This ensures the deployment YAML's `protected` flags match the grid:
-        #   - adopted+protected rows → `protected: true` in YAML
-        #   - adopted+unprotected rows → clear stale `protected: true` from YAML
-        # Without this, toggling protection off leaves stale flags causing the
-        # import address (unprotected) to mismatch the Terraform for_each
-        # (which still sees `protected: true` in the YAML config).
-        protected_keys = state.map.protected_resources
-
-        if deployment_yaml_path.exists():
-            try:
-                # 1) Apply protection for adopted+protected resources
-                if protected_keys:
-                    apply_protection_from_set(
-                        yaml_file=str(deployment_yaml_path),
-                        protected_keys=protected_keys,
-                    )
-                    prot_count = sum(
-                        1 for r in rows_to_import if r.get("protected")
-                    )
-                    if prot_count > 0:
-                        terminal.info(
-                            f"  Applied protection flags to {prot_count} resource(s) in YAML"
-                        )
-
-                # 2) Clear stale protection for adopted+unprotected resources.
-                #    Build a set of keys that are adopted but NOT protected —
-                #    these must have `protected` removed/set to false in YAML.
-                unprotected_adopt_keys = set()
-                for r in rows_to_import:
-                    if r.get("action") == "adopt" and not r.get("protected"):
-                        stype = r.get("source_type", "")
-                        skey = r.get("source_key", "")
-                        if skey.startswith("target__"):
-                            skey = skey[len("target__"):]
-                        if stype:
-                            unprotected_adopt_keys.add(f"{stype}:{skey}")
-                        unprotected_adopt_keys.add(skey)
-
-                if unprotected_adopt_keys:
-                    apply_unprotection_from_set(
-                        yaml_file=str(deployment_yaml_path),
-                        unprotected_keys=unprotected_adopt_keys,
-                    )
-                    terminal.info(
-                        f"  Cleared stale protection from {len(unprotected_adopt_keys)} "
-                        f"unprotected adopted resource key(s) in YAML"
-                    )
-            except Exception as exc:
-                terminal.warning(f"  Protection sync warning: {exc}")
-
-        terminal.info("")
-
-        # ── Phase 4: Write Import Blocks ─────────────────────────────────
+        # ── Phase 3/4: Unified Generate Pipeline ─────────────────────────
         state.deploy.adopt_step_status = "write_imports"
         save_state()
-        terminal.set_title("Output — WRITE IMPORTS")
-
-        terminal.info(f"━━━ PHASE 4: WRITE IMPORT BLOCKS ({len(rows_to_import)} resources) ━━━")
-
-        output_path, error = write_adopt_imports_file(
-            rows_to_import,
-            tf_path,
-            filename="adopt_imports.tf",
-        )
-
-        if error:
-            terminal.error(f"Error writing import blocks: {error}")
-            raise RuntimeError(f"Failed to write import blocks: {error}")
-
-        terminal.success(f"✓ Written {len(rows_to_import)} import blocks to {output_path}")
-        for row in rows_to_import:
-            terminal.info(f"  • {row.get('source_type', '?')}: {row.get('source_name', row.get('source_key', '?'))} → ID {row.get('target_id', '?')}")
+        terminal.set_title("Output — GENERATE PIPELINE")
+        terminal.info("━━━ PHASE 3/4: GENERATE ADOPT + PROTECTION ARTIFACTS ━━━")
         terminal.info("")
 
-        # ── Pre-Phase 5: Set aside protection_moves.tf ─────────────────
-        # The adopt plan uses -target to scope to only adopted resources.
-        # If protection_moves.tf exists (from the Protection Management
-        # workflow), its `moved` blocks cause Terraform to require all
-        # referenced resources to also be targeted — which breaks the
-        # scoped adopt plan.  Temporarily rename it so Terraform ignores
-        # it, then restore it after plan/apply completes.
-        if protection_moves_file.exists():
-            protection_moves_file.rename(protection_moves_aside)
-            _protection_moves_set_aside = True
-            terminal.info("Temporarily set aside protection_moves.tf (will restore after adopt)")
-            terminal.info("")
+        pipeline_messages: list[str] = []
+
+        def _on_pipeline_progress(msg: str) -> None:
+            pipeline_messages.append(msg)
+            terminal.info_auto(f"  {msg}")
+
+        pipeline_result = await run_generate_pipeline(
+            state,
+            include_adopt=True,
+            adopt_rows=adopt_rows,
+            include_protection_moves=False,
+            merge_baseline=True,
+            regenerate_hcl=True,
+            on_progress=_on_pipeline_progress,
+        )
+        terminal.info("")
+        # region agent log
+        _dbg_673991(
+            "H3",
+            "adopt.py:_run_adopt_plan:post_pipeline",
+            "pipeline result",
+            {
+                "imports_count": pipeline_result.imports_count,
+                "moves_count": pipeline_result.moves_count,
+                "imports_file": str(pipeline_result.imports_file) if pipeline_result.imports_file else None,
+                "target_count": len(pipeline_result.target_addresses),
+                "target_contains_not_terraform": any("not_terraform" in a for a in pipeline_result.target_addresses),
+            },
+        )
+        # endregion
+
+        if pipeline_result.errors:
+            raise RuntimeError(
+                "Generate pipeline failed: " + "; ".join(pipeline_result.errors)
+            )
+        terminal.success(
+            "✓ Pipeline complete "
+            f"(imports={pipeline_result.imports_count}, moves={pipeline_result.moves_count}, "
+            f"targets={len(pipeline_result.target_addresses)})"
+        )
+        terminal.info("")
 
         # ── Phase 5: Terraform Init ──────────────────────────────────────
         state.deploy.adopt_step_status = "init"
@@ -617,17 +563,48 @@ async def _run_adopt_plan(
         terminal.set_title("Output — PLAN")
         terminal.info("━━━ PHASE 6: TERRAFORM PLAN ━━━")
 
-        # Build -target flags from the adopt_imports.tf that was written in Phase 4.
-        # This scopes the plan to ONLY the resources being imported, preventing
-        # unrelated drift from cluttering the plan output.
-        target_flags: list[str] = []
-        adopt_imports_content = (tf_path / "adopt_imports.tf").read_text(encoding="utf-8")
-        for match in re.finditer(r'to\s*=\s*(.+)', adopt_imports_content):
-            addr = match.group(1).strip()
-            if addr:
-                target_flags.extend(["-target", addr])
+        # Build -target flags from pipeline artifacts.
+        target_flags: list[str] = pipeline_result.target_flags
+        # In adopt flow, never fall back to broad target derivation when no
+        # import targets were generated; this would produce a regular/full plan.
+        if not target_flags:
+            # region agent log
+            _dbg_673991(
+                "H13",
+                "adopt.py:_run_adopt_plan:empty_targets",
+                "adopt plan blocked due to empty target set",
+                {
+                    "adopt_count": summary.get("adopt_count", 0),
+                    "imports_count": pipeline_result.imports_count,
+                    "target_flags_count": len(target_flags),
+                },
+            )
+            # endregion
+            raise RuntimeError(
+                "No resources are selected for adoption. Choose at least one row "
+                "with action 'adopt' before running Plan Adoption."
+            )
 
         plan_cmd = ["terraform", "plan", "-out=adopt.tfplan", "-no-color"] + target_flags
+        if _adopt_non_project_only:
+            # For global-only adoption plans, suppress project-linked
+            # group/service-token permission expansion so -target does not
+            # pull unmanaged projects into the plan graph.
+            plan_cmd += ["-var", "projects_v2_skip_global_project_permissions=true"]
+        # region agent log
+        _dbg_673991(
+            "H4",
+            "adopt.py:_run_adopt_plan:plan_cmd",
+            "plan command target summary",
+            {
+                "target_flags_count": len(target_flags),
+                "target_addresses_count": len(target_flags) // 2,
+                "skip_global_project_permissions": _adopt_non_project_only,
+                "target_not_terraform": [target_flags[i + 1] for i in range(0, len(target_flags) - 1, 2) if target_flags[i] == "-target" and "not_terraform" in target_flags[i + 1]][:10],
+                "target_connections_sample": [target_flags[i + 1] for i in range(0, len(target_flags) - 1, 2) if target_flags[i] == "-target" and "dbtcloud_global_connection.connections" in target_flags[i + 1]][:10],
+            },
+        )
+        # endregion
 
         terminal.info(f"> {' '.join(plan_cmd)}")
         terminal.info("")
@@ -656,7 +633,42 @@ async def _run_adopt_plan(
             if line.strip():
                 terminal.warning(f"  {line}")
 
+        # region agent log
+        _stdout = result.stdout or ""
+        _lines = _stdout.splitlines()
+        _create_lines = [ln for ln in _lines if " will be created" in ln]
+        _project_create_lines = [ln for ln in _create_lines if "dbtcloud_project" in ln]
+        _group_create_lines = [ln for ln in _create_lines if "dbtcloud_group" in ln]
+        _import_lines = [ln for ln in _lines if " will be imported" in ln]
+        _dbg_673991(
+            "H25",
+            "adopt.py:_run_adopt_plan:plan_output",
+            "plan output resource summary",
+            {
+                "return_code": result.returncode,
+                "create_count": len(_create_lines),
+                "project_create_count": len(_project_create_lines),
+                "group_create_count": len(_group_create_lines),
+                "import_count": len(_import_lines),
+                "project_create_sample": _project_create_lines[:10],
+                "group_create_sample": _group_create_lines[:10],
+            },
+        )
+        # endregion
+
         if result.returncode != 0:
+            # region agent log
+            _dbg_673991(
+                "H26",
+                "adopt.py:_run_adopt_plan:plan_failure",
+                "terraform plan failed",
+                {
+                    "return_code": result.returncode,
+                    "stderr_tail": result.stderr.splitlines()[-20:],
+                    "stdout_tail": result.stdout.splitlines()[-20:],
+                },
+            )
+            # endregion
             raise RuntimeError(f"terraform plan failed (exit code {result.returncode})")
 
         # Prepend an explanatory note about output changes and "update in-place"
@@ -699,7 +711,7 @@ async def _run_adopt_plan(
         error_msg = str(e)
         logger.error(f"Adopt plan failed: {error_msg}")
         terminal.error("")
-        terminal.error(f"━━━ PLAN FAILED ━━━")
+        terminal.error("━━━ PLAN FAILED ━━━")
         terminal.error(f"Error: {error_msg}")
 
         if backup_file.exists():
@@ -717,9 +729,7 @@ async def _run_adopt_plan(
 
         return None
     finally:
-        # Restore protection_moves.tf if it was set aside
-        if _protection_moves_set_aside and protection_moves_aside.exists():
-            protection_moves_aside.rename(protection_moves_file)
+        pass
 
 
 async def _run_adopt_apply(
@@ -851,7 +861,7 @@ async def _run_adopt_apply(
         error_msg = str(e)
         logger.error(f"Adopt apply failed: {error_msg}")
         terminal.error("")
-        terminal.error(f"━━━ ADOPTION FAILED ━━━")
+        terminal.error("━━━ ADOPTION FAILED ━━━")
         terminal.error(f"Error: {error_msg}")
 
         if backup_file.exists():
@@ -910,26 +920,77 @@ def create_adopt_page(
     grid_rows = _get_grid_rows_from_state(state)
     summary = _compute_adopt_summary(grid_rows, state.map.confirmed_mappings)
     has_adopt_rows = len(summary["adopt_rows"]) > 0
+    has_target_credentials = bool(
+        state.target_credentials.api_token and state.target_credentials.account_id
+    )
 
-    # #region agent log
-    import json as _json_dbg
-    _dbg_log_path = "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log"
-    def _dbg_log(msg, data=None, hyp=""):
-        import time
-        _entry = {"timestamp": int(time.time()*1000), "location": "adopt.py:create_adopt_page", "message": msg, "hypothesisId": hyp}
-        if data is not None:
-            _entry["data"] = data
-        with open(_dbg_log_path, "a") as _f:
-            _f.write(_json_dbg.dumps(_entry) + "\n")
-    _dbg_log("protected_resources at page load", {"protected_resources": sorted(state.map.protected_resources), "count": len(state.map.protected_resources)}, "A")
+    # region agent log
+    _dbg_673991(
+        "H2",
+        "adopt.py:create_adopt_page",
+        "protected resources at page load",
+        {"count": len(state.map.protected_resources), "sample": sorted(state.map.protected_resources)[:20]},
+    )
     _grp_rows = [r for r in grid_rows if r.get("source_type") == "GRP"]
-    _dbg_log("GRP rows from build_grid_data", {"rows": [{k: r.get(k) for k in ("source_key", "source_type", "source_name", "action", "protected", "yaml_protected", "drift_status", "target_id")} for r in _grp_rows]}, "B")
+    _dbg_673991(
+        "H2",
+        "adopt.py:create_adopt_page",
+        "GRP rows from build_grid_data",
+        {
+            "rows": [
+                {
+                    k: r.get(k)
+                    for k in (
+                        "source_key",
+                        "source_type",
+                        "source_name",
+                        "action",
+                        "protected",
+                        "yaml_protected",
+                        "drift_status",
+                        "target_id",
+                    )
+                }
+                for r in _grp_rows
+            ]
+        },
+    )
     _adopt_grp = [r for r in summary["adopt_rows"] if r.get("source_type") == "GRP"]
-    _dbg_log("GRP adopt_rows after _compute_adopt_summary", {"rows": [{k: r.get(k) for k in ("source_key", "source_type", "source_name", "action", "protected", "yaml_protected", "drift_status")} for r in _adopt_grp]}, "C")
+    _dbg_673991(
+        "H2",
+        "adopt.py:create_adopt_page",
+        "GRP adopt_rows after _compute_adopt_summary",
+        {
+            "rows": [
+                {
+                    k: r.get(k)
+                    for k in (
+                        "source_key",
+                        "source_type",
+                        "source_name",
+                        "action",
+                        "protected",
+                        "yaml_protected",
+                        "drift_status",
+                    )
+                }
+                for r in _adopt_grp
+            ]
+        },
+    )
     _cm_grp = [m for m in state.map.confirmed_mappings if "everyone" in m.get("source_key", "").lower() or m.get("resource_type") == "GRP"]
-    _dbg_log("GRP confirmed_mappings", {"mappings": _cm_grp}, "E")
-    _dbg_log("summary counts", {"adopt_count": summary["adopt_count"], "protected_count": summary["protected_count"], "total_rows": len(summary["adopt_rows"])}, "C")
-    # #endregion
+    _dbg_673991("H2", "adopt.py:create_adopt_page", "GRP confirmed_mappings", {"mappings": _cm_grp})
+    _dbg_673991(
+        "H2",
+        "adopt.py:create_adopt_page",
+        "summary counts",
+        {
+            "adopt_count": summary["adopt_count"],
+            "protected_count": summary["protected_count"],
+            "total_rows": len(summary["adopt_rows"]),
+        },
+    )
+    # endregion
 
     # ── Page header ──────────────────────────────────────────────────────
     with ui.column().classes("w-full max-w-5xl mx-auto p-6 gap-4"):
@@ -941,6 +1002,19 @@ def create_adopt_page(
             "This step automates the terraform state rm + import cycle for resources "
             "you marked as 'adopt' on the Match page."
         ).classes("text-slate-600 dark:text-slate-400 text-sm")
+
+        # Target credential readiness indicator for Adopt plan/apply.
+        with ui.row().classes("items-center gap-2"):
+            if has_target_credentials:
+                ui.icon("check_circle").classes("text-green-600")
+                ui.label("Target credentials loaded for Plan/Apply").classes(
+                    "text-sm text-green-700 dark:text-green-400"
+                )
+            else:
+                ui.icon("warning").classes("text-amber-600")
+                ui.label(
+                    "Target credentials not loaded. Load .env on Fetch Target before Plan Adoption."
+                ).classes("text-sm text-amber-700 dark:text-amber-400")
 
         # ── Skip-when-empty ──────────────────────────────────────────────
         if not has_adopt_rows:
@@ -1082,6 +1156,38 @@ def create_adopt_page(
                 "action": _action,
             })
 
+        # region agent log
+        _dbg_673991(
+            "H18",
+            "adopt.py:create_adopt_page:grid_data",
+            "adopt grid data prepared",
+            {
+                "row_count": len(adopt_grid_data),
+                "adopt_count_summary": summary.get("adopt_count", 0),
+                "action_counts": {
+                    "adopt": sum(1 for r in adopt_grid_data if r.get("action") == "adopt"),
+                    "ignore": sum(1 for r in adopt_grid_data if r.get("action") == "ignore"),
+                    "other": sum(1 for r in adopt_grid_data if r.get("action") not in {"adopt", "ignore"}),
+                },
+                "source_type_counts": {
+                    str(k): int(v) for k, v in __import__("collections").Counter(
+                        str(r.get("source_type", "")) for r in adopt_grid_data
+                    ).items()
+                },
+                "sample_rows": [
+                    {
+                        "source_key": str(r.get("source_key", "")),
+                        "source_type": str(r.get("source_type", "")),
+                        "source_name": str(r.get("source_name", "")),
+                        "action": str(r.get("action", "")),
+                        "drift_status": str(r.get("drift_status", "")),
+                    }
+                    for r in adopt_grid_data[:10]
+                ],
+            },
+        )
+        # endregion
+
         TYPE_LABELS_JS = """{
             'ACC': 'Account', 'CON': 'Connection', 'REP': 'Repository',
             'TOK': 'Token', 'GRP': 'Group', 'NOT': 'Notify',
@@ -1220,7 +1326,22 @@ def create_adopt_page(
             "stopEditingWhenCellsLoseFocus": True,
             "singleClickEdit": True,
             "animateRows": False,
+            ":onGridReady": """params => { window.__adoptGridApi = params.api; }""",
         }
+
+        # region agent log
+        _dbg_673991(
+            "H19",
+            "adopt.py:create_adopt_page:grid_options",
+            "aggrid options prepared",
+            {
+                "column_count": len(adopt_col_defs),
+                "column_fields": [str(c.get("field", "")) for c in adopt_col_defs],
+                "row_data_count": len(adopt_grid_options.get("rowData", [])),
+                "theme": "quartz + ag-theme-quartz-auto-dark",
+            },
+        )
+        # endregion
 
         _grid_title = f"Adopted Resources ({summary['adopt_count']})" if _is_complete else f"Resources to Adopt ({summary['adopt_count']})"
         grid_title_label = ui.label(_grid_title).classes("text-lg font-semibold")
@@ -1334,7 +1455,10 @@ def create_adopt_page(
             # Invalidate stale plan — protection change means different TF addresses
             if btn_refs.get("plan"):
                 btn_refs["plan"].set_visibility(True)
-                btn_refs["plan"].enable()
+                if adopt_count > 0:
+                    btn_refs["plan"].enable()
+                else:
+                    btn_refs["plan"].disable()
             if btn_refs.get("apply"):
                 btn_refs["apply"].set_visibility(False)
             if btn_refs.get("view_plan"):
@@ -1567,7 +1691,10 @@ def create_adopt_page(
             # Show the Plan button, hide Apply and View Plan.
             if btn_refs.get("plan"):
                 btn_refs["plan"].set_visibility(True)
-                btn_refs["plan"].enable()
+                if adopt_count > 0:
+                    btn_refs["plan"].enable()
+                else:
+                    btn_refs["plan"].disable()
             if btn_refs.get("apply"):
                 btn_refs["apply"].set_visibility(False)
             if btn_refs.get("view_plan"):
@@ -1619,10 +1746,116 @@ def create_adopt_page(
                     "state_rm_commands": state_rm_cmds,
                 }
 
+            async def _force_refresh_adopt_grid(reason: str) -> None:
+                """Best-effort AG Grid redraw to recover from transient blank-grid state."""
+                try:
+                    await adopt_grid.run_grid_method("setGridOption", "rowData", adopt_grid_data)
+                    await adopt_grid.run_grid_method("refreshCells", {"force": True})
+                    await adopt_grid.run_grid_method("redrawRows")
+                    # region agent log
+                    _dbg_673991(
+                        "H24",
+                        "adopt.py:_force_refresh_adopt_grid",
+                        "forced aggrid refresh",
+                        {
+                            "reason": reason,
+                            "row_count": len(adopt_grid_data),
+                        },
+                    )
+                    # endregion
+                except Exception as _grid_err:
+                    adopt_grid.update()
+                    # region agent log
+                    _dbg_673991(
+                        "H24",
+                        "adopt.py:_force_refresh_adopt_grid",
+                        "aggrid refresh fallback via update()",
+                        {
+                            "reason": reason,
+                            "row_count": len(adopt_grid_data),
+                            "error": str(_grid_err),
+                        },
+                    )
+                    # endregion
+
             async def _on_plan_click():
+                # Gate plan execution when target credentials are not loaded.
+                has_creds_now = bool(
+                    state.target_credentials.api_token and state.target_credentials.account_id
+                )
+                if not has_creds_now:
+                    await _force_refresh_adopt_grid("blocked_missing_creds")
+                    ui.notify(
+                        "Target credentials are required for Plan Adoption. "
+                        "Go to Fetch Target and click 'Load .env', then retry.",
+                        type="warning",
+                    )
+                    return
+
                 # Build summary directly from adopt_grid_data — it reflects all
                 # user changes (including target-only resources toggled on the grid).
                 fresh_summary = _build_summary_from_grid()
+                # region agent log
+                _dbg_673991(
+                    "H20",
+                    "adopt.py:_on_plan_click",
+                    "plan click fresh summary from grid",
+                    {
+                        "adopt_count": fresh_summary.get("adopt_count", 0),
+                        "row_count": len(fresh_summary.get("adopt_rows", [])),
+                        "row_action_counts": {
+                            "adopt": sum(
+                                1
+                                for r in fresh_summary.get("adopt_rows", [])
+                                if r.get("action") == "adopt"
+                            ),
+                            "ignore": sum(
+                                1
+                                for r in fresh_summary.get("adopt_rows", [])
+                                if r.get("action") == "ignore"
+                            ),
+                            "other": sum(
+                                1
+                                for r in fresh_summary.get("adopt_rows", [])
+                                if r.get("action") not in {"adopt", "ignore"}
+                            ),
+                        },
+                    },
+                )
+                # endregion
+                if fresh_summary.get("adopt_count", 0) == 0:
+                    # region agent log
+                    _dbg_673991(
+                        "H12",
+                        "adopt.py:_on_plan_click",
+                        "plan click blocked because nothing selected",
+                        {
+                            "adopt_count": fresh_summary.get("adopt_count", 0),
+                            "total_rows": len(fresh_summary.get("adopt_rows", [])),
+                        },
+                    )
+                    # endregion
+                    await _force_refresh_adopt_grid("blocked_zero_adopt")
+                    ui.notify(
+                        "No resources selected for adoption. Set at least one row to "
+                        "'Adopt' before planning.",
+                        type="warning",
+                    )
+                    return
+
+                # region agent log
+                _dbg_673991(
+                    "H27",
+                    "adopt.py:_on_plan_click",
+                    "force refresh grid before plan start",
+                    {
+                        "grid_rows": len(adopt_grid_data),
+                        "adopt_count": fresh_summary.get("adopt_count", 0),
+                    },
+                )
+                # endregion
+                await _force_refresh_adopt_grid("before_plan_start")
+
                 await _start_plan(
                     state, terminal, save_state, fresh_summary, tf_path,
                     btn_refs["plan"], btn_refs["apply"], btn_refs["skip"],
@@ -1643,6 +1876,8 @@ def create_adopt_page(
                 icon="preview",
                 on_click=_on_plan_click,
             ).style(f"background-color: {DBT_ORANGE};")
+            if summary.get("adopt_count", 0) == 0:
+                plan_btn.disable()
 
             apply_btn = ui.button(
                 "Apply Adoption",
@@ -1678,7 +1913,7 @@ def create_adopt_page(
                 dlg = create_plan_viewer_dialog(raw, "Adoption Output")
                 dlg.open()
 
-            view_output_btn = ui.button(
+            ui.button(
                 "View Output",
                 icon="open_in_full",
                 on_click=_open_output_viewer,

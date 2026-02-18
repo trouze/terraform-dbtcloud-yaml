@@ -89,6 +89,12 @@ variable "dbt_host_url" {
   default     = null
 }
 
+variable "skip_global_project_permissions" {
+  description = "When true, skip project-linked permissions on global groups/service tokens to avoid project graph expansion in scoped global-object adoption."
+  type        = bool
+  default     = false
+}
+
 variable "environment_credentials" {
   description = "Map of environment keys to credential values. Keys are 'project_key_env_key' (e.g., 'my_project_prod')"
   type = map(object({

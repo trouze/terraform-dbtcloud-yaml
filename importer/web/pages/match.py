@@ -3025,7 +3025,7 @@ def _create_matching_content(
                     ).classes("w-full mt-3 border border-amber-400 rounded"):
                         ui.label(
                             "These intents have been recorded but not yet applied. "
-                            "Click 'Undo' to remove an intent, or 'Generate Protection Changes' to apply them."
+                            "Click 'Undo' to remove an intent, then continue to Adopt to generate/plan/apply."
                         ).classes("text-xs opacity-70 mb-3")
                         
                         for rkey, intent in _all_pending[:15]:  # Show first 15
@@ -3656,23 +3656,21 @@ def _create_matching_content(
                     # Launch the async work
                     asyncio.create_task(do_generate_work())
                 
-                # Button label depends on what's pending
-                if has_pending:
-                    btn_label = f"Generate Protection Changes ({len(_pending_yaml)})"
-                elif _pending_tf_count > 0:
-                    btn_label = f"Re-analyze ({_pending_tf_count} pending TF)"
-                else:
-                    btn_label = "Generate Protection Changes"
-                
-                generate_btn = ui.button(
-                    btn_label,
-                    icon="auto_fix_high",
-                    on_click=start_generate_protection_changes,
+                # Match page is intent-only. Execution happens on Adopt page.
+                _pending_total = len(_pending_yaml) + _pending_tf_count
+                _continue_label = (
+                    f"Continue to Adopt & Apply ({_pending_total} pending)"
+                    if _pending_total > 0
+                    else "Continue to Adopt & Apply"
+                )
+                ui.button(
+                    _continue_label,
+                    icon="arrow_forward",
+                    on_click=lambda: ui.navigate.to("/adopt"),
                 ).props("color=green")
-                generate_btn.set_enabled(can_generate)
                 
                 # Terraform Commands Section - always visible
-                if True:
+                if False:
                     with ui.expansion("Terraform Commands", icon="terminal").classes("w-full mt-3").style("max-width: 100%; overflow: hidden;"):
                         with ui.column().classes("gap-3 w-full"):
                             # Get terraform directory
