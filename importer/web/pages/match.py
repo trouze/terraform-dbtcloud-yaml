@@ -3668,6 +3668,9 @@ def _create_matching_content(
                     icon="arrow_forward",
                     on_click=lambda: ui.navigate.to("/adopt"),
                 ).props("color=green")
+                ui.label(
+                    "Execution is handled on Adopt. Match records intent only."
+                ).classes("text-xs text-slate-500")
                 
                 # Terraform Commands Section - always visible
                 if False:
@@ -5104,7 +5107,11 @@ moved {{
                             search_count_label = ui.label("").classes("text-xs text-slate-400 min-w-[80px]")
                         
                         with ui.scroll_area().classes("w-full flex-grow stream-scroll-area"):
-                            stream_log = ui.html('<pre class="text-xs font-mono whitespace-pre-wrap p-2 bg-slate-900 text-slate-100 rounded stream-log-content" style="min-height: 200px;">[Starting terraform plan...]\n</pre>')
+                            _html = '<pre class="text-xs font-mono whitespace-pre-wrap p-2 bg-slate-900 text-slate-100 rounded stream-log-content" style="min-height: 200px;">[Starting terraform plan...]\n</pre>'
+                            try:
+                                stream_log = ui.html(_html, sanitize=False)
+                            except TypeError:
+                                stream_log = ui.html(_html)
                         
                         # Search handler
                         async def on_search(e):
@@ -5391,7 +5398,11 @@ moved {{
                             search_count_label = ui.label("").classes("text-xs text-slate-400 min-w-[80px]")
                         
                         with ui.scroll_area().classes("w-full flex-grow apply-stream-scroll-area"):
-                            stream_log = ui.html('<pre class="text-xs font-mono whitespace-pre-wrap p-2 bg-slate-900 text-slate-100 rounded apply-stream-log-content" style="min-height: 200px;">[Starting terraform apply...]\n</pre>')
+                            _html = '<pre class="text-xs font-mono whitespace-pre-wrap p-2 bg-slate-900 text-slate-100 rounded apply-stream-log-content" style="min-height: 200px;">[Starting terraform apply...]\n</pre>'
+                            try:
+                                stream_log = ui.html(_html, sanitize=False)
+                            except TypeError:
+                                stream_log = ui.html(_html)
                         
                         # Search handler
                         async def on_search(e):

@@ -51,22 +51,8 @@ STATUS_ERROR = "#EF4444"    # red-500
 
 
 def _dbg_673991(hypothesis_id: str, location: str, message: str, data: dict) -> None:
-    """Append debug NDJSON for session 673991."""
-    # region agent log
-    try:
-        with Path("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-673991.log").open("a", encoding="utf-8") as f:
-            f.write(json.dumps({
-                "sessionId": "673991",
-                "runId": "run2",
-                "hypothesisId": hypothesis_id,
-                "location": location,
-                "message": message,
-                "data": data,
-                "timestamp": int(time.time() * 1000),
-            }, default=str) + "\n")
-    except Exception:
-        pass
-    # endregion
+    """Temporary debug hook (disabled)."""
+    _ = (hypothesis_id, location, message, data)
 
 
 def create_deploy_page(
@@ -2614,7 +2600,6 @@ async def _run_terraform_plan(
             terminal.warning("No PAT provided - repositories will use deploy key")
         terminal.info("")
 
-        # region agent log
         adopt_imports = Path(tf_dir) / "adopt_imports.tf"
         adopt_imports_exists = adopt_imports.exists()
         import_targets: list[str] = []
@@ -2627,37 +2612,8 @@ async def _run_terraform_plan(
                 ]
             except Exception:
                 import_targets = []
-        _dbg_673991(
-            "H32",
-            "deploy.py:_run_terraform_plan:pre_plan",
-            "deploy plan starting with adopt_imports snapshot",
-            {
-                "tf_dir": tf_dir,
-                "adopt_imports_exists": adopt_imports_exists,
-                "adopt_imports_target_count": len(import_targets),
-                "adopt_imports_has_not_terraform": any(
-                    'dbtcloud_project.projects["not_terraform"]' in t for t in import_targets
-                ),
-                "adopt_imports_targets_sample": import_targets[:20],
-            },
-        )
-        # endregion
 
         plan_cmd = ["terraform", "plan", "-no-color", "-out=tfplan"]
-        # region agent log
-        _dbg_673991(
-            "H34",
-            "deploy.py:_run_terraform_plan:plan_cmd",
-            "deploy terraform plan command and scoping mode",
-            {
-                "command": plan_cmd,
-                "has_target_flags": any(part == "-target" for part in plan_cmd),
-                "scoping_mode": "full_deploy" if not any(part == "-target" for part in plan_cmd) else "targeted",
-                "adopt_imports_exists": adopt_imports_exists,
-                "adopt_imports_target_count": len(import_targets),
-            },
-        )
-        # endregion
 
         result = await asyncio.to_thread(
             subprocess.run,
@@ -2670,24 +2626,16 @@ async def _run_terraform_plan(
 
         stdout_lines = result.stdout.split("\n")
         stderr_lines = result.stderr.split("\n")
-        # region agent log
-        _dbg_673991(
-            "H40",
-            "deploy.py:_run_terraform_plan:output_size",
-            "deploy plan output size",
-            {
-                "stdout_line_count": len(stdout_lines),
-                "stderr_line_count": len(stderr_lines),
-                "stdout_chars": len(result.stdout),
-                "stderr_chars": len(result.stderr),
-            },
-        )
-        # endregion
 
         # Output stdout (cap rendered lines to avoid websocket overload)
-        max_render_lines = 1200
+        max_render_lines = 700
         if len(stdout_lines) > max_render_lines:
-            render_lines = stdout_lines[:900] + ["", "... output truncated in UI ...", ""] + stdout_lines[-250:]
+            omitted = len(stdout_lines) - (420 + 220)
+            render_lines = (
+                stdout_lines[:420]
+                + ["", f"... output truncated in UI (omitted {omitted} line(s)) ...", ""]
+                + stdout_lines[-220:]
+            )
             terminal.warning(
                 f"Large plan output ({len(stdout_lines)} lines); rendering a truncated view to keep UI responsive."
             )
@@ -2705,49 +2653,21 @@ async def _run_terraform_plan(
                 else:
                     terminal.info_auto(line)
 
-        # Output stderr
-        for line in stderr_lines:
+        # Output stderr (bounded)
+        if len(stderr_lines) > 260:
+            omitted_err = len(stderr_lines) - (150 + 80)
+            stderr_render_lines = (
+                stderr_lines[:150]
+                + ["", f"... stderr truncated (omitted {omitted_err} line(s)) ...", ""]
+                + stderr_lines[-80:]
+            )
+        else:
+            stderr_render_lines = stderr_lines
+        for line in stderr_render_lines:
             if line.strip():
                 terminal.warning(line)
 
         if result.returncode == 0:
-            # region agent log
-            summary_match = re.search(
-                r"Plan:\s*(\d+)\s+to add,\s*(\d+)\s+to change,\s*(\d+)\s+to destroy",
-                result.stdout,
-            )
-            _dbg_673991(
-                "H35",
-                "deploy.py:_run_terraform_plan:plan_success_summary",
-                "deploy plan result summary",
-                {
-                    "plan_add": int(summary_match.group(1)) if summary_match else None,
-                    "plan_change": int(summary_match.group(2)) if summary_match else None,
-                    "plan_destroy": int(summary_match.group(3)) if summary_match else None,
-                    "global_connection_create_count": len(
-                        re.findall(
-                            r"dbtcloud_global_connection\.connections\[",
-                            result.stdout,
-                        )
-                    ),
-                    "project_create_count": len(
-                        re.findall(
-                            r"dbtcloud_project\.projects\[",
-                            result.stdout,
-                        )
-                    ),
-                    "environment_create_count": len(
-                        re.findall(
-                            r"dbtcloud_environment\.environments\[",
-                            result.stdout,
-                        )
-                    ),
-                    "imports_detected_in_output": len(
-                        re.findall(r"will be imported|Preparing import", result.stdout)
-                    ),
-                },
-            )
-            # endregion
             terminal.success("")
             terminal.success("Plan complete!")
             state.deploy.last_plan_success = True
@@ -2808,18 +2728,6 @@ async def _run_terraform_plan(
         else:
             terminal.error("")
             terminal.error(f"Plan failed with exit code {result.returncode}")
-            # region agent log
-            _dbg_673991(
-                "H33",
-                "deploy.py:_run_terraform_plan:plan_failed",
-                "deploy terraform plan failed",
-                {
-                    "return_code": result.returncode,
-                    "stderr_tail": result.stderr.splitlines()[-20:],
-                    "stdout_tail": result.stdout.splitlines()[-20:],
-                },
-            )
-            # endregion
             state.deploy.last_plan_success = False
             deploy_state["last_plan_output"] = result.stdout + "\n" + result.stderr  # Store output for troubleshooting
             if "plan_view_btn" in deploy_state:

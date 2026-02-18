@@ -73,3 +73,9 @@
 - **Evidence**: Source total `53` vs TF plan `49` was valid after accounting for resource mapping semantics.
 - **Added after**: 2026-02-18 count reconciliation review
 
+### Sign: NiceGUI HTML Sanitize Compatibility
+- **Trigger**: Rendering HTML with `ui.html(...)` in any page/component.
+- **Instruction**: Use compatibility wrapper pattern: `try: ui.html(content, sanitize=False) except TypeError: ui.html(content)` to support both NiceGUI signatures.
+- **Evidence**: `TypeError: __init__() missing 1 required keyword-only argument: 'sanitize'` in Explore Target ERD (`erd_viewer.py`) and other HTML renderers.
+- **Added after**: 2026-02-18 UI sanitize API regression
+

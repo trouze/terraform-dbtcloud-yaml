@@ -39,22 +39,8 @@ logger = logging.getLogger(__name__)
 
 
 def _dbg_673991(hypothesis_id: str, location: str, message: str, data: dict) -> None:
-    """Append debug NDJSON for session 673991."""
-    # region agent log
-    try:
-        with Path("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-673991.log").open("a", encoding="utf-8") as f:
-            f.write(json.dumps({
-                "sessionId": "673991",
-                "runId": "run2",
-                "hypothesisId": hypothesis_id,
-                "location": location,
-                "message": message,
-                "data": data,
-                "timestamp": int(__import__("time").time() * 1000),
-            }, default=str) + "\n")
-    except Exception:
-        pass
-    # endregion
+    """Temporary debug hook (disabled)."""
+    _ = (hypothesis_id, location, message, data)
 
 
 # ---------------------------------------------------------------------------
@@ -187,19 +173,6 @@ async def run_generate_pipeline(
                     on_progress,
                     "  Skipping baseline merge (no adopted projects selected)",
                 )
-                # region agent log
-                _dbg_673991(
-                    "H14",
-                    "generate_pipeline.py:step3",
-                    "baseline merge skipped for non-project adopt-only run",
-                    {
-                        "include_adopt": include_adopt,
-                        "include_protection_moves": include_protection_moves,
-                        "adopt_rows_count": len(adopt_rows or []),
-                        "adopted_project_keys_count": 0,
-                    },
-                )
-                # endregion
             elif baseline_yaml_path and baseline_yaml_path.exists():
                 from importer.web.utils.adoption_yaml_updater import merge_yaml_configs
 
@@ -230,41 +203,6 @@ async def run_generate_pipeline(
                     baseline_config = {
                         "projects": baseline_config.get("projects", []),
                     }
-                    # region agent log
-                    _dbg_673991(
-                        "H36",
-                        "generate_pipeline.py:step3",
-                        "trimmed baseline to projects-only for adopt merge",
-                        {
-                            "include_adopt": include_adopt,
-                            "include_protection_moves": include_protection_moves,
-                            "baseline_projects_count": len(
-                                baseline_config.get("projects", [])
-                            ),
-                        },
-                    )
-                    # endregion
-                # region agent log
-                _dbg_673991(
-                    "H5",
-                    "generate_pipeline.py:step3",
-                    "baseline merge project key filter",
-                    {
-                        "deploy_project_keys_count": len(deploy_project_keys),
-                        "deploy_project_keys_sample": sorted(list(deploy_project_keys))[:40],
-                        "baseline_project_keys_after_filter": sorted([
-                            p.get("key")
-                            for p in baseline_config.get("projects", [])
-                            if isinstance(p, dict) and p.get("key")
-                        ])[:40],
-                        "adopt_project_keys": sorted([
-                            str(r.get("source_key") or r.get("source_name"))
-                            for r in (adopt_rows or [])
-                            if r.get("action") == "adopt" and r.get("source_type") == "PRJ"
-                        ])[:40],
-                    },
-                )
-                # endregion
 
                 merged = merge_yaml_configs(baseline_config, deploy_config)
                 with open(str(yaml_file), "w") as wf:
@@ -275,24 +213,6 @@ async def run_generate_pipeline(
                         sort_keys=False,
                         allow_unicode=True,
                     )
-                # region agent log
-                _dbg_673991(
-                    "H5",
-                    "generate_pipeline.py:step3",
-                    "merged YAML project presence",
-                    {
-                        "merged_project_keys_sample": sorted([
-                            p.get("key")
-                            for p in merged.get("projects", [])
-                            if isinstance(p, dict) and p.get("key")
-                        ])[:60],
-                        "contains_not_terraform": any(
-                            (isinstance(p, dict) and p.get("key") == "not_terraform")
-                            for p in merged.get("projects", [])
-                        ),
-                    },
-                )
-                # endregion
                 _progress(on_progress, "  Merged target baseline (fills missing resources)")
             else:
                 _progress(on_progress, "  No target baseline available — skipping merge")
@@ -311,19 +231,6 @@ async def run_generate_pipeline(
             on_progress,
             "Skipping protection+HCL updates (adopt-only non-project import)",
         )
-        # region agent log
-        _dbg_673991(
-            "H16",
-            "generate_pipeline.py:step4-5",
-            "skipped YAML protection + HCL regen for adopt-only non-project run",
-            {
-                "adopt_rows_count": len(adopt_rows or []),
-                "adopted_project_keys_count": len(adopted_project_keys),
-                "include_adopt": include_adopt,
-                "include_protection_moves": include_protection_moves,
-            },
-        )
-        # endregion
     elif yaml_file.exists():
         _progress(on_progress, "Applying protection flags to YAML...")
 
@@ -505,30 +412,6 @@ async def run_generate_pipeline(
             from importer.web.utils.terraform_import import write_adopt_imports_file
 
             rows_to_import = [r for r in adopt_rows if r.get("action") == "adopt"]
-            # region agent log
-            _rows_by_type: dict[str, int] = {}
-            for _r in rows_to_import:
-                _t = str(_r.get("source_type", ""))
-                _rows_by_type[_t] = _rows_by_type.get(_t, 0) + 1
-            _dbg_673991(
-                "H3",
-                "generate_pipeline.py:step7",
-                "rows selected for adopt imports",
-                {
-                    "rows_to_import_count": len(rows_to_import),
-                    "rows_to_import_by_type": _rows_by_type,
-                    "rows_sample": [
-                        {
-                            "source_key": r.get("source_key"),
-                            "source_type": r.get("source_type"),
-                            "source_name": r.get("source_name"),
-                            "target_id": r.get("target_id"),
-                        }
-                        for r in rows_to_import[:20]
-                    ],
-                },
-            )
-            # endregion
 
             if rows_to_import:
                 output_path, error = write_adopt_imports_file(
@@ -541,28 +424,6 @@ async def run_generate_pipeline(
                 else:
                     result.imports_file = output_path
                     result.imports_count = len(rows_to_import)
-                    # region agent log
-                    import_addresses = [
-                        m.group(1)
-                        for m in re.finditer(r"to\s*=\s*(module\.\S+)", output_path.read_text(encoding="utf-8"))
-                    ]
-                    _dbg_673991(
-                        "H3",
-                        "generate_pipeline.py:step7",
-                        "adopt_imports.tf address summary",
-                        {
-                            "imports_count": len(import_addresses),
-                            "contains_not_terraform_project": any(
-                                'dbtcloud_project.projects["not_terraform"]' in a
-                                for a in import_addresses
-                            ),
-                            "global_connection_import_count": sum(
-                                1 for a in import_addresses if ".dbtcloud_global_connection." in a
-                            ),
-                            "import_addresses_sample": import_addresses[:40],
-                        },
-                    )
-                    # endregion
                     _progress(
                         on_progress,
                         f"  Written {len(rows_to_import)} import blocks",
@@ -606,12 +467,6 @@ async def run_generate_pipeline(
             content = imports_tf.read_text(encoding="utf-8")
             import_targets = [m.group(1) for m in re.finditer(r"to\s*=\s*(module\.\S+)", content)]
         result.target_flags = [flag for addr in import_targets for flag in ("-target", addr)]
-        _dbg_673991(
-            "H6",
-            "generate_pipeline.py:step9",
-            "adopt-only target flags from imports",
-            {"import_target_count": len(import_targets), "import_targets": import_targets[:30]},
-        )
     else:
         # Non-adopt flows can include protection intent/moves-derived targets.
         target_intent_mgr = None if include_adopt else protection_intent_manager
@@ -627,24 +482,6 @@ async def run_generate_pipeline(
         on_progress,
         f"  {len(result.target_addresses)} target address(es) for plan/apply",
     )
-    # region agent log
-    _dbg_673991(
-        "H4",
-        "generate_pipeline.py:step9",
-        "plan target address summary",
-        {
-            "target_addresses_count": len(result.target_addresses),
-            "contains_not_terraform_project": any(
-                'dbtcloud_project.projects["not_terraform"]' in a
-                for a in result.target_addresses
-            ),
-            "global_connection_target_count": sum(
-                1 for a in result.target_addresses if ".dbtcloud_global_connection." in a
-            ),
-            "target_addresses_sample": result.target_addresses[:50],
-        },
-    )
-    # endregion
 
     _progress(on_progress, "Pipeline complete.")
     return result

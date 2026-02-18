@@ -128,3 +128,10 @@ Check:
      - one source repository can create multiple Terraform resources (for example repository + project_repository link),
      - source credential entries may resolve to IDs and not emit credential creates.
 
+5. **NiceGUI `ui.html` sanitize compatibility**
+   - For any raw HTML renderer, use a compatibility call:
+     - `try: ui.html(content, sanitize=False)`
+     - `except TypeError: ui.html(content)`
+   - Rationale: NiceGUI versions differ on whether `sanitize` is required/accepted.
+   - Failure signature: `TypeError: __init__() missing 1 required keyword-only argument: 'sanitize'`.
+

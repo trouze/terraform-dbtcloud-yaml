@@ -47,22 +47,8 @@ PHASE_COLORS = {
 
 
 def _dbg_673991(hypothesis_id: str, location: str, message: str, data: dict) -> None:
-    """Append debug NDJSON for session 673991."""
-    # region agent log
-    try:
-        with Path("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-673991.log").open("a", encoding="utf-8") as f:
-            f.write(json.dumps({
-                "sessionId": "673991",
-                "runId": "run2",
-                "hypothesisId": hypothesis_id,
-                "location": location,
-                "message": message,
-                "data": data,
-                "timestamp": int(time.time() * 1000),
-            }, default=str) + "\n")
-    except Exception:
-        pass
-    # endregion
+    """Temporary debug hook (disabled)."""
+    _ = (hypothesis_id, location, message, data)
 
 
 def _get_terraform_dir(state: AppState) -> Path:
@@ -453,6 +439,21 @@ def _invalidate_adopt_artifacts_for_action_change(
     }
 
 
+def _truncate_terminal_lines(
+    lines: list[str],
+    *,
+    max_lines: int = 700,
+    head_lines: int = 420,
+    tail_lines: int = 220,
+) -> tuple[list[str], int]:
+    """Return a bounded line set for terminal rendering."""
+    if len(lines) <= max_lines:
+        return lines, 0
+    omitted = len(lines) - (head_lines + tail_lines)
+    bounded = lines[:head_lines] + ["", f"... omitted {omitted} line(s) ...", ""] + lines[-tail_lines:]
+    return bounded, omitted
+
+
 # ---------------------------------------------------------------------------
 # Execution engine
 # ---------------------------------------------------------------------------
@@ -628,10 +629,16 @@ async def _run_adopt_plan(
             env=env,
         )
 
-        for line in result.stdout.split("\n"):
+        init_stdout_lines, init_stdout_omitted = _truncate_terminal_lines(result.stdout.split("\n"))
+        init_stderr_lines, init_stderr_omitted = _truncate_terminal_lines(result.stderr.split("\n"), max_lines=300, head_lines=180, tail_lines=100)
+        if init_stdout_omitted or init_stderr_omitted:
+            terminal.warning(
+                f"Large init output detected; omitted {init_stdout_omitted + init_stderr_omitted} line(s) from terminal view."
+            )
+        for line in init_stdout_lines:
             if line.strip():
                 terminal.info_auto(f"  {line}")
-        for line in result.stderr.split("\n"):
+        for line in init_stderr_lines:
             if line.strip():
                 terminal.warning(f"  {line}")
 
@@ -652,18 +659,6 @@ async def _run_adopt_plan(
         # In adopt flow, never fall back to broad target derivation when no
         # import targets were generated; this would produce a regular/full plan.
         if not target_flags:
-            # region agent log
-            _dbg_673991(
-                "H13",
-                "adopt.py:_run_adopt_plan:empty_targets",
-                "adopt plan blocked due to empty target set",
-                {
-                    "adopt_count": summary.get("adopt_count", 0),
-                    "imports_count": pipeline_result.imports_count,
-                    "target_flags_count": len(target_flags),
-                },
-            )
-            # endregion
             raise RuntimeError(
                 "No resources are selected for adoption. Choose at least one row "
                 "with action 'adopt' before running Plan Adoption."
@@ -675,20 +670,6 @@ async def _run_adopt_plan(
             # group/service-token permission expansion so -target does not
             # pull unmanaged projects into the plan graph.
             plan_cmd += ["-var", "projects_v2_skip_global_project_permissions=true"]
-        # region agent log
-        _dbg_673991(
-            "H4",
-            "adopt.py:_run_adopt_plan:plan_cmd",
-            "plan command target summary",
-            {
-                "target_flags_count": len(target_flags),
-                "target_addresses_count": len(target_flags) // 2,
-                "skip_global_project_permissions": _adopt_non_project_only,
-                "target_not_terraform": [target_flags[i + 1] for i in range(0, len(target_flags) - 1, 2) if target_flags[i] == "-target" and "not_terraform" in target_flags[i + 1]][:10],
-                "target_connections_sample": [target_flags[i + 1] for i in range(0, len(target_flags) - 1, 2) if target_flags[i] == "-target" and "dbtcloud_global_connection.connections" in target_flags[i + 1]][:10],
-            },
-        )
-        # endregion
 
         terminal.info(f"> {' '.join(plan_cmd)}")
         terminal.info("")
@@ -702,8 +683,24 @@ async def _run_adopt_plan(
             env=env,
         )
 
-        # Color-code plan output lines like the deploy page
-        for line in result.stdout.split("\n"):
+        # Color-code plan output lines like the deploy page, with bounded rendering.
+        plan_stdout_lines, plan_stdout_omitted = _truncate_terminal_lines(
+            result.stdout.split("\n"),
+            max_lines=900,
+            head_lines=520,
+            tail_lines=320,
+        )
+        plan_stderr_lines, plan_stderr_omitted = _truncate_terminal_lines(
+            result.stderr.split("\n"),
+            max_lines=360,
+            head_lines=220,
+            tail_lines=120,
+        )
+        if plan_stdout_omitted or plan_stderr_omitted:
+            terminal.warning(
+                f"Large plan output detected; omitted {plan_stdout_omitted + plan_stderr_omitted} line(s) from terminal view."
+            )
+        for line in plan_stdout_lines:
             if line.strip():
                 if "+" in line and "create" in line.lower():
                     terminal.success(line)
@@ -713,46 +710,11 @@ async def _run_adopt_plan(
                     terminal.warning(line)
                 else:
                     terminal.info_auto(f"  {line}")
-        for line in result.stderr.split("\n"):
+        for line in plan_stderr_lines:
             if line.strip():
                 terminal.warning(f"  {line}")
 
-        # region agent log
-        _stdout = result.stdout or ""
-        _lines = _stdout.splitlines()
-        _create_lines = [ln for ln in _lines if " will be created" in ln]
-        _project_create_lines = [ln for ln in _create_lines if "dbtcloud_project" in ln]
-        _group_create_lines = [ln for ln in _create_lines if "dbtcloud_group" in ln]
-        _import_lines = [ln for ln in _lines if " will be imported" in ln]
-        _dbg_673991(
-            "H25",
-            "adopt.py:_run_adopt_plan:plan_output",
-            "plan output resource summary",
-            {
-                "return_code": result.returncode,
-                "create_count": len(_create_lines),
-                "project_create_count": len(_project_create_lines),
-                "group_create_count": len(_group_create_lines),
-                "import_count": len(_import_lines),
-                "project_create_sample": _project_create_lines[:10],
-                "group_create_sample": _group_create_lines[:10],
-            },
-        )
-        # endregion
-
         if result.returncode != 0:
-            # region agent log
-            _dbg_673991(
-                "H26",
-                "adopt.py:_run_adopt_plan:plan_failure",
-                "terraform plan failed",
-                {
-                    "return_code": result.returncode,
-                    "stderr_tail": result.stderr.splitlines()[-20:],
-                    "stdout_tail": result.stdout.splitlines()[-20:],
-                },
-            )
-            # endregion
             raise RuntimeError(f"terraform plan failed (exit code {result.returncode})")
 
         # Prepend an explanatory note about output changes and "update in-place"
