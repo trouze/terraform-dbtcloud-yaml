@@ -83,3 +83,18 @@ count reconciliation review:
   prevention rules and validation expectations.
 - Added a standards section to `prd/00.01-Standards-of-Development.md` so
   future implementation/review work applies these rules by default.
+
+### 2026-02-18 (continued)
+**PRD 43.03 finish plan reconciled and implemented**
+
+- Reconciled `.cursor/plans/finish-unified-pipeline_17cf93da.plan.md` against
+  current implementation and marked completed rewiring + test/doc items.
+- Added Match intent-only regression coverage in
+  `importer/web/tests/test_match_no_terraform_execution.py`.
+- Disabled session-specific debug hooks in:
+  - `importer/web/pages/adopt.py`
+  - `importer/web/pages/deploy.py`
+  - `importer/web/utils/generate_pipeline.py`
+- Updated `prd/43.03-Unified-Protect-Adopt-Pipeline.md` status and added
+  implementation status notes for centralized pipeline execution and regression
+  hardening.

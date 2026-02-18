@@ -4,28 +4,28 @@ overview: Complete PRD 43.03 by wiring existing headless pipeline into Adopt and
 todos:
   - id: rewire-adopt
     content: Replace Adopt local generation phases with run_generate_pipeline(include_adopt=True) and use PipelineResult target_flags
-    status: pending
+    status: completed
   - id: rewire-utilities
     content: Replace Utilities generate_all_pending internals with run_generate_pipeline(include_adopt=False) and keep plan/apply wired to shared flags
-    status: pending
+    status: completed
   - id: strip-match-exec
     content: Remove Match generation/terraform execution UI and keep intent-only + Continue to Adopt navigation
-    status: pending
+    status: completed
   - id: update-tests-architecture
     content: Refactor stale architecture tests to pipeline entrypoint and add Match no-terraform regression
-    status: pending
+    status: completed
   - id: add-missing-harnesses
     content: Add snapshot/property/integration harnesses from PRD 43.03
-    status: pending
+    status: completed
   - id: sync-docs-status
     content: Update PRD/plan docs to reflect implemented vs pending work after rewiring
-    status: pending
+    status: completed
 isProject: false
 ---
 
 # Finish PRD 43.03 Wiring
 
-## Current Status (Audit)
+## Current Status (Reconciled 2026-02-18)
 
 Completed:
 
@@ -34,11 +34,12 @@ Completed:
 - `removal_keys` persistence is implemented in [importer/web/state.py](/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/state.py) (`to_dict` + `from_dict`).
 - New harnesses are present and passing for pipeline/matrix/key consistency.
 
-Not completed:
+Completed since initial draft:
 
-- [importer/web/pages/adopt.py](/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/adopt.py) still runs page-local generation flow.
-- [importer/web/pages/utilities.py](/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/utilities.py) still uses `generate_all_pending()` local generation path.
-- [importer/web/pages/match.py](/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/match.py) still contains generation + terraform init/plan/apply UI.
+- [importer/web/pages/adopt.py](/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/adopt.py) now executes via `run_generate_pipeline(...)` and consumes pipeline targeting.
+- [importer/web/pages/utilities.py](/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/utilities.py) uses pipeline generation for protection-only flows.
+- Match execution panel is disabled and intent-only navigation to Adopt is retained in [importer/web/pages/match.py](/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/match.py).
+- Regression tests added for adopt/deploy leakage prevention and Match intent-only contract.
 
 ## Implementation Plan
 
@@ -129,9 +130,8 @@ Update docs to reflect completed vs pending work:
   - Utilities: generate+plan+apply protection-only via pipeline
   - Confirm cross-page state and targeting behavior remain correct.
 
-## Risk Notes
+## Final Notes
 
-- Largest risk is partial rewiring (page still keeps old path) causing dual behavior.
-- Utilities and Match are currently the highest divergence points and should be migrated before adding more feature work.
-- Existing concurrent branch changes in page/state files increase merge-risk; keep changes isolated and validate contracts immediately after rewiring.
+- Keep execution centralized on Adopt/Utilities and avoid reintroducing Match terraform actions.
+- Preserve guardrails documented in `.ralph/guardrails.md` and `docs/guides/intent-workflow-guardrails.md`.
 

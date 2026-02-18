@@ -69,6 +69,13 @@
 - Provider version constraints need updating
 - Comments reference specific versions
 
+### 8. Runtime guardrails/docs for compatibility and performance
+**Check if:**
+- Any new compatibility fix (for framework/runtime API drift) was captured in:
+  - `.ralph/guardrails.md`
+  - `docs/guides/intent-workflow-guardrails.md`
+- Release notes include a short "Verification" section with latency or behavior checks for affected UI paths
+
 ---
 
 ## Version Numbering Guidelines
@@ -106,9 +113,10 @@ Follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html):
    - Change Log section
 6. **Update `dev_support/phase5_e2e_testing_guide.md`** header
 7. **Review reference documents** (README, test fixtures)
-8. **Run tests** to verify version is correctly reported
-9. **Commit with message**: `chore: release vX.Y.Z`
-10. **Tag release** (if applicable): `git tag vX.Y.Z`
+8. **Update guardrails/docs** if release includes compatibility or performance hardening
+9. **Run tests** to verify version is correctly reported and key path behavior is stable
+10. **Commit with message**: `chore: release vX.Y.Z`
+11. **Tag release** (if applicable): `git tag vX.Y.Z`
 
 ---
 
@@ -156,6 +164,8 @@ head -30 CHANGELOG.md
 5. ❌ Forgetting to update "Last Updated" dates in documentation
 6. ❌ Not creating release notes file for significant changes
 7. ❌ Skipping the Version Tracking section in implementation status
+8. ❌ Shipping compatibility/performance fixes without updating guardrails/docs
+9. ❌ Releasing UI performance fixes without recording verification metrics
 
 ---
 
