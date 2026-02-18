@@ -43,6 +43,12 @@ variable "dbt_host_url" {
   }
 }
 
+variable "projects_v2_skip_global_project_permissions" {
+  description = "When true, omits project-scoped permissions on global groups/service tokens in projects_v2. Intended for scoped global-object adoption plans."
+  type        = bool
+  default     = false
+}
+
 #############################################
 # YAML Configuration
 #############################################

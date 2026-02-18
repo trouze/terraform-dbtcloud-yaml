@@ -28,6 +28,11 @@ logger = logging.getLogger(__name__)
 MODULE_PREFIX = "module.dbt_cloud.module.projects_v2[0]"
 
 
+def _dbg_673991(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    """Debug logging disabled after fix verification."""
+    return
+
+
 # ---------------------------------------------------------------------------
 # Path resolution
 # ---------------------------------------------------------------------------
@@ -144,12 +149,12 @@ def build_target_flags(
     Returns:
         A flat list like ``["-target", "addr1", "-target", "addr2", ...]``.
     """
-    from importer.web.utils.protection_manager import (
-        RESOURCE_TYPE_MAP,
-        get_resource_address,
-    )
+    from importer.web.utils.protection_manager import get_resource_address
 
     target_addresses: list[str] = []
+    source1_intent_addresses = 0
+    source2_move_addresses = 0
+    source3_import_addresses = 0
 
     # 1) From protection intent manager
     if protection_intent_manager is not None:
@@ -183,6 +188,7 @@ def build_target_flags(
                 target_addresses.append(
                     get_resource_address(rtype, rkey, protected=not intent.protected)
                 )
+                source1_intent_addresses += 2
             except (ValueError, KeyError):
                 pass
 
@@ -194,6 +200,7 @@ def build_target_flags(
             addr = m.group(1)
             if addr not in target_addresses:
                 target_addresses.append(addr)
+                source2_move_addresses += 1
 
     # 3) From adopt_imports.tf
     imports_tf = tf_path / "adopt_imports.tf"
@@ -203,11 +210,28 @@ def build_target_flags(
             addr = m.group(1)
             if addr not in target_addresses:
                 target_addresses.append(addr)
+                source3_import_addresses += 1
 
     # Build flat flag list
     flags: list[str] = []
     for addr in target_addresses:
         flags.extend(["-target", addr])
+
+    # region agent log
+    _dbg_673991(
+        "H6",
+        "terraform_helpers.py:build_target_flags",
+        "target flag source breakdown",
+        {
+            "using_intent_manager": protection_intent_manager is not None,
+            "source1_intent_addresses": source1_intent_addresses,
+            "source2_move_addresses": source2_move_addresses,
+            "source3_import_addresses": source3_import_addresses,
+            "total_addresses": len(target_addresses),
+            "sample": target_addresses[:30],
+        },
+    )
+    # endregion
 
     return flags
 
