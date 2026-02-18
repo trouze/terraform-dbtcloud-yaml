@@ -74,6 +74,7 @@ class TerminalOutput:
         self._container: Optional[ui.column] = None
         self._scroll_area: Optional[ui.scroll_area] = None
         self._ui_detached = False
+        self._trim_since_rerender = 0
 
     def create(self, height: str = "300px", title: str = "Output") -> None:
         """Create the terminal output UI component.
@@ -200,13 +201,25 @@ class TerminalOutput:
         self.messages.append(msg)
 
         # Trim old messages
+        trimmed = False
         if len(self.messages) > self.max_lines:
             self.messages = self.messages[-self.max_lines:]
+            trimmed = True
 
         # Add to UI if container exists and level passes filter
         if self._container is not None and self._should_display(level) and not self._ui_detached:
             try:
-                self._add_message_to_ui(msg)
+                # Keep rendered DOM bounded: rerender periodically after trims.
+                if trimmed:
+                    self._trim_since_rerender += 1
+                    if self._trim_since_rerender >= 25:
+                        self._rerender_messages()
+                        self._trim_since_rerender = 0
+                    else:
+                        self._add_message_to_ui(msg)
+                else:
+                    self._add_message_to_ui(msg)
+
                 # Auto-scroll if enabled
                 if self.auto_scroll and self._scroll_area is not None:
                     self._scroll_area.scroll_to(percent=1.0)

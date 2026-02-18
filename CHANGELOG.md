@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.2] - 2026-02-18
+
+### Fixed
+- **NiceGUI `ui.html` Compatibility Regression**: Restored compatibility for environments where `ui.html` requires keyword-only `sanitize` by adding safe fallback usage (`sanitize=False` when supported, no-arg fallback otherwise) in ERD and HTML detail viewers.
+- **Explore Target ERD Crash**: Fixed runtime failure in `erd_viewer.py` (`TypeError: __init__() missing 1 required keyword-only argument: 'sanitize'`) that could break `/explore_target`.
+- **Execution Log Responsiveness**: Reduced websocket/UI pressure by bounding rendered Terraform output in Adopt/Deploy flows and by keeping terminal UI rerenders bounded as log buffers trim.
+- **Debug Instrumentation Overhead**: Removed stale debug file writes from hot paths (`utilities`, `destroy`, `protection_manager`, and temporary perf logger paths) to reduce disk I/O and page choppiness.
+
 ## [0.23.1] - 2026-02-18
 
 ### Fixed

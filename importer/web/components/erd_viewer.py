@@ -166,7 +166,11 @@ def create_erd_viewer(
                     f'<div id="{container_id}" style="width: 100%; height: 400px; '
                     'background: #1e293b; border-radius: 8px;"></div>'
                 )
-                ui.html(html_content)
+                try:
+                    ui.html(html_content, sanitize=False)
+                except TypeError:
+                    # NiceGUI versions differ on whether ui.html requires sanitize.
+                    ui.html(html_content)
             
             # Load Cytoscape and initialize graph
             # Use base64 encoding to safely transmit JSON data

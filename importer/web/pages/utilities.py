@@ -5,7 +5,6 @@ import json
 import re
 import shutil
 import subprocess
-import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -20,10 +19,6 @@ from importer.web.utils.terraform_helpers import (
 )
 from importer.web.utils.generate_pipeline import run_generate_pipeline
 
-# region agent log
-_DEBUG_LOG_PATH = Path("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-65e6e9.log")
-
-
 def _agent_debug_log(
     hypothesis_id: str,
     location: str,
@@ -32,21 +27,7 @@ def _agent_debug_log(
     *,
     run_id: str = "run1",
 ) -> None:
-    try:
-        payload = {
-            "sessionId": "65e6e9",
-            "runId": run_id,
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(payload, default=str) + "\n")
-    except Exception:
-        pass
-# endregion
+    _ = (hypothesis_id, location, message, data, run_id)
 
 
 def create_utilities_page(
@@ -752,26 +733,6 @@ def _create_protection_management_section(
                     )
                     ui.navigate.reload()
                 except Exception as e:
-                    # region agent log
-                    try:
-                        import traceback as _tb_dbg
-                        with Path("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-0c67c5.log").open("a", encoding="utf-8") as _f:
-                            _f.write(json.dumps({
-                                "sessionId": "0c67c5",
-                                "runId": "run1",
-                                "hypothesisId": "G",
-                                "location": "utilities.py:generate_all_pending:except",
-                                "message": "generate_all_pending exception",
-                                "data": {
-                                    "error": str(e),
-                                    "error_type": type(e).__name__,
-                                    "traceback": _tb_dbg.format_exc()[-4000:],
-                                },
-                                "timestamp": int(time.time() * 1000),
-                            }, default=str) + "\n")
-                    except Exception:
-                        pass
-                    # endregion
                     ui.notify(f"Generate pipeline error: {e}", type="negative")
             
             def export_json():

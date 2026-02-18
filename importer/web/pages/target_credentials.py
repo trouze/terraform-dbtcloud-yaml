@@ -1,5 +1,6 @@
 """Target Credentials step page - configure connections and environment credentials."""
 
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 import yaml
@@ -19,9 +20,8 @@ from importer.web.components.credential_schemas import (
     should_show_field,
 )
 from importer.web.env_manager import (
-    load_env_credential_config,
+    load_env_credential_configs,
     save_env_credential_config,
-    save_all_env_credential_configs,
     get_env_file_path,
     resolve_project_env_path,
 )
@@ -41,6 +41,13 @@ DBT_TEAL = "#047377"
 STATUS_GREEN = "#22C55E"  # green-500
 STATUS_ORANGE = "#F97316"  # orange-500
 STATUS_GRAY = "#9CA3AF"  # gray-400
+
+# Small in-process cache for parsed environment rows from YAML.
+_ENV_ROWS_CACHE: dict[str, Any] = {
+    "yaml_path": None,
+    "mtime_ns": None,
+    "environments": None,
+}
 
 
 def create_target_credentials_page(
@@ -217,12 +224,23 @@ def _load_environments_from_yaml(state: AppState) -> List[Dict[str, Any]]:
         return []
 
     try:
-        from pathlib import Path
-
-        if not Path(yaml_path).exists():
+        yaml_file = Path(yaml_path)
+        if not yaml_file.exists():
             return []
 
-        with open(yaml_path, "r", encoding="utf-8") as f:
+        mtime_ns = yaml_file.stat().st_mtime_ns
+        if (
+            _ENV_ROWS_CACHE.get("yaml_path") == str(yaml_file)
+            and _ENV_ROWS_CACHE.get("mtime_ns") == mtime_ns
+            and isinstance(_ENV_ROWS_CACHE.get("environments"), list)
+        ):
+            cached_envs = _ENV_ROWS_CACHE["environments"] or []
+            return [
+                {**env, "source_values": dict(env.get("source_values", {}))}
+                for env in cached_envs
+            ]
+
+        with yaml_file.open("r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
 
         environments = []
@@ -295,6 +313,12 @@ def _load_environments_from_yaml(state: AppState) -> List[Dict[str, Any]]:
                     "source_values": source_values,
                 })
 
+        _ENV_ROWS_CACHE["yaml_path"] = str(yaml_file)
+        _ENV_ROWS_CACHE["mtime_ns"] = mtime_ns
+        _ENV_ROWS_CACHE["environments"] = [
+            {**env, "source_values": dict(env.get("source_values", {}))}
+            for env in environments
+        ]
         return environments
 
     except Exception:
@@ -307,8 +331,23 @@ def _initialize_env_configs(
     save_state: Callable[[], None],
 ) -> None:
     """Initialize environment credential configs from environments and .env."""
+    target_env_path = resolve_project_env_path(state.project_path, "target")
+    all_existing_configs = load_env_credential_configs(env_path=target_env_path)
+
+    def _lookup_existing_config(env_id: str) -> dict:
+        candidates = [
+            env_id.lower(),
+            env_id.replace("-", "_").lower(),
+            env_id.replace("_", "-").lower(),
+        ]
+        for key in candidates:
+            if key in all_existing_configs:
+                return dict(all_existing_configs[key])
+        return {}
+
     # Track selected env IDs
     env_ids = set()
+    state_changed = False
 
     for env in environments:
         env_id = env["id"]
@@ -318,11 +357,24 @@ def _initialize_env_configs(
         if env_id in state.env_credentials.env_configs:
             # Update metadata fields even if already initialized
             config = state.env_credentials.env_configs[env_id]
-            config.env_type = env.get("env_type", "")
-            config.deployment_type = env.get("deployment_type", "")
-            config.dbt_version = env.get("dbt_version", "")
-            config.custom_branch = env.get("custom_branch", "")
-            config.source_values = env.get("source_values", {})
+            new_env_type = env.get("env_type", "")
+            new_deployment_type = env.get("deployment_type", "")
+            new_dbt_version = env.get("dbt_version", "")
+            new_custom_branch = env.get("custom_branch", "")
+            new_source_values = env.get("source_values", {})
+            if (
+                config.env_type != new_env_type
+                or config.deployment_type != new_deployment_type
+                or config.dbt_version != new_dbt_version
+                or config.custom_branch != new_custom_branch
+                or config.source_values != new_source_values
+            ):
+                config.env_type = new_env_type
+                config.deployment_type = new_deployment_type
+                config.dbt_version = new_dbt_version
+                config.custom_branch = new_custom_branch
+                config.source_values = new_source_values
+                state_changed = True
             continue
 
         # Determine credential type
@@ -330,8 +382,7 @@ def _initialize_env_configs(
         credential_type = get_credential_type_for_connection(connection_type) or ""
 
         # Load existing config from project-scoped .env
-        target_env_path = resolve_project_env_path(state.project_path, "target")
-        existing_config = load_env_credential_config(env_id, env_path=target_env_path)
+        existing_config = _lookup_existing_config(env_id)
         use_dummy = (
             existing_config.pop("use_dummy", "false").lower() == "true"
             if "use_dummy" in existing_config
@@ -357,10 +408,15 @@ def _initialize_env_configs(
         )
 
         state.env_credentials.set_config(config)
+        state_changed = True
 
     # Update selected env IDs
-    state.env_credentials.selected_env_ids = env_ids
-    save_state()
+    if state.env_credentials.selected_env_ids != env_ids:
+        state.env_credentials.selected_env_ids = env_ids
+        state_changed = True
+
+    if state_changed:
+        save_state()
 
 
 def _create_environment_credentials_section(

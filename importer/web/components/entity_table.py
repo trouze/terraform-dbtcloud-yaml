@@ -2014,7 +2014,11 @@ def _render_match_debug_tab(
             with ui.element("div").classes("w-full").style(
                 "max-width: 100%; overflow-x: auto; max-height: 300px;"
             ):
-                ui.html(f'<pre style="white-space: pre-wrap; word-break: break-word; font-size: 0.75rem; margin: 0; padding: 8px; background: #1e1e1e; color: #d4d4d4; border-radius: 4px;">{html.escape(grid_row_json)}</pre>')
+                _html = f'<pre style="white-space: pre-wrap; word-break: break-word; font-size: 0.75rem; margin: 0; padding: 8px; background: #1e1e1e; color: #d4d4d4; border-radius: 4px;">{html.escape(grid_row_json)}</pre>'
+                try:
+                    ui.html(_html, sanitize=False)
+                except TypeError:
+                    ui.html(_html)
         
         # Section 6: Set Protection Intent (interactive)
         # Only show for resource types that support protection
@@ -2279,7 +2283,11 @@ def _render_match_debug_tab(
                 with ui.element("div").classes("w-full").style(
                     "max-width: 100%; overflow-x: auto; overflow-y: auto; max-height: 400px;"
                 ):
-                    ui.html(f'<pre style="white-space: pre-wrap; word-break: break-word; font-size: 0.75rem; margin: 0; padding: 8px; background: #1e1e1e; color: #d4d4d4; border-radius: 4px; overflow-x: auto;">{html.escape(llm_diagnostic)}</pre>')
+                    _html = f'<pre style="white-space: pre-wrap; word-break: break-word; font-size: 0.75rem; margin: 0; padding: 8px; background: #1e1e1e; color: #d4d4d4; border-radius: 4px; overflow-x: auto;">{html.escape(llm_diagnostic)}</pre>'
+                    try:
+                        ui.html(_html, sanitize=False)
+                    except TypeError:
+                        ui.html(_html)
 
 
 def _build_llm_diagnostic(
@@ -3177,7 +3185,11 @@ def _render_drift_comparison(
                     full_content = "\n\n".join(all_moved_blocks)
                     
                     with ui.expansion("View Required Moved Blocks (if following YAML)", icon="code").classes("w-full"):
-                        ui.html(f'<pre style="background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 4px; font-size: 0.75rem; overflow-x: auto;">{html.escape(full_content)}</pre>')
+                        _html = f'<pre style="background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 4px; font-size: 0.75rem; overflow-x: auto;">{html.escape(full_content)}</pre>'
+                        try:
+                            ui.html(_html, sanitize=False)
+                        except TypeError:
+                            ui.html(_html)
                         
                         # Copy button inside expansion
                         copy_content = full_content
