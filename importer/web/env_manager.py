@@ -51,6 +51,99 @@ def find_env_file(start_dir: Optional[str] = None) -> Path:
     return Path(start_dir or ".") / ".env"
 
 
+# Preferred (visible) and legacy (dotfile) credential file names per role.
+# Visible names appear first so new projects use them; legacy names are
+# checked on read for backward compatibility.
+_SOURCE_ENV_NAMES = ("source.env", ".env.source")
+_TARGET_ENV_NAMES = ("target.env", ".env.target")
+_COMBINED_ENV_NAME = ".env"
+
+
+def resolve_project_env_path(
+    project_path: Optional[str],
+    role: str = "source",
+) -> Optional[str]:
+    """Return the credential file path for an active project.
+
+    Checks visible filenames first (``source.env`` / ``target.env``), then
+    legacy dotfile names (``.env.source`` / ``.env.target``), then a
+    combined ``.env`` inside the project folder.
+
+    Args:
+        project_path: Absolute path to the active project folder, or None.
+        role: ``"source"`` or ``"target"``.
+
+    Returns:
+        Absolute path string if a file is found (or should be created),
+        or ``None`` when no project is active.
+    """
+    if not project_path:
+        return None
+
+    pp = Path(project_path)
+    candidates = _SOURCE_ENV_NAMES if role == "source" else _TARGET_ENV_NAMES
+
+    for name in candidates:
+        candidate = pp / name
+        if candidate.exists():
+            return str(candidate)
+
+    combined = pp / _COMBINED_ENV_NAME
+    if combined.exists():
+        return str(combined)
+
+    # Nothing exists yet — return the preferred visible filename so new
+    # files are created with a user-friendly name.
+    return str(pp / candidates[0])
+
+
+def resolve_project_env_path_for_save(
+    project_path: Optional[str],
+    role: str = "source",
+) -> Optional[str]:
+    """Return the credential file path to *write* for an active project.
+
+    Same search order as :func:`resolve_project_env_path` but when nothing
+    exists yet, always returns the preferred visible filename.
+    """
+    return resolve_project_env_path(project_path, role)
+
+
+def auto_seed_project_env(
+    project_path: str,
+    role: str = "source",
+) -> Optional[str]:
+    """Copy matching keys from the repo-root ``.env`` into a new project env file.
+
+    Only runs when the project credential file does not already exist.
+    Returns the path written, or ``None`` if nothing was seeded.
+    """
+    dest = resolve_project_env_path(project_path, role)
+    if dest is None:
+        return None
+
+    dest_path = Path(dest)
+    if dest_path.exists():
+        return None  # already present
+
+    root_env = find_env_file()
+    if not root_env.exists():
+        return None
+
+    values = load_env_values(str(root_env))
+    prefix = "DBT_SOURCE_" if role == "source" else "DBT_TARGET_"
+    scoped = {k: v for k, v in values.items() if k.startswith(prefix)}
+
+    if not scoped:
+        return None
+
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [f"{k}={v}" for k, v in sorted(scoped.items())]
+    dest_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    log.info("Auto-seeded %s from root .env (%d keys)", dest, len(scoped))
+    return str(dest_path)
+
+
 def load_env_values(env_path: Optional[str] = None) -> dict:
     """Load all values from a .env file.
 

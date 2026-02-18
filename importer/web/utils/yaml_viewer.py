@@ -925,8 +925,20 @@ def create_state_viewer_dialog(
                         for r in state_data.get("resources", [])
                         if r.get("mode") != "data"  # Exclude data sources
                     )
+                    output_count = len(state_data.get("outputs", {}))
                     ui.label(f"{resource_count} resources").classes("text-xs text-slate-400")
+                    if output_count:
+                        ui.label(f"{output_count} outputs").classes("text-xs text-slate-400")
                     ui.label(f"{len(raw_content):,} chars").classes("text-xs text-slate-400")
+                
+                if resource_count == 0 and output_count > 0:
+                    with ui.row().classes("items-center gap-2 mt-1"):
+                        ui.icon("info", size="xs").classes("text-blue-400")
+                        ui.label(
+                            "No managed resources, but outputs remain. "
+                            "Outputs persist from configuration expressions and "
+                            "do not imply active managed infrastructure."
+                        ).classes("text-xs text-blue-500 italic")
             
             # Sensitive values toggle banner (prominent, full-width)
             if sensitive_paths:

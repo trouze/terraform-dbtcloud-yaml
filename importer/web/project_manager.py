@@ -65,8 +65,8 @@ class ProjectConfig:
     description: str = ""
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
-    source_env_file: str = ".env.source"
-    target_env_file: str = ".env.target"
+    source_env_file: str = "source.env"
+    target_env_file: str = "target.env"
     output_config: OutputConfig = field(default_factory=OutputConfig)
     # Account summary fields for fast filtering (FR-29)
     source_host: Optional[str] = None
@@ -164,7 +164,9 @@ class ProjectManager:
     GITIGNORE_TEMPLATE = """# Project-level gitignore (defense-in-depth)
 # These files contain sensitive credentials and should NEVER be committed
 
-# Credentials
+# Credentials (visible + legacy names)
+source.env
+target.env
 .env.source
 .env.target
 .env.*
@@ -357,8 +359,8 @@ outputs/
     ) -> None:
         """Copy credentials from an .env file into the project folder.
 
-        Parses the given env_path and writes ``{project}/.env.source`` and/or
-        ``{project}/.env.target`` with the relevant keys.
+        Parses the given env_path and writes ``{project}/source.env`` and/or
+        ``{project}/target.env`` with the relevant keys.
         """
         project_path = self.projects_dir / slug
         if not project_path.exists():
@@ -384,9 +386,9 @@ outputs/
         target_keys = {k: v for k, v in env_vars.items() if "TARGET" in k.upper()}
 
         if source and source_keys:
-            self._write_env_file(project_path / ".env.source", source_keys)
+            self._write_env_file(project_path / "source.env", source_keys)
         if target and target_keys:
-            self._write_env_file(project_path / ".env.target", target_keys)
+            self._write_env_file(project_path / "target.env", target_keys)
 
     def update_account_summary(self, slug: str, state: AppState) -> None:
         """Sync account summary fields from AppState to ProjectConfig (FR-30)."""

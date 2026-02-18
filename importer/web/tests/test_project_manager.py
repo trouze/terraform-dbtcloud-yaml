@@ -614,6 +614,8 @@ class TestGitignoreTemplate:
         config = pm.create_project("Gitignore Test", WorkflowType.MIGRATION)
         path = pm.get_project_path(config.slug) / ".gitignore"
         content = path.read_text()
+        assert "source.env" in content
+        assert "target.env" in content
         assert ".env.source" in content
         assert ".env.target" in content
         assert "state.json" in content
@@ -761,7 +763,7 @@ class TestProjectLifecycle:
         pm.import_credentials(config.slug, str(env_file))
 
         proj_path = pm.get_project_path(config.slug)
-        assert (proj_path / ".env.source").exists()
-        assert (proj_path / ".env.target").exists()
-        source_content = (proj_path / ".env.source").read_text()
+        assert (proj_path / "source.env").exists()
+        assert (proj_path / "target.env").exists()
+        source_content = (proj_path / "source.env").read_text()
         assert "src_tok123" in source_content

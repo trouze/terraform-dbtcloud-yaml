@@ -228,6 +228,24 @@ class TargetFetchState:
     resource_counts: dict = field(default_factory=dict)
     # Path to the normalized YAML produced from target fetch data (all projects, no exclusions)
     target_baseline_yaml: Optional[str] = None
+    # Post-apply staleness tracking
+    is_stale: bool = False
+    stale_reason: str = ""
+    stale_marked_at: Optional[str] = None
+
+    def mark_stale(self, reason: str) -> None:
+        """Mark the target snapshot as stale after a destructive action like apply."""
+        from datetime import datetime, timezone
+        self.is_stale = True
+        self.stale_reason = reason
+        self.stale_marked_at = datetime.now(timezone.utc).isoformat()
+        self.fetch_complete = False
+
+    def clear_stale(self) -> None:
+        """Clear staleness flags after a successful target re-fetch."""
+        self.is_stale = False
+        self.stale_reason = ""
+        self.stale_marked_at = None
 
 
 class FetchMode(str, Enum):

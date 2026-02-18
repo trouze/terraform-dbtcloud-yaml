@@ -1,6 +1,7 @@
 """Target step page for configuring target account credentials."""
 
 import asyncio
+from pathlib import Path
 from typing import Callable
 
 from nicegui import ui
@@ -15,6 +16,8 @@ from importer.web.env_manager import (
     load_target_credentials_from_content,
     save_target_credentials,
     fetch_account_name,
+    resolve_project_env_path,
+    auto_seed_project_env,
 )
 from importer.web.utils.yaml_viewer import (
     create_migration_summary_card,
@@ -301,7 +304,10 @@ def _on_credentials_change(
 def _load_env_credentials(state: AppState, save_state: Callable[[], None]) -> None:
     """Load target credentials from default .env file."""
     try:
-        creds = load_target_credentials()
+        env_path = resolve_project_env_path(state.project_path, "target")
+        if env_path and not Path(env_path).exists():
+            auto_seed_project_env(state.project_path, "target")
+        creds = load_target_credentials(env_path=env_path)
 
         if not creds.get("account_id") and not creds.get("api_token"):
             ui.notify("No target credentials found in .env", type="warning")
@@ -368,11 +374,13 @@ def _save_env_credentials(state: AppState) -> None:
         return
 
     try:
+        env_path = resolve_project_env_path(state.project_path, "target")
         path = save_target_credentials(
             host_url=creds.host_url,
             account_id=creds.account_id,
             api_token=creds.api_token,
             token_type=creds.token_type,
+            env_path=env_path,
         )
         ui.notify(f"Target credentials saved to {path}", type="positive")
 

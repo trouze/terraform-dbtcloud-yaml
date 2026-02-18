@@ -130,3 +130,14 @@ class TestReconcileSourceConsistency:
     def test_workflow_mapping_doc_exists(self) -> None:
         doc = REPO_ROOT / "docs" / "architecture" / "workflow-mapping.md"
         assert doc.exists(), "workflow-mapping.md documentation is required"
+
+
+class TestSharedDetailDialogReuse:
+    """Protection grid should reuse shared detail dialog path."""
+
+    def test_utilities_reuses_show_match_detail_dialog(self) -> None:
+        source = _read_source(PAGES_DIR / "utilities.py")
+        assert "show_match_detail_dialog" in source, (
+            "utilities.py should reuse show_match_detail_dialog from entity_table.py "
+            "instead of implementing a duplicate detail popup"
+        )

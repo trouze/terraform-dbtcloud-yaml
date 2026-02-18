@@ -6,7 +6,7 @@ from nicegui import ui
 
 from importer.web.state import AppState, WorkflowStep
 from importer.web.components.credential_form import create_target_credential_form
-from importer.web.env_manager import load_target_credentials, save_target_credentials
+from importer.web.env_manager import load_target_credentials, save_target_credentials, resolve_project_env_path, auto_seed_project_env
 from importer.web.workflows.jobs_as_code.utils.job_fetcher import (
     fetch_jobs_from_api,
     extract_projects_from_jobs,
@@ -98,7 +98,10 @@ def create_jac_target_page(
             def on_load_env():
                 """Load credentials from .env file."""
                 try:
-                    creds = load_target_credentials()
+                    env_path = resolve_project_env_path(state.project_path, "target")
+                    if env_path and not __import__('pathlib').Path(env_path).exists():
+                        auto_seed_project_env(state.project_path, "target")
+                    creds = load_target_credentials(env_path=env_path)
                     if creds:
                         state.target_credentials.host_url = creds.get("host_url", "https://cloud.getdbt.com")
                         state.target_credentials.account_id = creds.get("account_id", "")
@@ -149,10 +152,12 @@ def create_jac_target_page(
             def on_save_env():
                 """Save credentials to .env file."""
                 try:
+                    env_path = resolve_project_env_path(state.project_path, "target")
                     save_target_credentials(
                         host_url=state.target_credentials.host_url,
                         account_id=state.target_credentials.account_id,
                         api_token=state.target_credentials.api_token,
+                        env_path=env_path,
                     )
                     ui.notify("Saved credentials to .env", type="positive")
                 except Exception as e:

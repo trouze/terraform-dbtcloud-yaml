@@ -24,6 +24,8 @@ from importer.web.env_manager import (
     save_target_credentials,
     load_account_info_from_env,
     fetch_account_name,
+    resolve_project_env_path,
+    auto_seed_project_env,
 )
 from importer.element_ids import apply_element_ids
 
@@ -369,7 +371,10 @@ def _do_load_env_credentials(
     terminal.info("Loading target credentials from default .env file...")
     
     try:
-        creds = load_target_credentials()
+        env_path = resolve_project_env_path(state.project_path, "target")
+        if env_path and not Path(env_path).exists():
+            auto_seed_project_env(state.project_path, "target")
+        creds = load_target_credentials(env_path=env_path)
         
         if not creds.get("account_id") and not creds.get("api_token"):
             terminal.warning("No target credentials found in .env file")
@@ -383,7 +388,7 @@ def _do_load_env_credentials(
         state.target_credentials.token_type = creds.get("token_type", "service_token")
         
         # Also update target account info
-        state.target_account = load_account_info_from_env("target")
+        state.target_account = load_account_info_from_env("target", env_path=env_path)
         
         # Optionally clear previous fetch results
         if reset_fetch:
@@ -561,11 +566,13 @@ def _save_env_credentials(state: AppState, terminal: TerminalOutput) -> None:
     terminal.info("Saving target credentials to .env file...")
     
     try:
+        env_path = resolve_project_env_path(state.project_path, "target")
         path = save_target_credentials(
             host_url=creds.host_url,
             account_id=creds.account_id,
             api_token=creds.api_token,
             token_type=creds.token_type,
+            env_path=env_path,
         )
         terminal.success(f"Target credentials saved to {path}")
         ui.notify("Target credentials saved", type="positive")
@@ -802,6 +809,7 @@ async def _run_fetch(
 
         # Update state
         fetch_state.fetch_complete = True
+        fetch_state.clear_stale()
         fetch_state.last_fetch_file = str(json_path)
         fetch_state.last_summary_file = str(summary_path)
         fetch_state.last_report_file = str(report_path)

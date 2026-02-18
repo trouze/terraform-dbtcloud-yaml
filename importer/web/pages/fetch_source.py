@@ -24,6 +24,8 @@ from importer.web.env_manager import (
     save_source_credentials,
     load_account_info_from_env,
     fetch_account_name,
+    resolve_project_env_path,
+    auto_seed_project_env,
 )
 from importer.element_ids import apply_element_ids
 
@@ -287,7 +289,10 @@ def _do_load_env_credentials(
     terminal.info("Loading credentials from default .env file...")
     
     try:
-        creds = load_source_credentials()
+        env_path = resolve_project_env_path(state.project_path, "source")
+        if env_path and not Path(env_path).exists():
+            auto_seed_project_env(state.project_path, "source")
+        creds = load_source_credentials(env_path=env_path)
         
         if not creds.get("account_id") and not creds.get("api_token"):
             terminal.warning("No source credentials found in .env file")
@@ -479,10 +484,12 @@ def _save_env_credentials(state: AppState, terminal: TerminalOutput) -> None:
     terminal.info("Saving credentials to .env file...")
     
     try:
+        env_path = resolve_project_env_path(state.project_path, "source")
         path = save_source_credentials(
             host_url=creds.host_url,
             account_id=creds.account_id,
             api_token=creds.api_token,
+            env_path=env_path,
         )
         terminal.success(f"Credentials saved to {path}")
         ui.notify("Credentials saved", type="positive")

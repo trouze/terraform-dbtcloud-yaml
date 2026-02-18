@@ -23,6 +23,7 @@ from importer.web.env_manager import (
     save_env_credential_config,
     save_all_env_credential_configs,
     get_env_file_path,
+    resolve_project_env_path,
 )
 from importer.web.components.connection_config import create_connection_config_section
 from importer.web.components.pem_validator import (
@@ -328,8 +329,9 @@ def _initialize_env_configs(
         connection_type = env.get("connection_type", "")
         credential_type = get_credential_type_for_connection(connection_type) or ""
 
-        # Load existing config from .env
-        existing_config = load_env_credential_config(env_id)
+        # Load existing config from project-scoped .env
+        target_env_path = resolve_project_env_path(state.project_path, "target")
+        existing_config = load_env_credential_config(env_id, env_path=target_env_path)
         use_dummy = (
             existing_config.pop("use_dummy", "false").lower() == "true"
             if "use_dummy" in existing_config
@@ -537,12 +539,14 @@ def _reset_to_dummy(
     state.env_credentials.set_config(config)
     save_state()
 
-    # Save to .env
+    # Save to project-scoped .env
     try:
+        target_env_path = resolve_project_env_path(state.project_path, "target")
         save_env_credential_config(
             env_id=env_id,
             config=dummy_values,
             use_dummy=True,
+            env_path=target_env_path,
         )
         ui.notify(f"Reset {config.env_name} to dummy credentials", type="positive")
         ui.navigate.reload()
@@ -729,12 +733,14 @@ def _show_edit_dialog(
                 state.env_credentials.set_config(config)
                 save_state()
 
-                # Save to .env
+                # Save to project-scoped .env
                 try:
+                    target_env_path = resolve_project_env_path(state.project_path, "target")
                     save_env_credential_config(
                         env_id=env_id,
                         config=config.credential_values,
                         use_dummy=config.use_dummy_credentials,
+                        env_path=target_env_path,
                     )
                     ui.notify(f"Saved credentials for {config.env_name}", type="positive")
                     dialog.close()
@@ -1284,10 +1290,12 @@ def _save_all_configs(
 
         if values_to_save or config.use_dummy_credentials:
             try:
+                target_env_path = resolve_project_env_path(state.project_path, "target")
                 save_env_credential_config(
                     env_id=env_id,
                     config=values_to_save,
                     use_dummy=config.use_dummy_credentials,
+                    env_path=target_env_path,
                 )
                 config.is_saved = True
                 state.env_credentials.set_config(config)
@@ -1298,9 +1306,9 @@ def _save_all_configs(
     save_state()
 
     if saved_count > 0:
-        env_path = get_env_file_path()
+        display_path = resolve_project_env_path(state.project_path, "target") or get_env_file_path()
         ui.notify(
-            f"Saved {saved_count} environment credential(s) to {env_path}",
+            f"Saved {saved_count} environment credential(s) to {display_path}",
             type="positive",
         )
         ui.navigate.reload()

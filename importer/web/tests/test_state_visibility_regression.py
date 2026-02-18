@@ -16,6 +16,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from importer.web.pages.utilities import _build_protection_grid_rows
 from importer.web.utils.protection_intent import ProtectionIntentManager
 
 
@@ -229,3 +230,26 @@ class TestSummaryTableParity:
         )
 
         assert summary_unprotected_count == grid_unprotected_count
+
+
+class TestDenseBaselineRepresentability:
+    """Dense baseline requirement: every in-scope state row is representable."""
+
+    def test_all_state_rows_are_representable_without_explicit_intents(self) -> None:
+        resources = _make_reconcile_resources([
+            {"element_code": "PRJ", "resource_index": "analytics", "tf_name": "projects"},
+            {"element_code": "REP", "resource_index": "repo_a", "tf_name": "protected_repositories"},
+            {"element_code": "GRP", "resource_index": "member", "tf_name": "protected_groups"},
+        ])
+        state_map = _build_state_protection_map(resources)
+
+        manager = MagicMock()
+        manager._intent = {}
+
+        rows = _build_protection_grid_rows(
+            protection_intent=manager,
+            state_protection_by_key=state_map,
+            yaml_protected_resources=set(),
+        )
+        represented_keys = {row["resource_key"] for row in rows}
+        assert represented_keys == set(state_map.keys())

@@ -89,6 +89,23 @@ def create_deploy_page(
         if not _check_prerequisites(state, on_step_change):
             return
 
+        # Stale target warning banner
+        if state.target_fetch.is_stale:
+            with ui.card().classes("w-full p-4 border-l-4 border-orange-500 bg-orange-50 dark:bg-orange-950"):
+                with ui.row().classes("items-center justify-between"):
+                    with ui.row().classes("items-center gap-3"):
+                        ui.icon("refresh", size="lg").classes("text-orange-500")
+                        with ui.column().classes("gap-0"):
+                            ui.label("Target Snapshot Stale").classes("font-semibold text-orange-700 dark:text-orange-300")
+                            ui.label(
+                                state.target_fetch.stale_reason or "Re-fetch target before continuing."
+                            ).classes("text-sm text-orange-600 dark:text-orange-400")
+                    ui.button(
+                        "Re-fetch Target",
+                        icon="cloud_download",
+                        on_click=lambda: on_step_change(WorkflowStep.FETCH_TARGET),
+                    ).props("color=warning")
+
         # Deployment summary
         _create_deployment_summary(state)
 
@@ -1413,6 +1430,17 @@ async def _run_generate(
     output_dir: str,
 ) -> None:
     """Generate Terraform files from YAML configuration."""
+    if state.target_fetch.is_stale:
+        terminal.set_title("Output — GENERATE (BLOCKED)")
+        terminal.clear()
+        terminal.error("Target snapshot is stale — re-fetch target data before generating.")
+        terminal.warning(f"Reason: {state.target_fetch.stale_reason}")
+        ui.notify(
+            "Target data is stale. Re-fetch target before generating.",
+            type="warning",
+        )
+        return
+
     terminal.set_title("Output — GENERATE")
     terminal.clear()
     terminal.info("Generating Terraform configuration files...")
@@ -2529,6 +2557,13 @@ async def _run_terraform_plan(
     deploy_state: dict,
 ) -> None:
     """Run terraform plan."""
+    if state.target_fetch.is_stale:
+        terminal.set_title("Output — PLAN (BLOCKED)")
+        terminal.clear()
+        terminal.error("Target snapshot is stale — re-fetch target data before planning.")
+        ui.notify("Target data is stale. Re-fetch target first.", type="warning")
+        return
+
     if not state.deploy.terraform_initialized:
         terminal.warning("Run terraform init first")
         ui.notify("Run init first", type="warning")
@@ -2894,6 +2929,13 @@ async def _run_terraform_apply(
     deploy_state: dict,
 ) -> None:
     """Run terraform apply."""
+    if state.target_fetch.is_stale:
+        terminal.set_title("Output — APPLY (BLOCKED)")
+        terminal.clear()
+        terminal.error("Target snapshot is stale — re-fetch target data before applying.")
+        ui.notify("Target data is stale. Re-fetch target first.", type="warning")
+        return
+
     if not state.deploy.last_plan_success:
         terminal.warning("Run terraform plan first")
         ui.notify("Run plan first", type="warning")
@@ -2954,6 +2996,11 @@ async def _run_terraform_apply(
             terminal.success("")
             terminal.success("━━━ DEPLOYMENT COMPLETE ━━━")
             state.deploy.apply_complete = True
+            
+            # Mark target snapshot as stale — the apply changed the target account
+            state.target_fetch.mark_stale(
+                "Terraform apply completed successfully; target state has changed."
+            )
             save_state()
             
             # Clean up adopt import blocks after successful apply
@@ -2984,6 +3031,15 @@ async def _run_terraform_apply(
                 ui.notify("Deployment complete with warnings!", type="warning")
             else:
                 ui.notify("Deployment complete!", type="positive")
+            
+            # Stale target warning banner with CTA
+            terminal.warning("")
+            terminal.warning("⚠️ Target snapshot is now stale — re-fetch target before continuing.")
+            ui.notify(
+                "Target data is stale after apply. Re-fetch target before further actions.",
+                type="warning",
+                timeout=10000,
+            )
         else:
             terminal.error("")
             terminal.error(f"Apply failed with exit code {result.returncode}")

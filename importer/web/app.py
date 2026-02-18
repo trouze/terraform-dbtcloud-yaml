@@ -22,7 +22,7 @@ from importer.web.pages.deploy import create_deploy_page
 from importer.web.pages.destroy import create_destroy_page
 from importer.web.pages.target_credentials import create_target_credentials_page
 from importer.web.pages.utilities import create_utilities_page
-from importer.web.env_manager import load_account_info_from_env
+from importer.web.env_manager import load_account_info_from_env, resolve_project_env_path
 from importer.web.licensing import (
     LicenseTier,
     check_migration_license,
@@ -109,12 +109,13 @@ def get_state() -> AppState:
 
 
 def _refresh_account_info(state: AppState) -> None:
-    """Refresh account info from .env file."""
+    """Refresh account info from project-scoped .env file (or global fallback)."""
     try:
-        state.source_account = load_account_info_from_env("source")
-        state.target_account = load_account_info_from_env("target")
+        source_env = resolve_project_env_path(state.project_path, "source")
+        target_env = resolve_project_env_path(state.project_path, "target")
+        state.source_account = load_account_info_from_env("source", env_path=source_env)
+        state.target_account = load_account_info_from_env("target", env_path=target_env)
     except Exception:
-        # If loading fails, keep defaults
         pass
 
 

@@ -12,6 +12,7 @@ from typing import Callable, Optional
 
 from nicegui import ui
 
+from importer.web.components.entity_table import show_match_detail_dialog
 from importer.web.state import AppState, WorkflowStep
 from importer.web.utils.terraform_helpers import (
     build_target_flags,
@@ -169,8 +170,8 @@ def _create_protection_status_section(
                     "direction": direction,
                 })
     
-    with ui.card().classes("w-full p-6 mb-6"):
-        with ui.row().classes("w-full items-center justify-between mb-4"):
+    with ui.card().classes("w-full p-4 mb-4"):
+        with ui.row().classes("w-full items-center justify-between mb-3"):
             with ui.row().classes("items-center gap-2"):
                 ui.icon("assessment", size="md").classes("text-slate-600")
                 ui.label("Current Protection Status").classes("text-xl font-semibold")
@@ -182,31 +183,31 @@ def _create_protection_status_section(
                 ui.badge("No TF State").props("color=grey")
         
         # Summary cards row
-        with ui.row().classes("w-full gap-4 mb-6"):
+        with ui.row().classes("w-full gap-3 mb-4"):
             # YAML Protected
-            with ui.card().classes("flex-1 p-4 border border-blue-300"):
+            with ui.card().classes("flex-1 p-3 border border-blue-300"):
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("description", size="sm").classes("text-blue-600")
                     ui.label("YAML Protected").classes("font-semibold text-blue-600")
-                ui.label(str(len(yaml_protected))).classes("text-3xl font-bold text-blue-700 mt-2")
+                ui.label(str(len(yaml_protected))).classes("text-2xl font-bold text-blue-700 mt-1")
                 ui.label("From config file").classes("text-xs opacity-70")
             
             # TF State Protected
-            with ui.card().classes("flex-1 p-4 border border-green-300"):
+            with ui.card().classes("flex-1 p-3 border border-green-300"):
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("cloud", size="sm").classes("text-green-600")
                     ui.label("TF State Protected").classes("font-semibold text-green-600")
                 count = len(state_protected_resources_display) if has_state else "—"
-                ui.label(str(count)).classes("text-3xl font-bold text-green-700 mt-2")
+                ui.label(str(count)).classes("text-2xl font-bold text-green-700 mt-1")
                 ui.label("From terraform state" if has_state else "Load state to see").classes("text-xs opacity-70")
             
             # Mismatches
             mismatch_color = "red" if len(mismatches) > 0 else "grey"
-            with ui.card().classes(f"flex-1 p-4 border border-{mismatch_color}-300"):
+            with ui.card().classes(f"flex-1 p-3 border border-{mismatch_color}-300"):
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("warning" if len(mismatches) > 0 else "check", size="sm").classes(f"text-{mismatch_color}-600")
                     ui.label("Mismatches").classes(f"font-semibold text-{mismatch_color}-600")
-                ui.label(str(len(mismatches))).classes(f"text-3xl font-bold text-{mismatch_color}-700 mt-2")
+                ui.label(str(len(mismatches))).classes(f"text-2xl font-bold text-{mismatch_color}-700 mt-1")
                 ui.label("Need resolution" if len(mismatches) > 0 else "All in sync").classes("text-xs opacity-70")
         
         # Mismatches expansion (if any)
@@ -446,99 +447,147 @@ def _create_protection_management_section(
     )
     total_intents = protection_intent.intent_count
     
-    with ui.card().classes("w-full p-6"):
-        with ui.row().classes("w-full items-center gap-2 mb-4"):
+    with ui.card().classes("w-full p-4"):
+        with ui.row().classes("w-full items-center gap-2 mb-3"):
             ui.icon("shield", size="md").classes("text-slate-600")
             ui.label("Protection Management").classes("text-xl font-semibold")
         
         # Status Summary Cards
-        with ui.row().classes("w-full gap-4 mb-6"):
+        with ui.row().classes("w-full gap-3 mb-4"):
             # Pending Generate card
-            with ui.card().classes("flex-1 p-4").style("border: 2px solid #F59E0B;"):
+            with ui.card().classes("flex-1 p-3").style("border: 2px solid #F59E0B;"):
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("pending_actions", size="sm").classes("text-amber-600")
                     ui.label("Pending Generate").classes("font-semibold text-amber-600")
-                ui.label(str(pending_generate)).classes("text-3xl font-bold text-amber-700 mt-2")
+                ui.label(str(pending_generate)).classes("text-2xl font-bold text-amber-700 mt-1")
                 ui.label("Need YAML updates").classes("text-xs text-slate-500")
             
             # Pending TF Intents card
-            with ui.card().classes("flex-1 p-4").style("border: 2px solid #3B82F6;"):
+            with ui.card().classes("flex-1 p-3").style("border: 2px solid #3B82F6;"):
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("cloud_sync", size="sm").classes("text-blue-600")
                     ui.label("Pending TF Intents").classes("font-semibold text-blue-600")
-                ui.label(str(pending_tf)).classes("text-3xl font-bold text-blue-700 mt-2")
+                ui.label(str(pending_tf)).classes("text-2xl font-bold text-blue-700 mt-1")
                 ui.label("Need terraform apply (intent count)").classes("text-xs text-slate-500")
             
             # Synced card
-            with ui.card().classes("flex-1 p-4").style("border: 2px solid #10B981;"):
+            with ui.card().classes("flex-1 p-3").style("border: 2px solid #10B981;"):
                 with ui.row().classes("items-center gap-2"):
                     ui.icon("check_circle", size="sm").classes("text-green-600")
                     ui.label("Synced").classes("font-semibold text-green-600")
-                ui.label(str(synced)).classes("text-3xl font-bold text-green-700 mt-2")
+                ui.label(str(synced)).classes("text-2xl font-bold text-green-700 mt-1")
                 ui.label("Fully applied").classes("text-xs text-slate-500")
         
         # Build TF-state protection map used by filters and table state column.
         # Key format mirrors intent keys: "<TYPE>:<resource_key>".
         state_protection_by_key: dict[str, bool] = {}
+        state_resource_by_key: dict[str, dict] = {}
         if state.deploy.reconcile_state_loaded and state.deploy.reconcile_state_resources:
             for resource in state.deploy.reconcile_state_resources:
                 element_code = resource.get("element_code", "")
                 resource_index = resource.get("resource_index", "")
                 tf_name = resource.get("tf_name", "")
-                if element_code in ("PRJ", "REP", "PREP", "GRP") and resource_index:
+                if element_code in ("PRJ", "REP", "PREP", "GRP", "ENV", "JOB", "CON", "CONN") and resource_index:
                     typed_key = f"{element_code}:{resource_index}"
                     state_protection_by_key[typed_key] = "protected_" in tf_name
+                    state_resource_by_key[typed_key] = resource
+
+        # Build unified row model up-front so filters and actions are consistent.
+        all_rows = _build_protection_grid_rows(
+            protection_intent=protection_intent,
+            state_protection_by_key=state_protection_by_key,
+            yaml_protected_resources=state.map.protected_resources or set(),
+        )
+        total_rows = len(all_rows)
+
+        # Grid state for filter/action handlers.
+        grid_ref = {
+            "grid": None,
+            "all_rows": all_rows,
+            "selected_keys": set(),
+            "showing_label": None,
+            "selection_label": None,
+            "bulk_btn_refs": {},
+        }
 
         # Filters and Search
-        filter_state = {"status": "all", "type": "all", "search": ""}
+        filter_state = {
+            "status": "all",
+            "type": "all",
+            "search": "",
+            "selected_only": False,
+            "hide_unprotected": True,
+        }
         
-        with ui.row().classes("w-full gap-4 mb-4 items-end"):
-            # Status filter - use dict format {value: label}
-            status_options = {
-                "all": "All Status",
-                "pending_generate": "Pending Generate",
-                "pending_tf": "Pending TF Intents",
-                "synced": "Synced",
-            }
-            status_select = ui.select(
-                label="Status",
-                options=status_options,
-                value="all",
-                on_change=lambda e: _update_filter(filter_state, "status", e.value, grid_ref),
-            ).props("dense outlined").classes("w-40")
-            
-            # Type filter - use dict format {value: label}
-            type_options = {"all": "All Types"}
-            unique_types = set()
-            for key in protection_intent._intent.keys():
-                # Extract type from key (e.g., "PRJ:myproject" -> "PRJ")
-                if ":" in key:
-                    rtype = key.split(":")[0]
-                else:
-                    rtype = "UNKNOWN"
-                unique_types.add(rtype)
-            for state_key in state_protection_by_key.keys():
-                if ":" in state_key:
-                    unique_types.add(state_key.split(":")[0])
-            for t in sorted(unique_types):
-                type_options[t] = t
-            
-            type_select = ui.select(
-                label="Type",
-                options=type_options,
-                value="all",
-                on_change=lambda e: _update_filter(filter_state, "type", e.value, grid_ref),
-            ).props("dense outlined").classes("w-32")
-            
-            # Search input
-            search_input = ui.input(
-                label="Search Resource Key",
-                placeholder="Type to filter...",
-                on_change=lambda e: _update_filter(filter_state, "search", e.value, grid_ref),
-            ).props("dense outlined clearable").classes("flex-grow")
-            
-            # Showing count
-            showing_label = ui.label(f"Showing: {total_intents}/{total_intents}").classes("text-sm text-slate-500")
+        def _render_filter_controls() -> None:
+            with ui.card().classes("w-full p-3 mb-4 border border-slate-200 rounded-lg"):
+                ui.label("Grid Filters").classes("text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2")
+                with ui.row().classes("w-full gap-4 items-end flex-wrap"):
+                    # Status filter with counts.
+                    status_counts = _count_values(all_rows, "status")
+                    status_options = {
+                        "all": f"All Status ({total_rows})",
+                        "pending_generate": f"Pending Generate ({status_counts.get('Pending Generate', 0)})",
+                        "pending_tf": f"Pending TF Intents ({status_counts.get('Pending TF Intents', 0)})",
+                        "state_mismatch": f"State Mismatch ({status_counts.get('State Mismatch', 0)})",
+                        "state_only": f"State Only ({status_counts.get('State Only', 0)})",
+                        "synced": f"Synced ({status_counts.get('Synced', 0)})",
+                    }
+                    status_select = ui.select(
+                        label="Status",
+                        options=status_options,
+                        value="all",
+                        on_change=lambda e: _update_filter(filter_state, "status", e.value, grid_ref),
+                    ).props("dense outlined").classes("w-44 self-end")
+
+                    # Type filter with counts.
+                    type_counts = _count_values(all_rows, "type")
+                    type_options = {"all": f"All Types ({total_rows})"}
+                    for resource_type in sorted(type_counts.keys()):
+                        type_options[resource_type] = f"{resource_type} ({type_counts[resource_type]})"
+
+                    type_select = ui.select(
+                        label="Type",
+                        options=type_options,
+                        value="all",
+                        on_change=lambda e: _update_filter(filter_state, "type", e.value, grid_ref),
+                    ).props("dense outlined").classes("w-44 self-end")
+
+                    search_input = ui.input(
+                        label="Search Resource Key",
+                        placeholder="Type to filter...",
+                        on_change=lambda e: _update_filter(filter_state, "search", e.value, grid_ref),
+                    ).props("dense outlined clearable").classes("flex-grow min-w-[220px]")
+
+                    def _reset_filters() -> None:
+                        status_select.value = "all"
+                        type_select.value = "all"
+                        search_input.value = ""
+                        filter_state["status"] = "all"
+                        filter_state["type"] = "all"
+                        filter_state["search"] = ""
+                        filter_state["selected_only"] = False
+                        filter_state["hide_unprotected"] = True
+                        selected_only_switch.value = False
+                        hide_unprotected_switch.value = True
+                        _refresh_protection_grid(grid_ref, filter_state)
+
+                with ui.row().classes("w-full items-center gap-2 flex-wrap pt-1"):
+                    selected_only_switch = ui.switch(
+                        "Selected only",
+                        value=False,
+                        on_change=lambda e: _update_filter(filter_state, "selected_only", bool(e.value), grid_ref),
+                    ).props("dense")
+                    hide_unprotected_switch = ui.switch(
+                        "Hide unprotected",
+                        value=True,
+                        on_change=lambda e: _update_filter(filter_state, "hide_unprotected", bool(e.value), grid_ref),
+                    ).props("dense")
+                    ui.button("Reset", icon="restart_alt", on_click=_reset_filters).props("outline dense")
+
+                with ui.row().classes("w-full justify-end"):
+                    showing_label = ui.label(f"0 shown / {total_rows} total").classes("text-sm text-slate-500")
+                    grid_ref["showing_label"] = showing_label
         
         # Bulk Action Buttons
         with ui.column().classes("w-full gap-3 mb-4 p-3 border border-slate-200 rounded-lg"):
@@ -611,10 +660,11 @@ def _create_protection_management_section(
                     resource_index = resource.get("resource_index", "")
                     element_code = resource.get("element_code", "")
                     
-                    if element_code in ("PRJ", "REP", "PREP") and resource_index:
+                    if element_code in ("PRJ", "REP", "PREP", "GRP", "ENV", "JOB", "CON", "CONN") and resource_index:
+                        typed_key = f"{element_code}:{resource_index}"
                         is_protected = "protected_" in tf_name
                         intent = protection_intent.set_intent(
-                            key=resource_index,
+                            key=typed_key,
                             protected=is_protected,
                             source="sync_from_tf_state",
                             reason=f"Synced from TF state - was in {tf_name}",
@@ -840,30 +890,146 @@ def _create_protection_management_section(
                 json_str = json.dumps(intent_data, indent=2, default=str)
                 ui.download(json_str.encode(), "protection-intent.json")
                 ui.notify("Exported protection-intent.json", type="positive")
+
+            def _set_row_intent(row: dict, protected: bool, source: str, reason: str) -> None:
+                resource_key = row.get("resource_key", "")
+                resource_type = row.get("type", "UNKNOWN")
+                state_protected = row.get("state_protected")
+                intent = protection_intent.set_intent(
+                    key=resource_key,
+                    protected=protected,
+                    source=source,
+                    reason=reason,
+                    resource_type=resource_type,
+                    tf_state_at_decision="protected" if state_protected is True else "unprotected" if state_protected is False else None,
+                    yaml_state_before=bool(row.get("yaml_protected", False)),
+                )
+                if state_protected is not None and bool(state_protected) == bool(protected):
+                    intent.applied_to_tf_state = True
+
+            def _baseline_value(row: dict) -> bool:
+                # Dense baseline rule: default false unless state/yaml are protected.
+                return bool(row.get("state_protected") is True or row.get("yaml_protected") is True)
+
+            def fill_dense_baseline() -> None:
+                created = 0
+                for row in all_rows:
+                    key = row.get("resource_key", "")
+                    if not key or protection_intent.has_intent(key):
+                        continue
+                    _set_row_intent(
+                        row=row,
+                        protected=_baseline_value(row),
+                        source="dense_baseline",
+                        reason="auto-fill from TF state",
+                    )
+                    created += 1
+                protection_intent.save()
+                ui.notify(f"Dense baseline synced for {created} resources", type="positive")
+                ui.navigate.reload()
+
+            def _selected_rows() -> list[dict]:
+                selected_keys: set[str] = grid_ref.get("selected_keys", set())
+                return [row for row in all_rows if row.get("resource_key") in selected_keys]
+
+            def _apply_to_selected(mode: str) -> None:
+                rows = _selected_rows()
+                if not rows:
+                    ui.notify("No rows selected", type="warning")
+                    return
+                updated = 0
+                for row in rows:
+                    resource_key = row.get("resource_key", "")
+                    if not resource_key:
+                        continue
+                    if mode == "reset":
+                        if protection_intent.has_intent(resource_key):
+                            protection_intent.remove_intent(resource_key, source="utilities_bulk_reset")
+                        _set_row_intent(
+                            row=row,
+                            protected=_baseline_value(row),
+                            source="dense_baseline",
+                            reason="reset to baseline rule",
+                        )
+                    elif mode == "protect":
+                        _set_row_intent(
+                            row=row,
+                            protected=True,
+                            source="utilities_bulk",
+                            reason="bulk protect from protection grid",
+                        )
+                    elif mode == "unprotect":
+                        _set_row_intent(
+                            row=row,
+                            protected=False,
+                            source="utilities_bulk",
+                            reason="bulk unprotect from protection grid",
+                        )
+                    updated += 1
+                protection_intent.save()
+                ui.notify(f"Updated {updated} selected row(s)", type="positive")
+                ui.navigate.reload()
             
-            ui.label("Intent Actions").classes("text-xs font-semibold uppercase tracking-wide text-slate-500")
-            with ui.row().classes("w-full items-center gap-2 flex-wrap"):
-                ui.button(
-                    "Reset All to YAML",
-                    icon="restart_alt",
-                    on_click=reset_all_to_yaml,
-                ).props("outline color=red").tooltip("Clear all intents, fall back to YAML flags")
-                ui.button(
-                    "Sync from TF State",
-                    icon="cloud_download",
-                    on_click=sync_from_tf_state,
-                ).props("outline").tooltip("Create intents to match current TF state")
-                generate_btn = ui.button(
-                    f"Generate All Pending ({pending_generate + pending_tf})" if (pending_generate + pending_tf) > 0 else "Generate All Pending",
-                    icon="auto_fix_high",
-                    on_click=generate_all_pending,
-                ).props("color=green")
-                generate_btn.set_enabled((pending_generate + pending_tf) > 0)
-                ui.button(
-                    "Export JSON",
-                    icon="download",
-                    on_click=export_json,
-                ).props("outline").tooltip("Download protection-intent.json")
+            with ui.card().classes("w-full p-3 mb-4 border border-slate-200 rounded-lg"):
+                ui.label("Intent Actions").classes("text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2")
+                with ui.row().classes("w-full items-center gap-2 flex-wrap"):
+                    generate_btn = ui.button(
+                        f"Generate All Pending ({pending_generate + pending_tf})" if (pending_generate + pending_tf) > 0 else "Generate All Pending",
+                        icon="auto_fix_high",
+                        on_click=generate_all_pending,
+                    ).props("color=green dense").classes("min-w-[190px]")
+                    generate_btn.set_enabled((pending_generate + pending_tf) > 0)
+                    ui.button(
+                        "Fill Dense Baseline",
+                        icon="dataset",
+                        on_click=fill_dense_baseline,
+                    ).props("outline dense").classes("min-w-[170px]").tooltip("Create baseline intents for rows that have no explicit intent")
+                    ui.button(
+                        "Sync from TF State",
+                        icon="cloud_download",
+                        on_click=sync_from_tf_state,
+                    ).props("outline dense").classes("min-w-[170px]").tooltip("Create intents to match current TF state")
+                with ui.row().classes("w-full items-center gap-2 flex-wrap"):
+                    ui.button(
+                        "Reset All to YAML",
+                        icon="restart_alt",
+                        on_click=reset_all_to_yaml,
+                    ).props("outline color=red dense").classes("min-w-[170px]").tooltip("Clear all intents, fall back to YAML flags")
+                    ui.button(
+                        "Export JSON",
+                        icon="download",
+                        on_click=export_json,
+                    ).props("outline dense").classes("min-w-[140px]").tooltip("Download protection-intent.json")
+
+                ui.separator().classes("my-3")
+                with ui.row().classes("w-full items-center justify-between gap-2 flex-wrap"):
+                    ui.label("Selection Actions").classes("text-xs font-semibold uppercase tracking-wide text-slate-500")
+                    selection_label = ui.label("Selected: 0").classes("text-sm text-slate-500")
+                    grid_ref["selection_label"] = selection_label
+                with ui.row().classes("w-full items-center gap-2 flex-wrap"):
+                    protect_selected_btn = ui.button(
+                        "Protect Selected (0)",
+                        icon="shield",
+                        on_click=lambda: _apply_to_selected("protect"),
+                    ).props("outline color=positive dense").classes("min-w-[170px]")
+                    protect_selected_btn.set_enabled(False)
+                    unprotect_selected_btn = ui.button(
+                        "Unprotect Selected (0)",
+                        icon="lock_open",
+                        on_click=lambda: _apply_to_selected("unprotect"),
+                    ).props("outline color=warning dense").classes("min-w-[170px]")
+                    unprotect_selected_btn.set_enabled(False)
+                    reset_selected_btn = ui.button(
+                        "Reset Selected (0)",
+                        icon="restart_alt",
+                        on_click=lambda: _apply_to_selected("reset"),
+                    ).props("outline dense").classes("min-w-[170px]")
+                    reset_selected_btn.set_enabled(False)
+                    grid_ref["bulk_btn_refs"] = {
+                        "protect": protect_selected_btn,
+                        "unprotect": unprotect_selected_btn,
+                        "reset": reset_selected_btn,
+                    }
 
             # Terraform actions for pending TF intents from this page.
             tf_outputs: dict[str, str] = {"init": "", "plan": "", "apply": ""}
@@ -1125,83 +1291,17 @@ def _create_protection_management_section(
                         icon="visibility",
                         on_click=lambda: show_tf_output("apply", "Protection TF Apply Output"),
                     ).props("flat")
+
+            # Requested order: terraform actions above grid filters.
+            _render_filter_controls()
         
-        # AG Grid for Current Intents
-        if total_intents > 0:
-            # Build row data
-            row_data = []
-            state_only_protected_count = 0
-            state_only_unprotected_count = 0
-            used_state_keys: set[str] = set()
-            for key, intent in protection_intent._intent.items():
-                # Extract type from key
-                if ":" in key:
-                    rtype = key.split(":")[0]
-                else:
-                    rtype = "UNKNOWN"
-
-                state_protected = state_protection_by_key.get(key)
-                if state_protected is not None:
-                    used_state_keys.add(key)
-                state_label = (
-                    "Protected"
-                    if state_protected is True
-                    else "Unprotected"
-                    if state_protected is False
-                    else "Unknown"
-                )
-                
-                # Determine status
-                if not intent.applied_to_yaml:
-                    status = "Pending Generate"
-                    status_class = "bg-amber-100 text-amber-800"
-                elif (
-                    state_protected is not None
-                    and state_protected != bool(intent.protected)
-                ):
-                    status = "State Mismatch"
-                    status_class = "bg-red-100 text-red-800"
-                elif not intent.applied_to_tf_state:
-                    status = "Pending TF Intents"
-                    status_class = "bg-blue-100 text-blue-800"
-                else:
-                    status = "Synced"
-                    status_class = "bg-green-100 text-green-800"
-                
-                row_data.append({
-                    "resource_key": key,
-                    "type": rtype,
-                    "intent": "Protect" if intent.protected else "Unprotect",
-                    "state": state_label,
-                    "status": status,
-                    "status_class": status_class,
-                    "set_at": intent.set_at[:19].replace("T", " ") if intent.set_at else "",
-                    "intent_obj": intent,
-                })
-
-            # Include state-only resources so protected objects without an explicit
-            # intent are visible in this grid (e.g. GRP:member).
-            for state_key, state_protected in state_protection_by_key.items():
-                if state_key in used_state_keys:
-                    continue
-                if ":" in state_key:
-                    rtype = state_key.split(":")[0]
-                else:
-                    rtype = "UNKNOWN"
-                if state_protected:
-                    state_only_protected_count += 1
-                else:
-                    state_only_unprotected_count += 1
-                row_data.append({
-                    "resource_key": state_key,
-                    "type": rtype,
-                    "intent": "No Intent",
-                    "state": "Protected" if state_protected else "Unprotected",
-                    "status": "State Only",
-                    "status_class": "bg-slate-100 text-slate-700",
-                    "set_at": "",
-                    "intent_obj": None,
-                })
+        # AG Grid for Current Intents + state-only rows.
+        if total_rows > 0:
+            row_data = _filter_protection_rows(
+                rows=all_rows,
+                filter_state=filter_state,
+                selected_keys=grid_ref["selected_keys"],
+            )
 
             # region agent log
             _agent_debug_log(
@@ -1209,113 +1309,174 @@ def _create_protection_management_section(
                 "utilities.py:_create_protection_management_section",
                 "protection grid row composition",
                 {
+                    "total_rows": total_rows,
                     "intent_row_count": len(protection_intent._intent),
                     "state_rows_total": len(state_protection_by_key),
-                    "state_only_protected_count": state_only_protected_count,
-                    "state_only_unprotected_count": state_only_unprotected_count,
+                    "state_only_count": sum(1 for row in all_rows if row.get("status") == "State Only"),
                     "member_state_row_present": "GRP:member" in state_protection_by_key,
-                    "member_in_row_data": any(r.get("resource_key") == "GRP:member" for r in row_data),
+                    "member_in_row_data": any(r.get("resource_key") == "GRP:member" for r in all_rows),
                 },
             )
             # endregion
-            
-            # Pre-sort by set_at descending
-            row_data.sort(key=lambda r: r.get("set_at", ""), reverse=True)
-            
-            # Column definitions with explicit colId
+
             column_defs = [
-                {"field": "resource_key", "colId": "resource_key", "headerName": "Resource Key", "flex": 2, "checkboxSelection": True, "headerCheckboxSelection": True},
-                {"field": "type", "colId": "type", "headerName": "Type", "width": 80},
-                {"field": "intent", "colId": "intent", "headerName": "Intent", "width": 100},
-                {"field": "state", "colId": "state", "headerName": "State", "width": 110},
-                {"field": "status", "colId": "status", "headerName": "Status", "width": 140},
-                {"field": "set_at", "colId": "set_at", "headerName": "Set At", "width": 160},
-                {"field": "actions", "colId": "actions", "headerName": "Actions", "width": 100, "cellRenderer": "agGroupCellRenderer"},
+                {"field": "_selected", "colId": "_selected", "headerName": "", "width": 60, "editable": True, "cellRenderer": "agCheckboxCellRenderer", "headerCheckboxSelection": False},
+                {"field": "resource_key", "colId": "resource_key", "headerName": "Resource Key", "flex": 2},
+                {"field": "type", "colId": "type", "headerName": "Type", "width": 90},
+                {"field": "intent", "colId": "intent", "headerName": "Intent", "width": 140},
+                {"field": "intent_origin", "colId": "intent_origin", "headerName": "Intent Origin", "width": 130},
+                {"field": "state", "colId": "state", "headerName": "State", "width": 120},
+                {"field": "status", "colId": "status", "headerName": "Status", "width": 150},
+                {"field": "set_at", "colId": "set_at", "headerName": "Set At", "width": 170},
+                {"field": "actions", "colId": "actions", "headerName": "Actions", "width": 120, "cellRenderer": "agGroupCellRenderer"},
             ]
-            
-            # Store grid reference for filtering
-            grid_ref = {"grid": None}
-            
+
             grid = ui.aggrid({
                 "columnDefs": column_defs,
                 "rowData": row_data,
-                "rowSelection": "multiple",
                 "defaultColDef": {
                     "sortable": True,
                     "resizable": True,
                 },
                 "pagination": True,
-                "paginationPageSize": 20,
-            }, theme="quartz").classes("w-full ag-theme-quartz-auto-dark").style("height: 400px;")
-            
+                "paginationPageSize": 200,
+                "paginationPageSizeSelector": [50, 100, 200],
+            }, theme="quartz").classes("w-full ag-theme-quartz-auto-dark").style("height: 430px;")
+
             grid_ref["grid"] = grid
-            
-            # Add custom slot for edit button
+            _refresh_protection_grid(grid_ref, filter_state)
+
             grid.add_slot("body-cell-actions", '''
                 <q-td :props="props">
                     <q-btn flat dense icon="edit" size="sm" @click="$parent.$emit('edit-intent', props.row)" />
+                    <q-btn flat dense icon="visibility" size="sm" @click="$parent.$emit('view-details', props.row)" />
                 </q-td>
             ''')
-            
-            def handle_edit(row):
-                """Open edit dialog for an intent."""
-                key = row.get("resource_key", "")
-                intent = protection_intent._intent.get(key)
-                if not intent:
-                    ui.notify(f"Intent not found: {key}", type="warning")
+
+            def _set_selected_count(count: int) -> None:
+                label = grid_ref.get("selection_label")
+                if label:
+                    label.set_text(f"Selected: {count}")
+                bulk_btn_refs = grid_ref.get("bulk_btn_refs", {})
+                for key, label_prefix in (("protect", "Protect Selected"), ("unprotect", "Unprotect Selected"), ("reset", "Reset Selected")):
+                    btn = bulk_btn_refs.get(key)
+                    if btn:
+                        btn.set_text(f"{label_prefix} ({count})")
+                        btn.set_enabled(count > 0)
+
+            def on_cell_value_changed(e) -> None:
+                if not e.args or e.args.get("colId") != "_selected":
                     return
-                
+                row = e.args.get("data", {})
+                resource_key = row.get("resource_key")
+                selected = bool(e.args.get("newValue", False))
+                if not resource_key:
+                    return
+                selected_keys: set[str] = grid_ref["selected_keys"]
+                if selected:
+                    selected_keys.add(resource_key)
+                else:
+                    selected_keys.discard(resource_key)
+                for existing in all_rows:
+                    if existing.get("resource_key") == resource_key:
+                        existing["_selected"] = selected
+                        break
+                _set_selected_count(len(selected_keys))
+                _refresh_protection_grid(grid_ref, filter_state)
+
+            grid.on("cellValueChanged", on_cell_value_changed)
+
+            def handle_edit(row: dict) -> None:
+                key = row.get("resource_key", "")
+                current_intent = protection_intent.get_intent(key)
+                initial_value = (
+                    current_intent.protected
+                    if current_intent is not None
+                    else bool(row.get("intent_protected", False))
+                )
+                new_protected = {"value": initial_value}
+                reason_text = {"value": ""}
                 dialog = ui.dialog()
-                new_protected = {"value": intent.protected}
-                new_reason = {"value": ""}
-                
                 with dialog:
-                    with ui.card().classes("p-4").style("width: 500px;"):
+                    with ui.card().classes("p-4").style("width: 520px;"):
                         ui.label("Edit Protection Intent").classes("text-lg font-semibold mb-4")
-                        
-                        # Resource Key (readonly)
-                        ui.input(
-                            label="Resource Key",
-                            value=key,
-                        ).props("dense outlined readonly").classes("w-full mb-4")
-                        
-                        # Intent toggle
-                        with ui.row().classes("w-full items-center gap-4 mb-4"):
+                        ui.input(label="Resource Key", value=key).props("dense outlined readonly").classes("w-full mb-3")
+                        with ui.row().classes("w-full items-center gap-4 mb-3"):
                             ui.label("Protection Intent:").classes("font-medium")
                             ui.toggle(
                                 {True: "Protect", False: "Unprotect"},
-                                value=intent.protected,
-                                on_change=lambda e: new_protected.update({"value": e.value}),
+                                value=initial_value,
+                                on_change=lambda e: new_protected.update({"value": bool(e.value)}),
                             )
-                        
-                        # Reason input
                         ui.input(
-                            label="Reason (optional)",
-                            placeholder="Why are you changing this?",
-                            on_change=lambda e: new_reason.update({"value": e.value}),
+                            label="Reason",
+                            placeholder="Optional reason",
+                            on_change=lambda e: reason_text.update({"value": e.value}),
                         ).props("dense outlined").classes("w-full mb-4")
-                        
-                        # Buttons
-                        with ui.row().classes("w-full gap-2 justify-end"):
-                            ui.button("Cancel", on_click=dialog.close).props("flat")
-                            
-                            def save_changes():
+                        with ui.row().classes("w-full items-center justify-between"):
+                            def reset_to_baseline() -> None:
+                                if protection_intent.has_intent(key):
+                                    protection_intent.remove_intent(key, source="utilities_edit")
+                                baseline_value = bool(row.get("state_protected") is True or row.get("yaml_protected") is True)
                                 protection_intent.set_intent(
                                     key=key,
-                                    protected=new_protected["value"],
-                                    source="utilities_edit",
-                                    reason=new_reason["value"] or "Edited via Utilities page",
+                                    protected=baseline_value,
+                                    source="dense_baseline",
+                                    reason="reset to baseline rule",
+                                    resource_type=row.get("type", "UNKNOWN"),
                                 )
                                 protection_intent.save()
                                 dialog.close()
-                                ui.notify(f"Updated intent for {key}", type="positive")
+                                ui.notify(f"Reset {key} to baseline", type="positive")
                                 ui.navigate.reload()
-                            
-                            ui.button("Save", on_click=save_changes).props("color=primary")
-                
+                            ui.button("Reset to Baseline", on_click=reset_to_baseline).props("flat")
+                            with ui.row().classes("items-center gap-2"):
+                                ui.button("Cancel", on_click=dialog.close).props("flat")
+                                def save_changes() -> None:
+                                    protection_intent.set_intent(
+                                        key=key,
+                                        protected=bool(new_protected["value"]),
+                                        source="utilities_edit",
+                                        reason=reason_text["value"] or "Edited via Protection Management",
+                                        resource_type=row.get("type", "UNKNOWN"),
+                                    )
+                                    protection_intent.save()
+                                    dialog.close()
+                                    ui.notify(f"Updated intent for {key}", type="positive")
+                                    ui.navigate.reload()
+                                ui.button("Save", on_click=save_changes).props("color=primary")
                 dialog.open()
-            
+
+            def handle_view_details(row: dict) -> None:
+                source_data, grid_row_payload, state_resource = _build_dialog_payload_from_protection_row(
+                    row=row,
+                    state_resource_by_key=state_resource_by_key,
+                )
+                show_match_detail_dialog(
+                    source_data=source_data,
+                    grid_row=grid_row_payload,
+                    target_data=None,
+                    state_resource=state_resource,
+                    app_state=state,
+                    available_targets=[],
+                    has_state_loaded=bool(state.deploy.reconcile_state_loaded),
+                    on_target_selected=None,
+                    on_adopt=None,
+                )
+
             grid.on("edit-intent", lambda e: handle_edit(e.args))
+            grid.on("view-details", lambda e: handle_view_details(e.args))
+
+            def on_cell_clicked(e) -> None:
+                if not e.args:
+                    return
+                if e.args.get("colId") == "_selected":
+                    return
+                row = e.args.get("data")
+                if isinstance(row, dict):
+                    handle_view_details(row)
+
+            grid.on("cellClicked", on_cell_clicked)
         else:
             with ui.card().classes("w-full p-6 text-center"):
                 ui.icon("inbox", size="xl").classes("text-slate-300 mb-2")
@@ -1411,11 +1572,183 @@ def _create_audit_history_section(protection_intent) -> None:
             ui.label("No history recorded yet").classes("text-slate-500")
 
 
-def _update_filter(filter_state: dict, key: str, value: str, grid_ref: dict) -> None:
+def _count_values(rows: list[dict], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        value = str(row.get(key, ""))
+        counts[value] = counts.get(value, 0) + 1
+    return counts
+
+
+def _filter_protection_rows(
+    rows: list[dict],
+    filter_state: dict,
+    selected_keys: set[str],
+) -> list[dict]:
+    status_filter = filter_state.get("status", "all")
+    type_filter = filter_state.get("type", "all")
+    search_filter = str(filter_state.get("search", "") or "").strip().lower()
+    selected_only = bool(filter_state.get("selected_only", False))
+    hide_unprotected = bool(filter_state.get("hide_unprotected", True))
+
+    status_map = {
+        "pending_generate": "Pending Generate",
+        "pending_tf": "Pending TF Intents",
+        "state_mismatch": "State Mismatch",
+        "state_only": "State Only",
+        "synced": "Synced",
+    }
+    target_status = status_map.get(status_filter)
+
+    filtered: list[dict] = []
+    for row in rows:
+        if selected_only and row.get("resource_key") not in selected_keys:
+            continue
+        if type_filter != "all" and row.get("type") != type_filter:
+            continue
+        if target_status is not None and row.get("status") != target_status:
+            continue
+        if hide_unprotected and bool(row.get("intent_protected", False)) is False:
+            continue
+        if search_filter:
+            search_blob = " ".join(
+                [
+                    str(row.get("resource_key", "")),
+                    str(row.get("type", "")),
+                    str(row.get("intent", "")),
+                    str(row.get("status", "")),
+                ]
+            ).lower()
+            if search_filter not in search_blob:
+                continue
+        filtered.append(row)
+    return filtered
+
+
+def _refresh_protection_grid(grid_ref: dict, filter_state: dict) -> None:
+    grid = grid_ref.get("grid")
+    if grid is None:
+        return
+    all_rows: list[dict] = grid_ref.get("all_rows", [])
+    selected_keys: set[str] = grid_ref.get("selected_keys", set())
+    filtered_rows = _filter_protection_rows(all_rows, filter_state, selected_keys)
+    grid.options["rowData"] = filtered_rows
+    grid.update()
+    showing_label = grid_ref.get("showing_label")
+    if showing_label is not None:
+        showing_label.set_text(f"{len(filtered_rows)} shown / {len(all_rows)} total")
+
+
+def _parse_resource_key(resource_key: str) -> tuple[str, str]:
+    if ":" in resource_key:
+        rtype, base_key = resource_key.split(":", 1)
+        return rtype, base_key
+    return "UNKNOWN", resource_key
+
+
+def _build_protection_grid_rows(
+    protection_intent,
+    state_protection_by_key: dict[str, bool],
+    yaml_protected_resources: set[str],
+) -> list[dict]:
+    all_rows: list[dict] = []
+    used_state_keys: set[str] = set()
+    yaml_keys = set(yaml_protected_resources)
+
+    for key, intent in protection_intent._intent.items():
+        rtype, base_key = _parse_resource_key(key)
+        typed_key = key if ":" in key else f"{rtype}:{base_key}"
+        state_protected = state_protection_by_key.get(typed_key)
+        if state_protected is not None:
+            used_state_keys.add(typed_key)
+        yaml_protected = key in yaml_keys or typed_key in yaml_keys or base_key in yaml_keys
+        intent_protected = bool(intent.protected)
+        intent_origin = "baseline" if intent.set_by == "dense_baseline" else "explicit"
+        if not intent.applied_to_yaml:
+            status = "Pending Generate"
+        elif state_protected is not None and state_protected != intent_protected:
+            status = "State Mismatch"
+        elif not intent.applied_to_tf_state:
+            status = "Pending TF Intents"
+        else:
+            status = "Synced"
+        all_rows.append(
+            {
+                "_selected": False,
+                "resource_key": typed_key,
+                "type": rtype,
+                "intent": "Protect" if intent_protected else "Unprotect",
+                "intent_protected": intent_protected,
+                "intent_origin": intent_origin,
+                "state_protected": state_protected,
+                "state": "Protected" if state_protected is True else "Unprotected" if state_protected is False else "Unknown",
+                "yaml_protected": yaml_protected,
+                "status": status,
+                "set_at": intent.set_at[:19].replace("T", " ") if intent.set_at else "",
+            }
+        )
+
+    for typed_key, state_protected in state_protection_by_key.items():
+        if typed_key in used_state_keys:
+            continue
+        rtype, base_key = _parse_resource_key(typed_key)
+        yaml_protected = typed_key in yaml_keys or base_key in yaml_keys
+        intent_protected = bool(yaml_protected or state_protected)
+        all_rows.append(
+            {
+                "_selected": False,
+                "resource_key": typed_key,
+                "type": rtype,
+                "intent": "Protect" if intent_protected else "Unprotect",
+                "intent_protected": intent_protected,
+                "intent_origin": "baseline",
+                "state_protected": bool(state_protected),
+                "state": "Protected" if state_protected else "Unprotected",
+                "yaml_protected": yaml_protected,
+                "status": "State Only",
+                "set_at": "",
+            }
+        )
+
+    all_rows.sort(key=lambda row: (row.get("set_at", ""), row.get("resource_key", "")), reverse=True)
+    return all_rows
+
+
+def _build_dialog_payload_from_protection_row(
+    row: dict,
+    state_resource_by_key: dict[str, dict],
+) -> tuple[dict, dict, Optional[dict]]:
+    resource_key = str(row.get("resource_key", ""))
+    rtype, base_key = _parse_resource_key(resource_key)
+    state_resource = state_resource_by_key.get(resource_key)
+    state_protected = row.get("state_protected")
+    intent_protected = bool(row.get("intent_protected", False))
+    if state_protected is None:
+        drift_status = "no_state"
+    elif bool(state_protected) == intent_protected:
+        drift_status = "in_sync"
+    else:
+        drift_status = "protection_mismatch"
+
+    source_data = {
+        "name": base_key,
+        "key": resource_key,
+        "element_mapping_id": resource_key,
+        "element_type_code": rtype,
+        "display_name": base_key,
+    }
+    grid_row = {
+        "source_key": resource_key,
+        "source_type": rtype,
+        "state_id": state_resource.get("dbt_id") if state_resource else None,
+        "target_id": None,
+        "action": "protect" if intent_protected else "unprotect",
+        "drift_status": drift_status,
+    }
+    return source_data, grid_row, state_resource
+
+
+def _update_filter(filter_state: dict, key: str, value, grid_ref: dict) -> None:
     """Update filter state and refresh grid."""
     filter_state[key] = value
-    grid = grid_ref.get("grid")
-    if grid:
-        # Use AG Grid's built-in filtering
-        # For now, just notify about filtering (full implementation would use quick filter)
-        ui.notify(f"Filter updated: {key}={value}", type="info")
+    _refresh_protection_grid(grid_ref, filter_state)
