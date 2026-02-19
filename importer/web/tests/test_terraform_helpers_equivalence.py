@@ -233,3 +233,41 @@ class TestReadTfStateAddresses:
         (tmp_path / "terraform.tfstate").write_text("not json")
         addresses = read_tf_state_addresses(tmp_path)
         assert addresses == set()
+
+
+# ---------------------------------------------------------------------------
+# Contract 3f: output budgeting + emission
+# ---------------------------------------------------------------------------
+
+
+class TestOutputBudgeting:
+    """Verify helper-level output budgeting behavior."""
+
+    def test_budget_output_lines_none_budget_is_passthrough(self) -> None:
+        from importer.web.utils.terraform_helpers import budget_output_lines
+
+        lines = ["a", "b", "c"]
+        bounded, omitted = budget_output_lines(lines, None)
+        assert bounded == lines
+        assert omitted == 0
+
+    def test_emit_process_output_skips_blank_lines(self) -> None:
+        from importer.web.utils.terraform_helpers import OutputBudget, emit_process_output
+
+        stdout_seen: list[str] = []
+        stderr_seen: list[str] = []
+        omitted_seen: list[int] = []
+
+        emit_process_output(
+            "ok\n\nvalue\n",
+            "\nwarn\n",
+            on_stdout_line=stdout_seen.append,
+            on_stderr_line=stderr_seen.append,
+            stdout_budget=OutputBudget(max_lines=10, head_lines=5, tail_lines=5),
+            stderr_budget=OutputBudget(max_lines=10, head_lines=5, tail_lines=5),
+            on_omitted=omitted_seen.append,
+        )
+
+        assert stdout_seen == ["ok", "value"]
+        assert stderr_seen == ["warn"]
+        assert omitted_seen == []

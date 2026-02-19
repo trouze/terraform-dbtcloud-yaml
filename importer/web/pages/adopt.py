@@ -24,6 +24,8 @@ from importer.web.utils.terraform_import import (
     generate_state_rm_commands,
 )
 from importer.web.utils.terraform_helpers import (
+    OutputBudget,
+    emit_process_output,
     get_terraform_env as _get_terraform_env_shared,
     resolve_deployment_paths,
 )
@@ -439,19 +441,29 @@ def _invalidate_adopt_artifacts_for_action_change(
     }
 
 
-def _truncate_terminal_lines(
-    lines: list[str],
+def _emit_bounded_terminal_output(
+    terminal: TerminalOutput,
     *,
-    max_lines: int = 700,
-    head_lines: int = 420,
-    tail_lines: int = 220,
-) -> tuple[list[str], int]:
-    """Return a bounded line set for terminal rendering."""
-    if len(lines) <= max_lines:
-        return lines, 0
-    omitted = len(lines) - (head_lines + tail_lines)
-    bounded = lines[:head_lines] + ["", f"... omitted {omitted} line(s) ...", ""] + lines[-tail_lines:]
-    return bounded, omitted
+    phase_name: str,
+    stdout: str,
+    stderr: str,
+    stdout_budget: Optional[OutputBudget] = None,
+    stderr_budget: Optional[OutputBudget] = None,
+    on_stdout_line: Optional[Callable[[str], None]] = None,
+    on_stderr_line: Optional[Callable[[str], None]] = None,
+) -> None:
+    """Emit process output to terminal with bounded line budgets."""
+    emit_process_output(
+        stdout,
+        stderr,
+        on_stdout_line=on_stdout_line or (lambda line: terminal.info_auto(f"  {line}")),
+        on_stderr_line=on_stderr_line or (lambda line: terminal.warning(f"  {line}")),
+        stdout_budget=stdout_budget,
+        stderr_budget=stderr_budget,
+        on_omitted=lambda omitted: terminal.warning(
+            f"Large {phase_name} output detected; omitted {omitted} line(s) from terminal view."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -543,12 +555,14 @@ async def _run_adopt_plan(
                     env=env,
                 )
 
-                for line in result.stdout.split("\n"):
-                    if line.strip():
-                        terminal.info_auto(f"  {line}")
-                for line in result.stderr.split("\n"):
-                    if line.strip():
-                        terminal.warning(f"  {line}")
+                _emit_bounded_terminal_output(
+                    terminal,
+                    phase_name="state rm",
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    stdout_budget=OutputBudget(max_lines=220, head_lines=140, tail_lines=60),
+                    stderr_budget=OutputBudget(max_lines=120, head_lines=80, tail_lines=30),
+                )
 
                 if result.returncode != 0:
                     error_msg = f"terraform state rm failed for {address} (exit code {result.returncode})"
@@ -629,18 +643,14 @@ async def _run_adopt_plan(
             env=env,
         )
 
-        init_stdout_lines, init_stdout_omitted = _truncate_terminal_lines(result.stdout.split("\n"))
-        init_stderr_lines, init_stderr_omitted = _truncate_terminal_lines(result.stderr.split("\n"), max_lines=300, head_lines=180, tail_lines=100)
-        if init_stdout_omitted or init_stderr_omitted:
-            terminal.warning(
-                f"Large init output detected; omitted {init_stdout_omitted + init_stderr_omitted} line(s) from terminal view."
-            )
-        for line in init_stdout_lines:
-            if line.strip():
-                terminal.info_auto(f"  {line}")
-        for line in init_stderr_lines:
-            if line.strip():
-                terminal.warning(f"  {line}")
+        _emit_bounded_terminal_output(
+            terminal,
+            phase_name="init",
+            stdout=result.stdout,
+            stderr=result.stderr,
+            stdout_budget=OutputBudget(max_lines=700, head_lines=420, tail_lines=220),
+            stderr_budget=OutputBudget(max_lines=300, head_lines=180, tail_lines=100),
+        )
 
         if result.returncode != 0:
             raise RuntimeError(f"terraform init failed (exit code {result.returncode})")
@@ -684,35 +694,24 @@ async def _run_adopt_plan(
         )
 
         # Color-code plan output lines like the deploy page, with bounded rendering.
-        plan_stdout_lines, plan_stdout_omitted = _truncate_terminal_lines(
-            result.stdout.split("\n"),
-            max_lines=900,
-            head_lines=520,
-            tail_lines=320,
+        _emit_bounded_terminal_output(
+            terminal,
+            phase_name="plan",
+            stdout=result.stdout,
+            stderr=result.stderr,
+            stdout_budget=OutputBudget(max_lines=900, head_lines=520, tail_lines=320),
+            stderr_budget=OutputBudget(max_lines=360, head_lines=220, tail_lines=120),
+            on_stdout_line=lambda line: (
+                terminal.success(line)
+                if "+" in line and "create" in line.lower()
+                else terminal.error(line)
+                if "-" in line and "destroy" in line.lower()
+                else terminal.warning(line)
+                if "~" in line and "change" in line.lower()
+                else terminal.info_auto(f"  {line}")
+            ),
+            on_stderr_line=lambda line: terminal.warning(f"  {line}"),
         )
-        plan_stderr_lines, plan_stderr_omitted = _truncate_terminal_lines(
-            result.stderr.split("\n"),
-            max_lines=360,
-            head_lines=220,
-            tail_lines=120,
-        )
-        if plan_stdout_omitted or plan_stderr_omitted:
-            terminal.warning(
-                f"Large plan output detected; omitted {plan_stdout_omitted + plan_stderr_omitted} line(s) from terminal view."
-            )
-        for line in plan_stdout_lines:
-            if line.strip():
-                if "+" in line and "create" in line.lower():
-                    terminal.success(line)
-                elif "-" in line and "destroy" in line.lower():
-                    terminal.error(line)
-                elif "~" in line and "change" in line.lower():
-                    terminal.warning(line)
-                else:
-                    terminal.info_auto(f"  {line}")
-        for line in plan_stderr_lines:
-            if line.strip():
-                terminal.warning(f"  {line}")
 
         if result.returncode != 0:
             raise RuntimeError(f"terraform plan failed (exit code {result.returncode})")
@@ -820,12 +819,14 @@ async def _run_adopt_apply(
             env=env,
         )
 
-        for line in result.stdout.split("\n"):
-            if line.strip():
-                terminal.info_auto(f"  {line}")
-        for line in result.stderr.split("\n"):
-            if line.strip():
-                terminal.warning(f"  {line}")
+        _emit_bounded_terminal_output(
+            terminal,
+            phase_name="apply",
+            stdout=result.stdout,
+            stderr=result.stderr,
+            stdout_budget=OutputBudget(max_lines=900, head_lines=520, tail_lines=320),
+            stderr_budget=OutputBudget(max_lines=360, head_lines=220, tail_lines=120),
+        )
 
         if result.returncode != 0:
             raise RuntimeError(f"terraform apply failed (exit code {result.returncode})")
@@ -858,12 +859,17 @@ async def _run_adopt_apply(
             env=env,
         )
 
-        state_addresses = set()
-        for line in result.stdout.split("\n"):
-            addr = line.strip()
-            if addr:
-                state_addresses.add(addr)
-                terminal.debug(f"  {addr}")
+        state_addresses = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+        _emit_bounded_terminal_output(
+            terminal,
+            phase_name="verify",
+            stdout=result.stdout,
+            stderr=result.stderr,
+            stdout_budget=OutputBudget(max_lines=520, head_lines=340, tail_lines=140),
+            stderr_budget=OutputBudget(max_lines=160, head_lines=110, tail_lines=40),
+            on_stdout_line=lambda line: terminal.debug(f"  {line}"),
+            on_stderr_line=lambda line: terminal.warning(f"  {line}"),
+        )
 
         found_in_state = len(state_addresses) if state_addresses else 0
         terminal.info(f"  State contains {found_in_state} resources")
@@ -1107,6 +1113,15 @@ def create_adopt_page(
                     ).props("outline")
 
                     async def rerun_adoption():
+                        # Reset stale adopt artifacts and deployment YAML scope so
+                        # a rerun always starts from source-selected intent.
+                        _invalidate_adopt_artifacts_for_action_change(
+                            tf_path=tf_path,
+                            adopt_grid_data=[],
+                            new_action="ignore",
+                            adopt_count=0,
+                            source_yaml_file=state.map.last_yaml_file,
+                        )
                         state.deploy.adopt_step_complete = False
                         state.deploy.adopt_step_skipped = False
                         state.deploy.adopt_step_status = ""

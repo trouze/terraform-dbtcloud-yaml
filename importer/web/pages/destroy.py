@@ -12,14 +12,17 @@ import asyncio
 import json
 import re
 import subprocess
+import time
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Optional
 
 from nicegui import ui
 
 from importer.web.components.terminal_output import TerminalOutput
 from importer.web.pages.deploy import _get_state_file_path
 from importer.web.utils.terraform_helpers import (
+    OutputBudget,
+    emit_process_output,
     get_terraform_env as _get_terraform_env,
     resolve_deployment_paths,
     run_terraform_command,
@@ -39,6 +42,8 @@ from importer.web.utils.ui_logger import log_action, log_state_change
 # dbt brand colors
 DBT_ORANGE = "#FF694A"
 STATUS_ERROR = "#EF4444"  # red-500
+_DEBUG_LOG_PATH = Path("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-673991.log")
+_DEBUG_SESSION_ID = "673991"
 
 def _agent_debug_log(
     hypothesis_id: str,
@@ -49,6 +54,84 @@ def _agent_debug_log(
     run_id: str = "run1",
 ) -> None:
     _ = (hypothesis_id, location, message, data, run_id)
+
+
+def _debug_673991(
+    hypothesis_id: str,
+    location: str,
+    message: str,
+    data: dict,
+    *,
+    run_id: str = "run1",
+) -> None:
+    """Write NDJSON debug logs for runtime AG Grid investigation."""
+    try:
+        payload = {
+            "sessionId": _DEBUG_SESSION_ID,
+            "runId": run_id,
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with _DEBUG_LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, default=str) + "\n")
+    except Exception:
+        pass
+
+
+def _extract_destroy_count_from_plan_output(plan_output: str) -> int:
+    """Extract planned destroy count from Terraform plan output."""
+    match = re.search(
+        r"Plan:\s*\d+\s*to add,\s*\d+\s*to change,\s*(\d+)\s*to destroy\.",
+        plan_output,
+    )
+    if match:
+        return int(match.group(1))
+    # Fallback for variant output when plan summary is missing/truncated.
+    return sum(1 for line in plan_output.split("\n") if " will be destroyed" in line)
+
+
+def _extract_destroy_count_from_apply_output(output: str) -> int:
+    """Extract actual destroyed count from Terraform apply/destroy output."""
+    summary_match = re.search(
+        r"Destroy complete!\s*Resources:\s*(\d+)\s*destroyed\.",
+        output,
+    )
+    if summary_match:
+        return int(summary_match.group(1))
+    return len(re.findall(r": Destruction complete after ", output))
+
+
+def _emit_bounded_output(
+    terminal: TerminalOutput,
+    *,
+    phase_name: str,
+    stdout: str,
+    stderr: str,
+    on_stdout_line: Callable[[str], None],
+    on_stderr_line: Callable[[str], None],
+    stdout_budget: Optional[OutputBudget] = None,
+    stderr_budget: Optional[OutputBudget] = None,
+) -> None:
+    """Emit command output with a bounded terminal budget."""
+    emit_process_output(
+        stdout,
+        stderr,
+        on_stdout_line=on_stdout_line,
+        on_stderr_line=on_stderr_line,
+        stdout_budget=stdout_budget,
+        stderr_budget=stderr_budget,
+        on_omitted=lambda omitted: terminal.warning(
+            f"Large {phase_name} output detected; omitted {omitted} line(s) from terminal view."
+        ),
+    )
+
+
+def _is_destroy_confirmation_text_valid(raw_value: str) -> bool:
+    """Require exact DESTROY keyword (case-insensitive, surrounding whitespace ignored)."""
+    return (raw_value or "").strip().upper() == "DESTROY"
 
 
 def create_destroy_page(
@@ -316,6 +399,27 @@ def _create_resource_table(
     # Store all resources for filtering
     destroy_state["all_resources"] = managed_resources
     resource_count = len(managed_resources)
+    # region agent log
+    _debug_673991(
+        "H1",
+        "destroy.py:_create_resource_table",
+        "loaded resource table input",
+        {
+            "resources_total": len(resources),
+            "managed_resources": resource_count,
+            "first_managed_keys": list(managed_resources[0].keys()) if managed_resources else [],
+            "first_managed_preview": (
+                {
+                    "address": managed_resources[0].get("address"),
+                    "type": managed_resources[0].get("type"),
+                    "display_name": managed_resources[0].get("display_name"),
+                }
+                if managed_resources
+                else {}
+            ),
+        },
+    )
+    # endregion
 
     # Filter state
     filter_state = {"type": "all", "search": ""}
@@ -376,6 +480,21 @@ def _create_resource_table(
             "filter": "agTextColumnFilter",
         },
     ]
+    # region agent log
+    _debug_673991(
+        "H2",
+        "destroy.py:_create_resource_table",
+        "column definitions prepared",
+        {
+            "column_count": len(column_defs),
+            "column_fields": [c.get("field") for c in column_defs],
+            "protected_col_keys": list(column_defs[1].keys()) if len(column_defs) > 1 else [],
+            "protected_has_typo_value_formatter": (
+                ":valueFormatter" in column_defs[1] if len(column_defs) > 1 else False
+            ),
+        },
+    )
+    # endregion
 
     with ui.card().classes("w-full"):
         # Header row with title and refresh
@@ -412,9 +531,33 @@ def _create_resource_table(
                 filtered = [r for r in managed_resources if r.get("type") == filter_state["type"]]
                 grid.options["rowData"] = filtered
                 grid.update()
+                # region agent log
+                _debug_673991(
+                    "H1",
+                    "destroy.py:update_destroy_grid_filter",
+                    "applied typed filter",
+                    {
+                        "filter_type": filter_state["type"],
+                        "search_term": search_term,
+                        "rowdata_len": len(filtered),
+                    },
+                )
+                # endregion
             else:
                 grid.options["rowData"] = managed_resources
                 grid.update()
+                # region agent log
+                _debug_673991(
+                    "H1",
+                    "destroy.py:update_destroy_grid_filter",
+                    "applied all-type filter",
+                    {
+                        "filter_type": "all",
+                        "search_term": search_term,
+                        "rowdata_len": len(managed_resources),
+                    },
+                )
+                # endregion
             
             # Update badge
             badge = destroy_state.get("resource_badge")
@@ -497,7 +640,7 @@ def _create_resource_table(
             
             # Destroy Selected button
             ui.button(
-                "Destroy Selected",
+                "Plan Destroy (Selected)",
                 icon="delete",
                 on_click=on_destroy_selected,
             ).props("outline color=negative size=sm padding='4px 12px'")
@@ -566,8 +709,42 @@ def _create_resource_table(
             "paginationPageSize": 50,
             "paginationPageSizeSelector": [25, 50, 100, 200],
         }, theme="quartz").classes("w-full ag-theme-quartz-auto-dark").style("height: 400px;")
+        # region agent log
+        _debug_673991(
+            "H3",
+            "destroy.py:_create_resource_table",
+            "grid instantiated",
+            {
+                "theme": "quartz",
+                "classes": "w-full ag-theme-quartz-auto-dark",
+                "initial_rowdata_len": len(grid.options.get("rowData", [])),
+                "default_col_def": grid.options.get("defaultColDef", {}),
+            },
+        )
+        # endregion
         
         destroy_state["grid"] = grid
+        
+        # region agent log
+        def on_grid_ready(e):
+            _debug_673991(
+                "H4",
+                "destroy.py:on_grid_ready",
+                "grid ready event fired",
+                {"event_keys": list(e.args.keys()) if e and e.args else []},
+            )
+
+        def on_first_data_rendered(e):
+            _debug_673991(
+                "H4",
+                "destroy.py:on_first_data_rendered",
+                "first data rendered event fired",
+                {"event_keys": list(e.args.keys()) if e and e.args else []},
+            )
+
+        grid.on("gridReady", on_grid_ready)
+        grid.on("firstDataRendered", on_first_data_rendered)
+        # endregion
         
         # Handle checkbox toggle (cellValueChanged event)
         def on_cell_value_changed(e):
@@ -1680,18 +1857,26 @@ def _create_protection_repair_panel(
                     env=env,
                 )
                 
-                for line in (result.stdout + result.stderr).split("\n"):
-                    if line.strip():
-                        if "Error:" in line or "error:" in line.lower():
-                            terminal.error(line)
-                        elif "Warning:" in line:
-                            terminal.warning(line)
-                        elif "Terraform has been successfully initialized" in line:
-                            terminal.success(line)
-                        elif "Initializing" in line:
-                            terminal.info(line)
-                        else:
-                            terminal.info(line)
+                _emit_bounded_output(
+                    terminal,
+                    phase_name="init",
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    stdout_budget=OutputBudget(max_lines=600, head_lines=360, tail_lines=180),
+                    stderr_budget=OutputBudget(max_lines=220, head_lines=140, tail_lines=60),
+                    on_stdout_line=lambda line: (
+                        terminal.success(line)
+                        if "Terraform has been successfully initialized" in line
+                        else terminal.info(line)
+                    ),
+                    on_stderr_line=lambda line: (
+                        terminal.error(line)
+                        if "Error:" in line or "error:" in line.lower()
+                        else terminal.warning(line)
+                        if "Warning:" in line
+                        else terminal.info(line)
+                    ),
+                )
                 
                 if result.returncode == 0:
                     ui.notify("Terraform initialized successfully!", type="positive")
@@ -1721,16 +1906,24 @@ def _create_protection_repair_panel(
                     env=env,
                 )
                 
-                for line in (result.stdout + result.stderr).split("\n"):
-                    if line.strip():
-                        if "Error:" in line or "error:" in line.lower():
-                            terminal.error(line)
-                        elif "Warning:" in line:
-                            terminal.warning(line)
-                        elif "Success" in line:
-                            terminal.success(line)
-                        else:
-                            terminal.info(line)
+                _emit_bounded_output(
+                    terminal,
+                    phase_name="validate",
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    stdout_budget=OutputBudget(max_lines=420, head_lines=260, tail_lines=120),
+                    stderr_budget=OutputBudget(max_lines=220, head_lines=140, tail_lines=60),
+                    on_stdout_line=lambda line: (
+                        terminal.success(line) if "Success" in line else terminal.info(line)
+                    ),
+                    on_stderr_line=lambda line: (
+                        terminal.error(line)
+                        if "Error:" in line or "error:" in line.lower()
+                        else terminal.warning(line)
+                        if "Warning:" in line
+                        else terminal.info(line)
+                    ),
+                )
                 
                 if result.returncode == 0:
                     ui.notify("Validation passed!", type="positive")
@@ -1766,20 +1959,33 @@ def _create_protection_repair_panel(
                 plan_output = result.stdout + result.stderr
                 
                 # Also show in terminal for quick reference
-                for line in plan_output.split("\n"):
-                    if line.strip():
-                        if "Error:" in line or "error:" in line.lower():
-                            terminal.error(line)
-                        elif "Warning:" in line:
-                            terminal.warning(line)
-                        elif "Plan:" in line or "Changes to Outputs:" in line:
-                            terminal.success(line)
-                        elif "No changes" in line:
-                            terminal.success(line)
-                        elif "will be" in line.lower() and ("created" in line.lower() or "destroyed" in line.lower() or "changed" in line.lower()):
-                            terminal.warning(line)
-                        else:
-                            terminal.info(line)
+                _emit_bounded_output(
+                    terminal,
+                    phase_name="plan",
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    stdout_budget=OutputBudget(max_lines=900, head_lines=520, tail_lines=320),
+                    stderr_budget=OutputBudget(max_lines=300, head_lines=180, tail_lines=80),
+                    on_stdout_line=lambda line: (
+                        terminal.success(line)
+                        if "Plan:" in line or "Changes to Outputs:" in line or "No changes" in line
+                        else terminal.warning(line)
+                        if "will be" in line.lower()
+                        and (
+                            "created" in line.lower()
+                            or "destroyed" in line.lower()
+                            or "changed" in line.lower()
+                        )
+                        else terminal.info(line)
+                    ),
+                    on_stderr_line=lambda line: (
+                        terminal.error(line)
+                        if "Error:" in line or "error:" in line.lower()
+                        else terminal.warning(line)
+                        if "Warning:" in line
+                        else terminal.info(line)
+                    ),
+                )
                 
                 if result.returncode == 0:
                     ui.notify("Plan completed - opening full-screen view", type="positive")
@@ -1825,18 +2031,26 @@ def _create_protection_repair_panel(
                                 env=env,
                             )
                             
-                            for line in (result.stdout + result.stderr).split("\n"):
-                                if line.strip():
-                                    if "Error:" in line or "error:" in line.lower():
-                                        terminal.error(line)
-                                    elif "Warning:" in line:
-                                        terminal.warning(line)
-                                    elif "Apply complete" in line:
-                                        terminal.success(line)
-                                    elif "Resources:" in line:
-                                        terminal.success(line)
-                                    else:
-                                        terminal.info(line)
+                            _emit_bounded_output(
+                                terminal,
+                                phase_name="apply",
+                                stdout=result.stdout,
+                                stderr=result.stderr,
+                                stdout_budget=OutputBudget(max_lines=900, head_lines=520, tail_lines=320),
+                                stderr_budget=OutputBudget(max_lines=300, head_lines=180, tail_lines=80),
+                                on_stdout_line=lambda line: (
+                                    terminal.success(line)
+                                    if "Apply complete" in line or "Resources:" in line
+                                    else terminal.info(line)
+                                ),
+                                on_stderr_line=lambda line: (
+                                    terminal.error(line)
+                                    if "Error:" in line or "error:" in line.lower()
+                                    else terminal.warning(line)
+                                    if "Warning:" in line
+                                    else terminal.info(line)
+                                ),
+                            )
                             
                             if result.returncode == 0:
                                 ui.notify("Apply completed successfully! Protection moves applied.", type="positive", timeout=6000)
@@ -2146,7 +2360,7 @@ def _create_bulk_actions_panel(
                 await _confirm_destroy_selected(state, terminal, save_state, destroy_state)
             
             ui.button(
-                "Destroy Selected",
+                "Plan Destroy (Selected)",
                 icon="delete_forever",
                 on_click=on_destroy_selected,
             ).style(f"background-color: {STATUS_ERROR}; color: white;")
@@ -2201,6 +2415,18 @@ def _refresh_resources_aggrid(state: AppState, destroy_state: dict) -> None:
     
     # Update stored resources for filtering
     destroy_state["all_resources"] = managed_resources
+    # region agent log
+    _debug_673991(
+        "H5",
+        "destroy.py:_refresh_resources_aggrid",
+        "refreshed managed resources",
+        {
+            "managed_resources": len(managed_resources),
+            "first_address": managed_resources[0].get("address") if managed_resources else None,
+            "grid_exists": bool(grid),
+        },
+    )
+    # endregion
     
     # Update the resource count badge
     resource_badge = destroy_state.get("resource_badge")
@@ -2228,75 +2454,144 @@ async def _confirm_destroy_selected(
     save_state: Callable[[], None],
     destroy_state: dict,
 ) -> None:
-    """Run destroy plan first, then confirm before destroying selected resources."""
+    """Run init+validate+plan, then confirm before applying selected destroy plan."""
     selected = destroy_state.get("selected", set())
     if not selected:
         ui.notify("Select resources first", type="warning")
         return
 
     count = len(selected)
-    
-    # Run terraform plan -destroy first to show what will be destroyed
+    selected_targets = sorted(selected)
+    from importer.web.utils.yaml_viewer import create_plan_viewer_dialog
+
+    # Step 1: terraform init + validate + plan -destroy
     terminal.clear()
-    terminal.set_title("Output — DESTROY PLAN")
-    terminal.warning("━━━ TERRAFORM DESTROY PLAN ━━━")
+    terminal.set_title("Output — PLAN DESTROY (SELECTED)")
+    terminal.warning("━━━ TERRAFORM PLAN DESTROY (SELECTED) ━━━")
     terminal.info("")
-    terminal.info(f"Planning destruction of {count} selected resource{'s' if count != 1 else ''}...")
+    terminal.info(f"Selected targets: {count} resource{'s' if count != 1 else ''}")
     terminal.info("")
-    
+
     tf_dir = state.deploy.terraform_dir or "deployments/migration"
     env = _get_terraform_env(state)
-    target_args = [f"-target={address}" for address in sorted(selected)]
-    
-    # Run plan -destroy to see what will actually be destroyed (including dependencies)
-    result = await asyncio.to_thread(
+    target_args = [f"-target={address}" for address in selected_targets]
+    plan_file = "destroy_selected.tfplan"
+
+    terminal.info("Running terraform init...")
+    init_result = await asyncio.to_thread(
         subprocess.run,
-        ["terraform", "plan", "-destroy", "-no-color", *target_args],
+        ["terraform", "init", "-no-color"],
         cwd=tf_dir,
         capture_output=True,
         text=True,
         env=env,
     )
-    
-    # Parse plan output to count resources
+    _emit_bounded_output(
+        terminal,
+        phase_name="destroy init",
+        stdout=init_result.stdout,
+        stderr=init_result.stderr,
+        stdout_budget=OutputBudget(max_lines=600, head_lines=360, tail_lines=180),
+        stderr_budget=OutputBudget(max_lines=220, head_lines=140, tail_lines=60),
+        on_stdout_line=lambda line: terminal.info_auto(line),
+        on_stderr_line=lambda line: (
+            terminal.error(line)
+            if "Error:" in line or "error:" in line.lower()
+            else terminal.warning(line)
+            if "Warning:" in line
+            else terminal.info_auto(line)
+        ),
+    )
+    if init_result.returncode != 0:
+        terminal.error("")
+        terminal.error(f"terraform init failed with exit code {init_result.returncode}")
+        ui.notify("Destroy init failed", type="negative")
+        return
+
+    terminal.info("")
+    terminal.info("Running terraform validate...")
+    validate_result = await asyncio.to_thread(
+        subprocess.run,
+        ["terraform", "validate", "-no-color"],
+        cwd=tf_dir,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    _emit_bounded_output(
+        terminal,
+        phase_name="destroy validate",
+        stdout=validate_result.stdout,
+        stderr=validate_result.stderr,
+        stdout_budget=OutputBudget(max_lines=420, head_lines=260, tail_lines=120),
+        stderr_budget=OutputBudget(max_lines=220, head_lines=140, tail_lines=60),
+        on_stdout_line=lambda line: terminal.info_auto(line),
+        on_stderr_line=lambda line: (
+            terminal.error(line)
+            if "Error:" in line or "error:" in line.lower()
+            else terminal.warning(line)
+            if "Warning:" in line
+            else terminal.info_auto(line)
+        ),
+    )
+    if validate_result.returncode != 0:
+        terminal.error("")
+        terminal.error(f"terraform validate failed with exit code {validate_result.returncode}")
+        ui.notify("Destroy validate failed", type="negative")
+        return
+
+    terminal.info("")
+    terminal.info("Running terraform plan -destroy...")
+    result = await asyncio.to_thread(
+        subprocess.run,
+        ["terraform", "plan", "-destroy", f"-out={plan_file}", "-no-color", *target_args],
+        cwd=tf_dir,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
     plan_output = result.stdout + result.stderr
-    destroy_count = 0
-    resources_to_destroy = []
+    destroy_count = _extract_destroy_count_from_plan_output(plan_output)
     
-    for line in plan_output.split("\n"):
-        if line.strip():
-            # Show all plan output
-            if "will be destroyed" in line:
-                terminal.warning(line)
-                destroy_count += 1
-                # Extract resource address
-                if "#" in line:
-                    addr = line.split("#")[1].split(" will be")[0].strip()
-                    resources_to_destroy.append(addr)
-            elif "Error:" in line or "error:" in line.lower():
-                terminal.error(line)
-            elif "Warning:" in line:
-                terminal.warning(line)
-            elif "Plan:" in line:
-                terminal.success(line)
-            else:
-                terminal.info_auto(line)
+    _emit_bounded_output(
+        terminal,
+        phase_name="destroy plan",
+        stdout=result.stdout,
+        stderr=result.stderr,
+        stdout_budget=OutputBudget(max_lines=900, head_lines=520, tail_lines=320),
+        stderr_budget=OutputBudget(max_lines=300, head_lines=180, tail_lines=80),
+        on_stdout_line=lambda line: (
+            terminal.warning(line)
+            if "will be destroyed" in line
+            else terminal.success(line)
+            if "Plan:" in line
+            else terminal.info_auto(line)
+        ),
+        on_stderr_line=lambda line: (
+            terminal.error(line)
+            if "Error:" in line or "error:" in line.lower()
+            else terminal.warning(line)
+            if "Warning:" in line
+            else terminal.info_auto(line)
+        ),
+    )
     
     if result.returncode != 0:
         terminal.error("")
         terminal.error(f"Plan failed with exit code {result.returncode}")
         ui.notify("Destroy plan failed", type="negative")
         return
-    
+
     terminal.info("")
     terminal.warning(f"⚠️  {destroy_count} resource(s) will be destroyed (including dependencies)")
     
-    # Show confirmation dialog with plan results
+    # Step 2: confirmation + apply destroy plan
     with ui.dialog() as dialog:
         with ui.card().classes("w-full max-w-lg"):
             with ui.row().classes("items-center gap-2 mb-2"):
                 ui.icon("warning", size="md").classes("text-red-500")
-                ui.label("Confirm Destroy").classes("text-lg font-semibold")
+                ui.label("Destroy Plan Ready").classes("text-lg font-semibold")
 
             # Show count difference warning
             if destroy_count > count:
@@ -2314,7 +2609,7 @@ async def _confirm_destroy_selected(
                         ).classes("text-xs text-orange-600")
             
             ui.label(
-                f"This will permanently destroy {destroy_count} resource(s). "
+                f"Plan created successfully. Applying this plan will destroy {destroy_count} resource(s). "
                 "This action cannot be undone."
             ).classes("text-sm text-slate-600 dark:text-slate-400")
 
@@ -2326,9 +2621,7 @@ async def _confirm_destroy_selected(
                 ui.label("This is irreversible!").classes("text-sm font-medium text-red-500")
 
             with ui.row().classes("w-full justify-between mt-4"):
-                # View Plan button on the left
                 def open_plan_viewer():
-                    from importer.web.utils.yaml_viewer import create_plan_viewer_dialog
                     plan_dialog = create_plan_viewer_dialog(plan_output, "Destroy Plan")
                     plan_dialog.open()
                 
@@ -2338,18 +2631,65 @@ async def _confirm_destroy_selected(
                     on_click=open_plan_viewer,
                 ).props("outline")
                 
-                # Cancel and Destroy buttons on the right
                 with ui.row().classes("gap-2"):
                     ui.button("Cancel", on_click=dialog.close).props("outline")
 
                     async def do_destroy() -> None:
                         dialog.close()
-                        await _run_terraform_destroy_selected(
-                            state, terminal, save_state, destroy_state
-                        )
+                        with ui.dialog() as confirm_dialog:
+                            with ui.card().classes("w-full max-w-md"):
+                                ui.label("Apply Destroy Plan").classes("text-lg font-semibold")
+                                ui.label(
+                                    f"Type DESTROY to confirm deletion of {destroy_count} resource(s)."
+                                ).classes("text-sm text-slate-600 dark:text-slate-400")
+                                confirm_input = ui.input(
+                                    placeholder="Type DESTROY",
+                                ).classes("w-full mt-2").props("outlined")
+
+                                apply_btn = ui.button(
+                                    f"Apply Destroy ({destroy_count})",
+                                    icon="delete_forever",
+                                    on_click=lambda: None,
+                                ).props("color=negative")
+                                apply_btn.disable()
+
+                                def on_change(e):
+                                    raw_value = (
+                                        e.args
+                                        if isinstance(e.args, str)
+                                        else str(e.args) if e.args is not None else ""
+                                    )
+                                    if _is_destroy_confirmation_text_valid(raw_value):
+                                        apply_btn.enable()
+                                    else:
+                                        apply_btn.disable()
+
+                                confirm_input.on("update:model-value", on_change)
+
+                                async def do_apply() -> None:
+                                    confirm_dialog.close()
+                                    await _run_terraform_destroy_selected(
+                                        state,
+                                        terminal,
+                                        save_state,
+                                        destroy_state,
+                                        selected_override=selected_targets,
+                                        plan_file=plan_file,
+                                        expected_destroy_count=destroy_count,
+                                    )
+
+                                apply_btn.on("click", do_apply)
+                                with ui.row().classes("w-full justify-between mt-3"):
+                                    ui.button(
+                                        "View Plan",
+                                        icon="visibility",
+                                        on_click=open_plan_viewer,
+                                    ).props("outline")
+                                    ui.button("Cancel", on_click=confirm_dialog.close).props("outline")
+                        confirm_dialog.open()
 
                     ui.button(
-                        f"Destroy {destroy_count} Resource{'s' if destroy_count != 1 else ''}",
+                        f"Apply Destroy ({destroy_count})",
                         icon="delete_forever",
                         on_click=do_destroy,
                     ).props("color=negative")
@@ -2471,19 +2811,29 @@ The following {unprotected_count} unprotected resources will be destroyed:
         plan_output = result.stdout + result.stderr
         destroy_count = 0
     
-        for line in plan_output.split("\n"):
-            if line.strip():
-                if "will be destroyed" in line:
-                    terminal.warning(line)
-                    destroy_count += 1
-                elif "Error:" in line or "error:" in line.lower():
-                    terminal.error(line)
-                elif "Warning:" in line:
-                    terminal.warning(line)
-                elif "Plan:" in line:
-                    terminal.success(line)
-                else:
-                    terminal.info_auto(line)
+        _emit_bounded_output(
+            terminal,
+            phase_name="destroy all plan",
+            stdout=result.stdout,
+            stderr=result.stderr,
+            stdout_budget=OutputBudget(max_lines=900, head_lines=520, tail_lines=320),
+            stderr_budget=OutputBudget(max_lines=300, head_lines=180, tail_lines=80),
+            on_stdout_line=lambda line: (
+                terminal.warning(line)
+                if "will be destroyed" in line
+                else terminal.success(line)
+                if "Plan:" in line
+                else terminal.info_auto(line)
+            ),
+            on_stderr_line=lambda line: (
+                terminal.error(line)
+                if "Error:" in line or "error:" in line.lower()
+                else terminal.warning(line)
+                if "Warning:" in line
+                else terminal.info_auto(line)
+            ),
+        )
+        destroy_count = _extract_destroy_count_from_plan_output(plan_output)
     
         if result.returncode != 0:
             terminal.error("")
@@ -2710,9 +3060,14 @@ async def _run_terraform_destroy_selected(
     terminal: TerminalOutput,
     save_state: Callable[[], None],
     destroy_state: dict,
+    selected_override: Optional[list[str]] = None,
+    plan_file: Optional[str] = None,
+    expected_destroy_count: Optional[int] = None,
 ) -> None:
-    """Run terraform destroy for selected resources."""
-    selected = sorted(destroy_state.get("selected", []))
+    """Apply selected destroy plan (or fallback to direct targeted destroy)."""
+    from importer.web.utils.yaml_viewer import create_plan_viewer_dialog
+
+    selected = sorted(selected_override or destroy_state.get("selected", []))
     if not selected:
         ui.notify("Select resources first", type="warning")
         return
@@ -2720,8 +3075,8 @@ async def _run_terraform_destroy_selected(
     tf_dir = state.deploy.terraform_dir or "deployments/migration"
 
     terminal.clear()
-    terminal.set_title("Output — DESTROY (SELECTED)")
-    terminal.warning("━━━ TERRAFORM DESTROY (SELECTED) ━━━")
+    terminal.set_title("Output — APPLY DESTROY (SELECTED)")
+    terminal.warning("━━━ TERRAFORM APPLY DESTROY (SELECTED) ━━━")
     terminal.warning("")
     terminal.warning(f"Targets: {len(selected)} resources")
     for addr in selected:
@@ -2729,44 +3084,59 @@ async def _run_terraform_destroy_selected(
     terminal.info("")
 
     env = _get_terraform_env(state)
-    target_args = [f"-target={address}" for address in selected]
+    if plan_file:
+        cmd = ["terraform", "apply", "-no-color", "-auto-approve", plan_file]
+    else:
+        target_args = [f"-target={address}" for address in selected]
+        cmd = ["terraform", "destroy", "-no-color", "-auto-approve", *target_args]
 
     result = await asyncio.to_thread(
         subprocess.run,
-        ["terraform", "destroy", "-no-color", "-auto-approve", *target_args],
+        cmd,
         cwd=tf_dir,
         capture_output=True,
         text=True,
         env=env,
     )
 
-    # Track destroyed resources for summary
-    destroyed_count = 0
+    combined_output = result.stdout + result.stderr
+    destroyed_count = _extract_destroy_count_from_apply_output(combined_output)
 
-    for line in result.stdout.split("\n"):
-        if line.strip():
-            if "Destroy complete!" in line or "destroyed" in line.lower():
-                terminal.success(line)
-                if "destroyed" in line.lower():
-                    destroyed_count += 1
-            else:
-                terminal.info_auto(line)
-    for line in result.stderr.split("\n"):
-        if line.strip():
-            terminal.warning(line)
+    _emit_bounded_output(
+        terminal,
+        phase_name="destroy apply",
+        stdout=result.stdout,
+        stderr=result.stderr,
+        stdout_budget=OutputBudget(max_lines=900, head_lines=520, tail_lines=320),
+        stderr_budget=OutputBudget(max_lines=300, head_lines=180, tail_lines=80),
+        on_stdout_line=lambda line: (
+            terminal.success(line)
+            if "Destroy complete!" in line or "Destruction complete after" in line
+            else terminal.info_auto(line)
+        ),
+        on_stderr_line=lambda line: (
+            terminal.error(line)
+            if "Error:" in line or "error:" in line.lower()
+            else terminal.warning(line)
+            if "Warning:" in line
+            else terminal.info_auto(line)
+        ),
+    )
 
     if result.returncode == 0:
+        final_count = expected_destroy_count if expected_destroy_count is not None else destroyed_count
         terminal.success("")
         terminal.success("━━━ DESTROY SUMMARY ━━━")
-        terminal.success(f"Successfully destroyed {destroyed_count} resource(s)")
+        terminal.success(f"Successfully destroyed {final_count} resource(s)")
         state.deploy.destroy_complete = True
         save_state()
-        ui.notify(f"Destroyed {destroyed_count} resources", type="positive")
+        ui.notify(f"Destroyed {final_count} resources", type="positive")
         
         # Refresh the resource table to reflect destroyed resources
         _refresh_resources(state, destroy_state)
         terminal.info("")
         terminal.info("Resource table refreshed.")
+        create_plan_viewer_dialog(combined_output, "Destroy Apply Output").open()
     else:
         terminal.error("")
         terminal.error(f"Destroy failed with exit code {result.returncode}")
@@ -2802,9 +3172,16 @@ async def _run_terraform_destroy_all(
     
     if state_result.returncode != 0:
         terminal.error("Failed to list terraform state")
-        for line in state_result.stderr.split("\n"):
-            if line.strip():
-                terminal.error(f"  {line}")
+        _emit_bounded_output(
+            terminal,
+            phase_name="state list",
+            stdout="",
+            stderr=state_result.stderr,
+            stdout_budget=None,
+            stderr_budget=OutputBudget(max_lines=160, head_lines=110, tail_lines=40),
+            on_stdout_line=lambda _line: None,
+            on_stderr_line=lambda line: terminal.error(f"  {line}"),
+        )
         ui.notify("Failed to list terraform state", type="negative")
         return
     
@@ -2888,27 +3265,34 @@ async def _run_terraform_destroy_all(
     destroyed_resources = []
     destroy_count = 0
 
-    for line in result.stdout.split("\n"):
-        if line.strip():
-            if "Destroy complete!" in line:
-                terminal.success(line)
-                # Parse count from "Destroy complete! Resources: X destroyed."
-                match = re.search(r'Resources:\s*(\d+)\s*destroyed', line)
-                if match:
-                    destroy_count = int(match.group(1))
-            elif "Destruction complete" in line:
-                # Individual resource destruction line like "module.x.resource.y: Destruction complete after 2s"
-                terminal.warning(line)
-                if ":" in line:
-                    destroyed_resources.append(line.split(":")[0].strip())
-            elif "Destroying..." in line:
-                # Resource being destroyed
-                terminal.warning(line)
-            else:
-                terminal.info_auto(line)
-    for line in result.stderr.split("\n"):
-        if line.strip():
+    def _on_destroy_all_stdout(line: str) -> None:
+        nonlocal destroy_count
+        if "Destroy complete!" in line:
+            terminal.success(line)
+            match = re.search(r"Resources:\s*(\d+)\s*destroyed", line)
+            if match:
+                destroy_count = int(match.group(1))
+            return
+        if "Destruction complete" in line:
             terminal.warning(line)
+            if ":" in line:
+                destroyed_resources.append(line.split(":", 1)[0].strip())
+            return
+        if "Destroying..." in line:
+            terminal.warning(line)
+            return
+        terminal.info_auto(line)
+
+    _emit_bounded_output(
+        terminal,
+        phase_name="destroy all apply",
+        stdout=result.stdout,
+        stderr=result.stderr,
+        stdout_budget=OutputBudget(max_lines=900, head_lines=520, tail_lines=320),
+        stderr_budget=OutputBudget(max_lines=300, head_lines=180, tail_lines=80),
+        on_stdout_line=_on_destroy_all_stdout,
+        on_stderr_line=lambda line: terminal.warning(line),
+    )
 
     # Use destroy_count from summary if we didn't capture individual resources
     final_count = destroy_count if destroy_count > 0 else len(destroyed_resources)

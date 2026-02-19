@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 from nicegui import ui
 
@@ -57,6 +57,8 @@ class TerminalOutput:
         auto_scroll: bool = True,
         show_timestamps: bool = True,
         default_level: LogLevel = LogLevel.INFO,
+        flush_interval_seconds: float = 0.075,
+        max_flush_batch: int = 40,
     ):
         """Initialize terminal output component.
 
@@ -74,7 +76,14 @@ class TerminalOutput:
         self._container: Optional[ui.column] = None
         self._scroll_area: Optional[ui.scroll_area] = None
         self._ui_detached = False
+        self._detach_notice_added = False
         self._trim_since_rerender = 0
+        self._trim_rerender_threshold = 100
+        self._needs_rerender = False
+        self._pending_messages: list[LogMessage] = []
+        self._flush_interval_seconds = flush_interval_seconds
+        self._max_flush_batch = max_flush_batch
+        self._flush_timer: Optional[Any] = None
 
     def create(self, height: str = "300px", title: str = "Output") -> None:
         """Create the terminal output UI component.
@@ -170,6 +179,13 @@ class TerminalOutput:
                 self._scroll_area = scroll
                 self._container = ui.column().classes("w-full p-2 gap-0.5 terminal-messages")
 
+        # Keep websocket traffic bounded by flushing queued messages in batches.
+        if self._flush_timer is None:
+            self._flush_timer = ui.timer(
+                self._flush_interval_seconds,
+                self._flush_pending_messages,
+            )
+
     def _on_level_change(self, e) -> None:
         """Handle log level filter change."""
         self._min_level = LogLevel(e.value)
@@ -206,38 +222,68 @@ class TerminalOutput:
             self.messages = self.messages[-self.max_lines:]
             trimmed = True
 
-        # Add to UI if container exists and level passes filter
+        # Queue UI updates and flush in bounded batches to avoid websocket bursts.
         if self._container is not None and self._should_display(level) and not self._ui_detached:
-            try:
-                # Keep rendered DOM bounded: rerender periodically after trims.
-                if trimmed:
-                    self._trim_since_rerender += 1
-                    if self._trim_since_rerender >= 25:
-                        self._rerender_messages()
-                        self._trim_since_rerender = 0
-                    else:
-                        self._add_message_to_ui(msg)
-                else:
-                    self._add_message_to_ui(msg)
+            if trimmed:
+                self._trim_since_rerender += 1
+                if self._trim_since_rerender >= self._trim_rerender_threshold:
+                    self._needs_rerender = True
+                    self._trim_since_rerender = 0
+            self._pending_messages.append(msg)
 
-                # Auto-scroll if enabled
-                if self.auto_scroll and self._scroll_area is not None:
-                    self._scroll_area.scroll_to(percent=1.0)
-            except RuntimeError as e:
-                # Client disconnects during long async operations can invalidate the
-                # NiceGUI slot/client; keep buffering logs but stop UI writes.
-                if "client this element belongs to has been deleted" in str(e).lower():
-                    self._ui_detached = True
-                    # region agent log
-                    _dbg_673991(
-                        "H11",
-                        "terminal_output.py:log",
-                        "terminal detached, disabling UI log writes",
-                        {"error": str(e), "level": level.value},
-                    )
-                    # endregion
-                else:
-                    raise
+    def _mark_ui_detached(self, error: RuntimeError) -> None:
+        """Disable UI writes after client/slot invalidation."""
+        self._ui_detached = True
+        if not self._detach_notice_added:
+            self._detach_notice_added = True
+            self.messages.append(
+                LogMessage(
+                    text=(
+                        "Terminal output detached; logging continues in memory for this run."
+                    ),
+                    level=LogLevel.WARNING,
+                )
+            )
+            if len(self.messages) > self.max_lines:
+                self.messages = self.messages[-self.max_lines:]
+
+        # region agent log
+        _dbg_673991(
+            "H11",
+            "terminal_output.py:_mark_ui_detached",
+            "terminal detached, disabling UI log writes",
+            {"error": str(error)},
+        )
+        # endregion
+
+    def _flush_pending_messages(self) -> None:
+        """Flush queued messages to UI in bounded batches."""
+        if self._ui_detached:
+            self._pending_messages.clear()
+            return
+        if self._container is None:
+            return
+        if not self._pending_messages and not self._needs_rerender:
+            return
+
+        try:
+            if self._needs_rerender:
+                self._rerender_messages()
+                self._pending_messages.clear()
+                self._needs_rerender = False
+                return
+
+            batch = self._pending_messages[: self._max_flush_batch]
+            del self._pending_messages[: self._max_flush_batch]
+            for msg in batch:
+                self._add_message_to_ui(msg)
+            if batch and self.auto_scroll and self._scroll_area is not None:
+                self._scroll_area.scroll_to(percent=1.0)
+        except RuntimeError as e:
+            if "client this element belongs to has been deleted" in str(e).lower():
+                self._mark_ui_detached(e)
+            else:
+                raise
 
     def info(self, text: str) -> None:
         """Log an info message."""
@@ -285,6 +331,8 @@ class TerminalOutput:
     def clear(self) -> None:
         """Clear all messages."""
         self.messages.clear()
+        self._pending_messages.clear()
+        self._needs_rerender = False
         if self._container is not None:
             self._container.clear()
 

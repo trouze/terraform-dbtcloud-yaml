@@ -10,6 +10,7 @@ See PRD 43.03 — Unified Protect & Adopt Pipeline.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import json
 import logging
 import os
@@ -28,9 +29,64 @@ logger = logging.getLogger(__name__)
 MODULE_PREFIX = "module.dbt_cloud.module.projects_v2[0]"
 
 
+@dataclass(frozen=True)
+class OutputBudget:
+    """Bounded terminal rendering budget for process output."""
+
+    max_lines: int
+    head_lines: int
+    tail_lines: int
+
+
 def _dbg_673991(hypothesis_id: str, location: str, message: str, data: dict) -> None:
     """Debug logging disabled after fix verification."""
     return
+
+
+def budget_output_lines(lines: list[str], budget: Optional[OutputBudget]) -> tuple[list[str], int]:
+    """Apply head/tail output budget, returning rendered lines + omitted count."""
+    if budget is None or len(lines) <= budget.max_lines:
+        return lines, 0
+
+    head = max(0, budget.head_lines)
+    tail = max(0, budget.tail_lines)
+    if head + tail > budget.max_lines:
+        head = min(head, budget.max_lines)
+        tail = max(0, budget.max_lines - head)
+
+    if head == 0 and tail == 0:
+        return [], len(lines)
+
+    kept = lines[:head] + lines[-tail:] if tail > 0 else lines[:head]
+    omitted = len(lines) - len(kept)
+    return kept, max(0, omitted)
+
+
+def emit_process_output(
+    stdout: str,
+    stderr: str,
+    *,
+    on_stdout_line: Callable[[str], None],
+    on_stderr_line: Callable[[str], None],
+    stdout_budget: Optional[OutputBudget] = None,
+    stderr_budget: Optional[OutputBudget] = None,
+    on_omitted: Optional[Callable[[int], None]] = None,
+) -> tuple[int, int]:
+    """Emit stdout/stderr to terminal callbacks with optional budgets."""
+    stdout_lines, stdout_omitted = budget_output_lines(stdout.splitlines(), stdout_budget)
+    stderr_lines, stderr_omitted = budget_output_lines(stderr.splitlines(), stderr_budget)
+    omitted_total = stdout_omitted + stderr_omitted
+    if omitted_total > 0 and on_omitted:
+        on_omitted(omitted_total)
+
+    for line in stdout_lines:
+        if line.strip():
+            on_stdout_line(line)
+    for line in stderr_lines:
+        if line.strip():
+            on_stderr_line(line)
+
+    return stdout_omitted, stderr_omitted
 
 
 # ---------------------------------------------------------------------------
