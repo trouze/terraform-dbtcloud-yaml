@@ -302,9 +302,23 @@ class TerraformRunner:
             TerraformResult
         """
         try:
+            env = os.environ.copy()
+            # Provide deterministic defaults so terraform plan/validate tests don't
+            # fail on missing provider credentials in local environments.
+            env.setdefault("TF_VAR_dbt_account_id", "13")
+            env.setdefault("TF_VAR_dbt_token", "test-token")
+            env.setdefault("TF_VAR_dbt_host_url", "https://cloud.getdbt.com")
+            env.setdefault("DBTCLOUD_ACCOUNT_ID", "13")
+            env.setdefault("DBTCLOUD_TOKEN", "test-token")
+            env.setdefault("DBTCLOUD_HOST_URL", "https://cloud.getdbt.com")
+            env.setdefault("DBT_CLOUD_ACCOUNT_ID", "13")
+            env.setdefault("DBT_CLOUD_TOKEN", "test-token")
+            env.setdefault("DBT_CLOUD_HOST_URL", "https://cloud.getdbt.com")
+
             result = subprocess.run(
                 cmd,
                 cwd=str(self.working_dir),
+                env=env,
                 capture_output=True,
                 text=True,
                 timeout=300,  # 5 minute timeout

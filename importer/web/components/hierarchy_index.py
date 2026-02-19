@@ -12,8 +12,9 @@ ENTITY_PARENT_TYPES = {
     "VAR": ["PRJ"],         # Environment Variable belongs to Project
     "EXTATTR": ["PRJ"],     # Extended Attributes belong to Project
     "PRJ": ["ACC"],         # Project belongs to Account
-    # Connections can be children of environments (via connection_id) AND account
-    "CON": ["ENV", "ACC"],  # Connection used by Environment, also account-level
+    # Connections are account-level resources. Environments may reference a
+    # connection, but that reference does not make CON a child of ENV.
+    "CON": ["ACC"],
     # Other globals belong to Account
     "REP": ["ACC"],
     "TOK": ["ACC"],

@@ -272,7 +272,7 @@ async def run_generate_pipeline(
     # ------------------------------------------------------------------
     # Step 5: Regenerate HCL
     # ------------------------------------------------------------------
-    if regenerate_hcl and yaml_file.exists() and not adopt_only_non_project:
+    if regenerate_hcl and yaml_file.exists():
         _progress(on_progress, "Regenerating Terraform HCL files...")
         try:
             import asyncio

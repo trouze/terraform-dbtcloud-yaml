@@ -367,11 +367,7 @@ class TestDestroyPageErrors:
         """US-D8.1: Verify graceful handling when no resources to destroy."""
         destroy_page.go_to_destroy()
         destroy_page.wait_for_loading_complete()
-        
-        # Page should not crash if no resources available
-        page_content = destroy_page.get_page_content()
-        assert "500" not in page_content
-        assert "Internal Server Error" not in page_content
+        destroy_page.assert_page_loads_without_error()
     
     @pytest.mark.e2e
     def test_notification_on_operation_error(self, destroy_page: DestroyPage):

@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from importer.web.pages.adopt import _compute_adopt_summary
+from importer.web.pages.adopt import _compute_adopt_summary, _terraform_declares_variable
 from importer.web.utils.terraform_import import generate_state_rm_commands
 
 
@@ -46,20 +46,20 @@ def test_compute_summary_respects_adopt_action():
     assert result["adopt_count"] == 2
 
 
-def test_compute_summary_defaults_to_ignore():
-    """Rows not in confirmed_mappings default to action=ignore."""
+def test_compute_summary_defaults_to_row_action_when_no_confirmed_mapping():
+    """Rows without confirmed mappings preserve row action from build_grid_data."""
     grid_rows = [
-        _make_row("proj_a", "not_in_state", target_id="1"),
-        _make_row("proj_b", "attr_mismatch", target_id="2"),
+        {**_make_row("proj_a", "not_in_state", target_id="1"), "action": "adopt"},
+        {**_make_row("proj_b", "attr_mismatch", target_id="2"), "action": "adopt"},
     ]
     confirmed_mappings = []  # No mappings
     result = _compute_adopt_summary(grid_rows, confirmed_mappings)
 
     adopt_rows = result["adopt_rows"]
     assert len(adopt_rows) == 2
-    assert adopt_rows[0]["action"] == "ignore"
-    assert adopt_rows[1]["action"] == "ignore"
-    assert result["adopt_count"] == 0
+    assert adopt_rows[0]["action"] == "adopt"
+    assert adopt_rows[1]["action"] == "adopt"
+    assert result["adopt_count"] == 2
 
 
 def test_compute_summary_checks_target_prefixed_key():
@@ -76,6 +76,26 @@ def test_compute_summary_checks_target_prefixed_key():
     assert len(adopt_rows) == 1
     assert adopt_rows[0]["source_key"] == "everyone"
     assert adopt_rows[0]["action"] == "adopt"
+    assert result["adopt_count"] == 1
+
+
+def test_compute_summary_excludes_target_only_rows():
+    """Target-only rows should not be included in Adopt summary candidates."""
+    grid_rows = [
+        {
+            **_make_row("target__legacy_conn", "no_state", target_id="800", source_type="CON"),
+            "is_target_only": True,
+            "action": "adopt",
+        },
+        {
+            **_make_row("conn_main", "no_state", target_id="801", source_type="CON"),
+            "is_target_only": False,
+            "action": "adopt",
+        },
+    ]
+    result = _compute_adopt_summary(grid_rows, confirmed_mappings=[])
+    assert len(result["adopt_rows"]) == 1
+    assert result["adopt_rows"][0]["source_key"] == "conn_main"
     assert result["adopt_count"] == 1
 
 
@@ -149,19 +169,25 @@ def test_all_ignored_still_has_adopt_rows():
 
 
 def test_all_ignored_default_still_has_adopt_rows():
-    """When no confirmed_mappings exist at all, adopt_rows still shows all adoptable resources."""
+    """When no confirmed mappings exist, summary uses per-row actions as fallback."""
     grid_rows = [
-        _make_row("grp_owner", "not_in_state", target_id="773", source_type="GRP"),
-        _make_row("grp_member", "not_in_state", target_id="774", source_type="GRP"),
+        {
+            **_make_row("grp_owner", "not_in_state", target_id="773", source_type="GRP"),
+            "action": "adopt",
+        },
+        {
+            **_make_row("grp_member", "not_in_state", target_id="774", source_type="GRP"),
+            "action": "adopt",
+        },
     ]
     confirmed_mappings = []  # No mappings at all
     result = _compute_adopt_summary(grid_rows, confirmed_mappings)
 
     assert len(result["adopt_rows"]) == 2
-    assert result["adopt_count"] == 0
-    # All should default to ignore
+    assert result["adopt_count"] == 2
+    # Fallback should preserve adopt rows from grid action
     for row in result["adopt_rows"]:
-        assert row["action"] == "ignore"
+        assert row["action"] == "adopt"
 
 
 def test_compute_summary_rm_count_uses_generate_state_rm_commands():
@@ -191,6 +217,25 @@ def test_compute_summary_rm_count_uses_generate_state_rm_commands():
     assert result["rm_count"] == len(expected_rm_cmds)
     assert result["state_rm_commands"] == expected_rm_cmds
     assert result["rm_count"] == 1
+
+
+def test_terraform_declares_variable_detects_declared_var(tmp_path):
+    """Helper detects variable declaration in root .tf files."""
+    (tmp_path / "variables.tf").write_text(
+        'variable "projects_v2_skip_global_project_permissions" {\n  type = bool\n}\n',
+        encoding="utf-8",
+    )
+    assert _terraform_declares_variable(
+        tmp_path, "projects_v2_skip_global_project_permissions"
+    ) is True
+
+
+def test_terraform_declares_variable_false_when_missing(tmp_path):
+    """Helper returns False when variable is not declared."""
+    (tmp_path / "main.tf").write_text('resource "null_resource" "x" {}\n', encoding="utf-8")
+    assert _terraform_declares_variable(
+        tmp_path, "projects_v2_skip_global_project_permissions"
+    ) is False
 
 
 def test_source_total_and_tf_add_count_can_differ_by_mapping_semantics():

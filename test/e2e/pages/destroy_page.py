@@ -39,7 +39,7 @@ class DestroyPage(BasePage):
     BLOCKED_BADGE = ".badge-red, [class*='blocked'], [class*='destroy-blocked']"
     
     # Destroy controls
-    DESTROY_BUTTON = "button:has-text('Destroy')"
+    DESTROY_BUTTON = "button:has-text('Destroy All'), button:has-text('Destroy')"
     CONFIRM_DESTROY_INPUT = "input[placeholder*='confirm'], input[name*='confirm']"
     CONFIRM_DESTROY_BUTTON = "button:has-text('Confirm Destroy')"
     
@@ -301,13 +301,13 @@ class DestroyPage(BasePage):
         btn = self.page.locator(self.DESTROY_BUTTON)
         if btn.count() == 0:
             return False
-        return btn.is_enabled()
+        return btn.first.is_enabled()
     
     def click_destroy(self) -> None:
         """Click the Destroy button."""
         btn = self.page.locator(self.DESTROY_BUTTON)
         if btn.count() > 0:
-            btn.click()
+            btn.first.click()
     
     def is_destroy_confirmation_visible(self) -> bool:
         """Check if destroy confirmation dialog is showing."""
@@ -383,7 +383,4 @@ class DestroyPage(BasePage):
     
     def assert_page_loads_without_error(self) -> None:
         """Assert the page loads successfully."""
-        self.wait_for_page_load()
-        page_content = self.get_page_content()
-        assert "500" not in page_content, "Page returned 500 error"
-        assert "Internal Server Error" not in page_content
+        self.assert_page_has_no_server_error()

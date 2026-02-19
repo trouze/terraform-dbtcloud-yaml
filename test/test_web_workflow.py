@@ -54,7 +54,7 @@ class TestWorkflowSteps:
                 f"WorkflowStep.{name} should have value {expected_value}"
     
     def test_migration_workflow_has_all_steps(self):
-        """Verify WORKFLOW_STEPS[MIGRATION] contains 9 steps in order (DESTROY is utility)."""
+        """Verify WORKFLOW_STEPS[MIGRATION] contains 10 steps in order."""
         migration_steps = WORKFLOW_STEPS[WorkflowType.MIGRATION]
         
         expected = [
@@ -64,12 +64,13 @@ class TestWorkflowSteps:
             WorkflowStep.FETCH_TARGET,
             WorkflowStep.EXPLORE_TARGET,
             WorkflowStep.MATCH,
+            WorkflowStep.ADOPT,
             WorkflowStep.CONFIGURE,
             WorkflowStep.TARGET_CREDENTIALS,
             WorkflowStep.DEPLOY,
         ]
         
-        assert len(migration_steps) == 9, "Migration workflow should have 9 steps"
+        assert len(migration_steps) == 10, "Migration workflow should have 10 steps"
         assert migration_steps == expected, "Migration workflow steps should be in order"
     
     def test_step_names_complete(self):
@@ -543,11 +544,12 @@ class TestWorkflowTypes:
         assert len(steps) == 5
     
     def test_import_adopt_workflow(self):
-        """Import & Adopt workflow has all 9 steps including TARGET_CREDENTIALS."""
+        """Import & Adopt workflow has all 10 steps including ADOPT."""
         steps = WORKFLOW_STEPS[WorkflowType.IMPORT_ADOPT]
         
-        assert len(steps) == 9
+        assert len(steps) == 10
         assert WorkflowStep.MATCH in steps
+        assert WorkflowStep.ADOPT in steps
         assert WorkflowStep.CONFIGURE in steps
         assert WorkflowStep.TARGET_CREDENTIALS in steps
 

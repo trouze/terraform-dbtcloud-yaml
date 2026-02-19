@@ -1,5 +1,7 @@
 """Terminal output component for displaying log messages and progress."""
 
+import json
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -13,9 +15,26 @@ from importer.web.utils.log_export import (
     generate_log_filename,
 )
 
-def _dbg_673991(hypothesis_id: str, location: str, message: str, data: dict) -> None:
-    """Debug logging disabled after fix verification."""
-    return
+def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    """Write one NDJSON debug record for websocket investigation."""
+    payload = {
+        "sessionId": "db419a",
+        "runId": "pre-fix",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(
+            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    except Exception:
+        return
 
 
 class LogLevel(Enum):
@@ -84,6 +103,8 @@ class TerminalOutput:
         self._flush_interval_seconds = flush_interval_seconds
         self._max_flush_batch = max_flush_batch
         self._flush_timer: Optional[Any] = None
+        self._dbg_last_pending_bucket = -1
+        self._dbg_trim_counter = 0
 
     def create(self, height: str = "300px", title: str = "Output") -> None:
         """Create the terminal output UI component.
@@ -185,6 +206,24 @@ class TerminalOutput:
                 self._flush_interval_seconds,
                 self._flush_pending_messages,
             )
+            # region agent log
+            _dbg_db419a(
+                "H1",
+                "terminal_output.py:create",
+                "terminal flush timer initialized",
+                {
+                    "flush_interval_seconds": self._flush_interval_seconds,
+                    "max_flush_batch": self._max_flush_batch,
+                    "max_lines": self.max_lines,
+                    "max_messages_per_second": round(
+                        self._max_flush_batch / self._flush_interval_seconds, 2
+                    )
+                    if self._flush_interval_seconds > 0
+                    else None,
+                    "optimization_target": "localhost",
+                },
+            )
+            # endregion
 
     def _on_level_change(self, e) -> None:
         """Handle log level filter change."""
@@ -221,6 +260,21 @@ class TerminalOutput:
         if len(self.messages) > self.max_lines:
             self.messages = self.messages[-self.max_lines:]
             trimmed = True
+            self._dbg_trim_counter += 1
+            if self._dbg_trim_counter <= 3 or self._dbg_trim_counter % 25 == 0:
+                # region agent log
+                _dbg_db419a(
+                    "H2",
+                    "terminal_output.py:log",
+                    "message buffer trimmed",
+                    {
+                        "buffer_len": len(self.messages),
+                        "max_lines": self.max_lines,
+                        "trim_since_rerender": self._trim_since_rerender,
+                        "trim_count": self._dbg_trim_counter,
+                    },
+                )
+                # endregion
 
         # Queue UI updates and flush in bounded batches to avoid websocket bursts.
         if self._container is not None and self._should_display(level) and not self._ui_detached:
@@ -229,7 +283,36 @@ class TerminalOutput:
                 if self._trim_since_rerender >= self._trim_rerender_threshold:
                     self._needs_rerender = True
                     self._trim_since_rerender = 0
+                    # region agent log
+                    _dbg_db419a(
+                        "H2",
+                        "terminal_output.py:log",
+                        "rerender threshold reached after trims",
+                        {
+                            "trim_rerender_threshold": self._trim_rerender_threshold,
+                            "pending_len": len(self._pending_messages),
+                            "buffer_len": len(self.messages),
+                        },
+                    )
+                    # endregion
             self._pending_messages.append(msg)
+            pending_bucket = len(self._pending_messages) // 100
+            if pending_bucket > self._dbg_last_pending_bucket:
+                self._dbg_last_pending_bucket = pending_bucket
+                if pending_bucket > 0:
+                    # region agent log
+                    _dbg_db419a(
+                        "H3",
+                        "terminal_output.py:log",
+                        "pending queue reached new bucket",
+                        {
+                            "pending_len": len(self._pending_messages),
+                            "bucket": pending_bucket,
+                            "level": level.value,
+                            "ui_detached": self._ui_detached,
+                        },
+                    )
+                    # endregion
 
     def _mark_ui_detached(self, error: RuntimeError) -> None:
         """Disable UI writes after client/slot invalidation."""
@@ -248,8 +331,8 @@ class TerminalOutput:
                 self.messages = self.messages[-self.max_lines:]
 
         # region agent log
-        _dbg_673991(
-            "H11",
+        _dbg_db419a(
+            "H4",
             "terminal_output.py:_mark_ui_detached",
             "terminal detached, disabling UI log writes",
             {"error": str(error)},
@@ -268,6 +351,17 @@ class TerminalOutput:
 
         try:
             if self._needs_rerender:
+                # region agent log
+                _dbg_db419a(
+                    "H2",
+                    "terminal_output.py:_flush_pending_messages",
+                    "performing full rerender due to trim pressure",
+                    {
+                        "pending_before": len(self._pending_messages),
+                        "buffer_len": len(self.messages),
+                    },
+                )
+                # endregion
                 self._rerender_messages()
                 self._pending_messages.clear()
                 self._needs_rerender = False
@@ -275,6 +369,19 @@ class TerminalOutput:
 
             batch = self._pending_messages[: self._max_flush_batch]
             del self._pending_messages[: self._max_flush_batch]
+            if batch:
+                # region agent log
+                _dbg_db419a(
+                    "H1",
+                    "terminal_output.py:_flush_pending_messages",
+                    "flushing queued terminal batch",
+                    {
+                        "batch_size": len(batch),
+                        "pending_after": len(self._pending_messages),
+                        "max_flush_batch": self._max_flush_batch,
+                    },
+                )
+                # endregion
             for msg in batch:
                 self._add_message_to_ui(msg)
             if batch and self.auto_scroll and self._scroll_area is not None:
@@ -283,6 +390,14 @@ class TerminalOutput:
             if "client this element belongs to has been deleted" in str(e).lower():
                 self._mark_ui_detached(e)
             else:
+                # region agent log
+                _dbg_db419a(
+                    "H5",
+                    "terminal_output.py:_flush_pending_messages",
+                    "runtime error during flush",
+                    {"error": str(e), "pending_len": len(self._pending_messages)},
+                )
+                # endregion
                 raise
 
     def info(self, text: str) -> None:

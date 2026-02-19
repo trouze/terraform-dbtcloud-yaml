@@ -279,8 +279,8 @@ def _create_compact_info_bar(
 
 def _show_no_state_dialog(state: AppState, destroy_state: dict) -> None:
     """Show a dialog indicating no state file exists yet."""
-    tf_dir = state.deploy.terraform_dir or "deployments/migration"
-    expected_path = Path(tf_dir) / "terraform.tfstate"
+    tf_path, _yaml_file, _baseline_yaml = resolve_deployment_paths(state)
+    expected_path = tf_path / "terraform.tfstate"
     
     with ui.dialog() as dialog:
         with ui.card().classes("w-full max-w-md"):
@@ -1060,16 +1060,13 @@ def _create_destroy_protection_panel(
     Uses AG Grid with checkbox column for reliable selection (same pattern as Select Source page).
     """
     # Look for the generated config YAML in the terraform directory
-    from pathlib import Path
-    
-    tf_dir = state.deploy.terraform_dir if state.deploy.terraform_dir else "deployments/migration"
-    project_root = Path(__file__).parent.parent.parent.parent.resolve()
+    tf_path, _yaml_file, _baseline_yaml = resolve_deployment_paths(state)
     
     # Try multiple possible config file names
     possible_paths = [
-        project_root / tf_dir / "dbt-cloud-config.yml",
-        project_root / tf_dir / "dbt_cloud_config.yml",
-        project_root / tf_dir / "config.yml",
+        tf_path / "dbt-cloud-config.yml",
+        tf_path / "dbt_cloud_config.yml",
+        tf_path / "config.yml",
     ]
     
     # Also try the map's last_yaml_file as fallback
@@ -1356,14 +1353,9 @@ def _create_destroy_protection_panel(
                     ProtectionChange,
                     generate_moved_blocks_from_state,
                 )
-                from pathlib import Path
                 
                 # Get terraform directory
-                tf_dir = state.deploy.terraform_dir or "deployments/migration"
-                tf_path = Path(tf_dir)
-                if not tf_path.is_absolute():
-                    project_root = Path(state.fetch.output_dir).parent.parent if state.fetch.output_dir else Path.cwd()
-                    tf_path = project_root / tf_dir
+                tf_path, _yaml_file, _baseline_yaml = resolve_deployment_paths(state)
                 
                 if not tf_path.exists():
                     ui.notify(f"Terraform directory not found: {tf_path}", type="negative")
@@ -1694,9 +1686,7 @@ def _create_protection_repair_panel(
     the Terraform state (e.g., resource is protected in state but not in YAML),
     and offers to generate/repair the moved blocks file.
     """
-    tf_dir = state.deploy.terraform_dir if state.deploy.terraform_dir else "deployments/migration"
-    project_root = Path(__file__).parent.parent.parent.parent.resolve()
-    terraform_dir = project_root / tf_dir
+    terraform_dir, _yaml_file, _baseline_yaml = resolve_deployment_paths(state)
     
     # Find YAML config file
     possible_paths = [

@@ -73,6 +73,27 @@ NAME_KEYED_TYPES = {"VAR", "JEVO"}
 PROJECT_SCOPED_TYPES = {"ENV", "JOB", "VAR", "JEVO", "EXTATTR"}
 
 
+def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    payload = {
+        "sessionId": "db419a",
+        "runId": "pre-fix",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(
+            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    except Exception:
+        return
+
+
 def _compute_drift_status(
     source_type: str,
     source_name: str,
@@ -224,6 +245,7 @@ def build_grid_data(
     rejected_keys: set[str],
     clone_configs: Optional[list[CloneConfig]] = None,
     state_result: Optional["StateReadResult"] = None,
+    state_loaded: bool = False,
     protected_resources: Optional[set[str]] = None,
     protection_intent_manager: Optional["ProtectionIntentManager"] = None,
     removal_keys: Optional[set[str]] = None,
@@ -237,6 +259,7 @@ def build_grid_data(
         rejected_keys: Set of source keys that were rejected
         clone_configs: Optional list of clone configurations
         state_result: Optional Terraform state for drift detection
+        state_loaded: Whether Terraform state has been loaded (including empty state)
         protected_resources: Optional set of source_keys that are protected (YAML config)
         protection_intent_manager: Optional intent manager for effective protection lookup
         removal_keys: Optional set of source_keys marked for unadopt (removal from TF state)
@@ -244,6 +267,9 @@ def build_grid_data(
     Returns:
         List of row dictionaries for AG Grid
     """
+    # Distinguish "state loaded but empty" from "state not loaded".
+    has_loaded_state = state_loaded or state_result is not None
+
     # Initialize protected_resources set if None
     protected_resources = protected_resources or set()
     removal_keys = removal_keys or set()
@@ -401,6 +427,18 @@ def build_grid_data(
     confirmed_by_source_key = {
         m.get("source_key"): m for m in confirmed_mappings
     }
+    # region agent log
+    _dbg_db419a(
+        "H47",
+        "match_grid.py:build_grid_data",
+        "confirmed mapping lookup built",
+        {
+            "confirmed_count": len(confirmed_mappings),
+            "lookup_key_count": len(confirmed_by_source_key),
+            "lookup_keys_sample": [str(k) for k in list(confirmed_by_source_key.keys())[:30]],
+        },
+    )
+    # endregion
     
     # Build repository lookup by key for project linking
     repo_by_key: dict[str, dict] = {}
@@ -471,7 +509,7 @@ def build_grid_data(
                     except (TypeError, ValueError):
                         pass
             state_id, drift_status, state_address = _compute_drift_status(
-                source_type, source_name, target_id_int, state_by_name, bool(state_result),
+                source_type, source_name, target_id_int, state_by_name, has_loaded_state,
                 state_by_id=state_by_id,
                 project_name=project_name,
                 state_repo_by_project=state_repo_by_project,
@@ -484,19 +522,59 @@ def build_grid_data(
             # IMPORTANT: If drift_status is "not_in_state", the resource needs adoption
             # (import) — leaving it as "match" would cause Terraform to create a duplicate.
             stored_action = confirmed.get("action")
-            if stored_action == "adopt" and drift_status not in (DRIFT_NOT_IN_STATE, DRIFT_ID_MISMATCH, DRIFT_ATTR_MISMATCH):
+            if stored_action == "adopt" and drift_status not in (
+                DRIFT_NOT_IN_STATE,
+                DRIFT_ID_MISMATCH,
+                DRIFT_ATTR_MISMATCH,
+                DRIFT_NO_STATE,
+            ):
                 action = "match"  # Resource is in_sync — adopt is no longer needed
-            elif stored_action == "match" and drift_status == DRIFT_NOT_IN_STATE:
+                # region agent log
+                _dbg_db419a(
+                    "H49",
+                    "match_grid.py:build_grid_rows:adopt_override",
+                    "stored adopt overridden to match due drift status",
+                    {
+                        "source_key": source_key,
+                        "source_type": source_type,
+                        "stored_action": stored_action,
+                        "drift_status": drift_status,
+                    },
+                )
+                # endregion
+            elif stored_action == "match" and (
+                drift_status == DRIFT_NOT_IN_STATE
+                or (drift_status == DRIFT_NO_STATE and source_type == "CON")
+            ):
                 action = "adopt"  # Stored "match" is stale — resource not in TF state, needs import
                 # #region agent log
                 import json as _json_dbg_sa, time as _time_dbg_sa; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(_json_dbg_sa.dumps({"timestamp": int(_time_dbg_sa.time()*1000), "location": "match_grid.py:confirmed_path:stale_match_override", "message": "Overrode stale stored 'match' to 'adopt' for not_in_state resource", "hypothesisId": "STALE", "data": {"source_key": source_key, "source_type": source_type, "drift_status": drift_status, "stored_action": stored_action, "final_action": "adopt"}}) + "\n")
                 # #endregion
             elif stored_action:
                 action = stored_action
-            elif drift_status == DRIFT_NOT_IN_STATE:
+            elif drift_status == DRIFT_NOT_IN_STATE or (
+                drift_status == DRIFT_NO_STATE and source_type == "CON"
+            ):
                 action = "adopt"  # Not in TF state — needs import, not match
             else:
                 action = "match"
+            # region agent log
+            if source_type == "PRJ" and stored_action == "match":
+                _dbg_db419a(
+                    "H44",
+                    "match_grid.py:build_grid_rows:confirmed_path",
+                    "resolved confirmed PRJ row action from stored match",
+                    {
+                        "source_key": source_key,
+                        "target_id": target_id_val,
+                        "stored_action": stored_action,
+                        "drift_status": drift_status,
+                        "state_id": state_id,
+                        "final_action": action,
+                        "has_state_result": has_loaded_state,
+                    },
+                )
+            # endregion
             
             row = {
                 "source_key": source_key,
@@ -516,6 +594,22 @@ def build_grid_data(
                 "drift_status": drift_status,
                 "state_address": state_address,
             }
+            # region agent log
+            if source_type == "ENV":
+                _dbg_db419a(
+                    "H48",
+                    "match_grid.py:build_grid_data:confirmed_env",
+                    "ENV row resolved from confirmed mapping",
+                    {
+                        "source_key": source_key,
+                        "source_name": source_name,
+                        "project_name": project_name,
+                        "stored_action": stored_action,
+                        "final_action": action,
+                        "drift_status": drift_status,
+                    },
+                )
+            # endregion
             rows.append(row)
             continue
         
@@ -525,7 +619,7 @@ def build_grid_data(
             
             # Compute drift status (no target for create_new)
             state_id, drift_status, state_address = _compute_drift_status(
-                source_type, source_name, None, state_by_name, bool(state_result),
+                source_type, source_name, None, state_by_name, has_loaded_state,
                 state_by_id=state_by_id,
                 project_name=project_name,
                 state_repo_by_project=state_repo_by_project,
@@ -619,19 +713,39 @@ def build_grid_data(
 
             # Compute drift status - compare matched target against TF state
             state_id, drift_status, state_address = _compute_drift_status(
-                source_type, source_name, target_id_int, state_by_name, bool(state_result),
+                source_type, source_name, target_id_int, state_by_name, has_loaded_state,
                 state_by_id=state_by_id,
                 project_name=project_name,
                 state_repo_by_project=state_repo_by_project,
                 source_remote_url=_src_remote_url,
             )
             
-            # Default to "match" — adoption requires explicit user opt-in
-            # (bulk "Adopt All Matched" or per-row dropdown change)
-            # EXCEPTION: If drift_status is "not_in_state", default to "adopt" since the
-            # resource exists in the target account but is not tracked in Terraform state.
-            # Leaving it as "match" would cause Terraform to create a duplicate resource.
-            default_action = "adopt" if drift_status == DRIFT_NOT_IN_STATE else "match"
+            # Default to "match" — adoption requires explicit user opt-in.
+            # EXCEPTION: when state is loaded and drift shows the matched target
+            # is not tracked by TF ("not_in_state" or "no_state"), default to
+            # "adopt" to prevent duplicate-create behavior.
+            default_action = (
+                "adopt"
+                if drift_status == DRIFT_NOT_IN_STATE
+                or (drift_status == DRIFT_NO_STATE and source_type == "CON")
+                else "match"
+            )
+            # region agent log
+            if source_type == "CON":
+                _dbg_db419a(
+                    "H50",
+                    "match_grid.py:build_grid_data:auto_match_action",
+                    "auto-match action selected for connection row",
+                    {
+                        "source_key": source_key,
+                        "source_name": source_name,
+                        "target_id": target_id_int,
+                        "drift_status": drift_status,
+                        "has_loaded_state": has_loaded_state,
+                        "default_action": default_action,
+                    },
+                )
+            # endregion
             
             # #region agent log
             if drift_status == DRIFT_NOT_IN_STATE:
@@ -655,11 +769,26 @@ def build_grid_data(
                 "drift_status": drift_status,
                 "state_address": state_address,
             }
+            # region agent log
+            if source_type == "ENV" and source_key in confirmed_by_source_key:
+                _dbg_db419a(
+                    "H48",
+                    "match_grid.py:build_grid_data:env_collision",
+                    "ENV row used auto-match branch despite confirmed key",
+                    {
+                        "source_key": source_key,
+                        "source_name": source_name,
+                        "project_name": project_name,
+                        "default_action": default_action,
+                        "drift_status": drift_status,
+                    },
+                )
+            # endregion
         else:
             # No match found - check for clone config
             # Compute drift status (no target for create_new)
             state_id, drift_status, state_address = _compute_drift_status(
-                source_type, source_name, None, state_by_name, bool(state_result),
+                source_type, source_name, None, state_by_name, has_loaded_state,
                 state_by_id=state_by_id,
                 project_name=project_name,
                 state_repo_by_project=state_repo_by_project,
@@ -767,7 +896,7 @@ def build_grid_data(
                         repo_target_id = repo_confirmed.get("target_id")
                         repo_target_id_int = int(repo_target_id) if repo_target_id else None
                         repo_state_id, repo_drift, repo_state_addr = _compute_drift_status(
-                            "REP", repo_name, repo_target_id_int, state_by_name, bool(state_result),
+                            "REP", repo_name, repo_target_id_int, state_by_name, has_loaded_state,
                             state_by_id=state_by_id,
                             project_name=source_name,  # Parent project name
                             state_repo_by_project=state_repo_by_project,
@@ -832,7 +961,7 @@ def build_grid_data(
                         
                         if repo_source_key in rejected_keys:
                             repo_state_id, repo_drift, repo_state_addr = _compute_drift_status(
-                                "REP", repo_name, None, state_by_name, bool(state_result),
+                                "REP", repo_name, None, state_by_name, has_loaded_state,
                                 state_by_id=state_by_id,
                                 project_name=source_name,
                                 state_repo_by_project=state_repo_by_project,
@@ -863,7 +992,7 @@ def build_grid_data(
                             # Found a target repo match (by url, github_repo, or name)
                             repo_target_id_int = target_repo.get("dbt_id")
                             repo_state_id, repo_drift, repo_state_addr = _compute_drift_status(
-                                "REP", repo_name, repo_target_id_int, state_by_name, bool(state_result),
+                                "REP", repo_name, repo_target_id_int, state_by_name, has_loaded_state,
                                 state_by_id=state_by_id,
                                 project_name=source_name,
                                 state_repo_by_project=state_repo_by_project,
@@ -892,7 +1021,7 @@ def build_grid_data(
                             }
                         else:
                             repo_state_id, repo_drift, repo_state_addr = _compute_drift_status(
-                                "REP", repo_name, None, state_by_name, bool(state_result),
+                                "REP", repo_name, None, state_by_name, has_loaded_state,
                                 state_by_id=state_by_id,
                                 project_name=source_name,
                                 state_repo_by_project=state_repo_by_project,
@@ -1218,6 +1347,7 @@ def create_match_grid(
     clone_configs: Optional[list[CloneConfig]] = None,
     on_configure_clone: Optional[Callable[[str], None]] = None,
     state_result: Optional["StateReadResult"] = None,
+    state_loaded: bool = False,
     on_adopt: Optional[Callable[[str], None]] = None,
     on_unadopt: Optional[Callable[[str], None]] = None,
     removal_keys: Optional[set[str]] = None,
@@ -1239,6 +1369,7 @@ def create_match_grid(
         clone_configs: Optional list of existing clone configurations
         on_configure_clone: Callback when configure clone button clicked (source_key)
         state_result: Optional Terraform state for drift detection
+        state_loaded: Whether Terraform state has been loaded (including empty state)
         on_adopt: Callback when adopt button clicked (source_key) for drift resolution
         on_unadopt: Callback when unadopt action is set (source_key) for removal from TF state
         removal_keys: Optional set of source_keys marked for unadopt (persisted, applied on load)
@@ -1257,6 +1388,7 @@ def create_match_grid(
         row_data = build_grid_data(
             source_items, target_items, confirmed_mappings, rejected_keys, clone_configs,
             state_result=state_result,
+            state_loaded=state_loaded,
             protected_resources=protected_resources,
             protection_intent_manager=protection_intent_manager,
             removal_keys=removal_keys,

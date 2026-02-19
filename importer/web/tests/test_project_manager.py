@@ -46,6 +46,7 @@ from importer.web.project_manager import (
     ProjectManager,
     TIER2_LOG_FILES,
     TIER2_JAC_LOG_FILES,
+    resolve_fetch_output_dirs_for_project,
 )
 
 
@@ -576,6 +577,19 @@ class TestProjectManagerCRUD:
         types = {p.workflow_type for p in projects}
         assert types == set(WorkflowType)
 
+    def test_resolve_fetch_output_dirs_for_project(self, pm):
+        config = pm.create_project(
+            "Output Resolution",
+            WorkflowType.MIGRATION,
+            output_config=OutputConfig(base_dir="my_outputs"),
+        )
+        project_path = str(pm.get_project_path(config.slug))
+        source_dir, target_dir = resolve_fetch_output_dirs_for_project(project_path)
+        assert source_dir is not None
+        assert target_dir is not None
+        assert source_dir.endswith("my_outputs/source")
+        assert target_dir.endswith("my_outputs/target")
+
 
 class TestProjectConfig:
     def test_serialization_round_trip(self):
@@ -600,11 +614,27 @@ class TestProjectConfig:
         assert isinstance(restored.updated_at, datetime)
 
     def test_output_config_round_trip(self):
-        oc = OutputConfig(source_dir="custom/source/", use_timestamps=False)
+        oc = OutputConfig(base_dir="custom_outputs/", use_timestamps=False)
         d = oc.to_dict()
         restored = OutputConfig.from_dict(d)
-        assert restored.source_dir == "custom/source/"
+        assert restored.base_dir == "custom_outputs"
+        assert restored.source_dir == "custom_outputs/source"
+        assert restored.target_dir == "custom_outputs/target"
+        assert restored.normalized_dir == "custom_outputs/normalized"
         assert restored.use_timestamps is False
+
+    def test_output_config_legacy_dirs_are_derived_to_base(self):
+        restored = OutputConfig.from_dict(
+            {
+                "source_dir": "legacy/base/source/",
+                "target_dir": "legacy/base/target/",
+                "normalized_dir": "legacy/base/normalized/",
+                "use_timestamps": True,
+            }
+        )
+        assert restored.base_dir == "legacy/base"
+        assert restored.source_dir == "legacy/base/source"
+        assert restored.use_timestamps is True
 
 
 class TestGitignoreTemplate:

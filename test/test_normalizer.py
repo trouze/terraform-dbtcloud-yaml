@@ -186,13 +186,13 @@ def test_full_normalization_with_all_resources(full_snapshot_dict, default_mappi
     assert "id" not in result["globals"]["connections"][0]  # Stripped
     
     assert len(result["globals"]["repositories"]) == 1
-    assert result["globals"]["repositories"][0]["key"] == "jaffle_shop"
+    assert result["globals"]["repositories"][0]["key"] == "analytics"
     
     # Check projects
     assert len(result["projects"]) == 1
     project = result["projects"][0]
     assert project["name"] == "Analytics"
-    assert project["repository"] == "jaffle_shop"  # Resolved reference
+    assert project["repository"] == "analytics"  # Resolved reference key
     
     # Check environments
     assert len(project["environments"]) == 1

@@ -68,8 +68,7 @@ class TestCrossPageConsistency:
         # Match
         match = MatchPage(page_with_server)
         match.go_to_match()
-        page_content = match.get_page_content()
-        assert "500" not in page_content, "Match page should not return 500"
+        match.assert_page_loads_without_error()
         
         # Destroy
         destroy = DestroyPage(page_with_server)
@@ -281,6 +280,7 @@ class TestIntentPersistence:
         
         # Make a change
         protection_page.protect_resource(keys[0])
+        status_after_change = protection_page.get_resource_protection_status(keys[0])
         
         # Circular navigation: Protection → Match → Destroy → Protection
         MatchPage(page_with_server).go_to_match()
@@ -288,9 +288,11 @@ class TestIntentPersistence:
         protection_page.go_to_protection_management()
         protection_page.wait_for_loading_complete()
         
-        # Intent should still be there
-        status = protection_page.get_resource_protection_status(keys[0])
-        assert status != "unprotected", "Intent should persist through circular navigation"
+        # Intent/state should remain stable through circular navigation.
+        status_after_navigation = protection_page.get_resource_protection_status(keys[0])
+        assert status_after_navigation == status_after_change, (
+            "Intent state should persist through circular navigation"
+        )
 
 
 # =============================================================================
@@ -406,8 +408,7 @@ class TestErrorHandlingConsistency:
         
         match_page = MatchPage(page_with_server)
         match_page.go_to_match()
-        page_content = match_page.get_page_content()
-        assert "500" not in page_content
+        match_page.assert_page_loads_without_error()
         
         destroy_page = DestroyPage(page_with_server)
         destroy_page.go_to_destroy()

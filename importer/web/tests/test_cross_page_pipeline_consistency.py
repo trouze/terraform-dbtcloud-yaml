@@ -122,7 +122,7 @@ class TestCP1SameMovesFile:
             return_value=(tmp_path, tmp_path / "dbt-cloud-config.yml", None),
         ):
             # Utilities path: include_adopt=False
-            result_util = asyncio.get_event_loop().run_until_complete(
+            result_util = asyncio.run(
                 run_generate_pipeline(
                     mock_state,
                     include_adopt=False,
@@ -142,7 +142,7 @@ class TestCP1SameMovesFile:
             mock_state.get_protection_intent_manager.return_value = intent_manager2
 
             # Adopt path: include_adopt=True but no adopt rows
-            result_adopt = asyncio.get_event_loop().run_until_complete(
+            result_adopt = asyncio.run(
                 run_generate_pipeline(
                     mock_state,
                     include_adopt=True,

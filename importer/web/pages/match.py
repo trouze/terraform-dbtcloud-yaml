@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import time
 from pathlib import Path
 from typing import Callable, Optional, TYPE_CHECKING
 
@@ -47,12 +48,53 @@ DBT_ORANGE = "#FF694A"
 DBT_TEAL = "#047377"
 
 
+def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    """Write one NDJSON debug record for target-intent page analysis."""
+    payload = {
+        "sessionId": "db419a",
+        "runId": "pre-fix",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(
+            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    except Exception:
+        return
+
+
+def _project_root(state: Optional[AppState] = None) -> Path:
+    """Return active project root when available, otherwise repository root."""
+    if state and getattr(state, "project_path", None):
+        return Path(state.project_path).resolve()
+    return Path(__file__).parent.parent.parent.parent.resolve()
+
+
 def create_match_page(
     state: AppState,
     on_step_change: Callable[[WorkflowStep], None],
     save_state: Callable[[], None],
 ) -> None:
     """Create the Match step page for source-to-target resource matching."""
+    # region agent log
+    _dbg_db419a(
+        "H12",
+        "match.py:create_match_page",
+        "target intent page entered",
+        {
+            "normalize_complete": state.map.normalize_complete,
+            "target_fetch_complete": state.target_fetch.fetch_complete,
+            "optimization_target": "localhost",
+        },
+    )
+    # endregion
     
     with ui.element("div").classes("w-full max-w-7xl mx-auto p-4").style(
         "display: grid; "
@@ -110,6 +152,19 @@ def create_match_page(
             item for item in all_source_items 
             if item.get("element_mapping_id") in selected_ids
         ]
+        # region agent log
+        _dbg_db419a(
+            "H12",
+            "match.py:create_match_page",
+            "target intent source/target inputs loaded",
+            {
+                "all_source_items": len(all_source_items),
+                "selected_source_items": len(source_items),
+                "target_items": len(target_items),
+                "selected_ids": len(selected_ids),
+            },
+        )
+        # endregion
         
         total_source_count = len(all_source_items)
         len(source_items)
@@ -255,6 +310,19 @@ def _persist_target_intent_from_match(
     logger = logging.getLogger(__name__)
     manager = state.get_target_intent_manager()
     previous_intent = manager.load()
+    _dbg_started_at = time.time()
+    # region agent log
+    _dbg_db419a(
+        "H13",
+        "match.py:_persist_target_intent_from_match",
+        "persist target intent started",
+        {
+            "confirmed_mappings": len(state.map.confirmed_mappings),
+            "has_previous_intent": previous_intent is not None,
+            "state_to_target_override": state_to_target is not None,
+        },
+    )
+    # endregion
 
     # Build match_mappings from current grid state
     new_mm = MatchMappings.from_confirmed_mappings(state.map.confirmed_mappings)
@@ -266,19 +334,50 @@ def _persist_target_intent_from_match(
     elif previous_intent and previous_intent.match_mappings.state_to_target:
         new_mm.state_to_target = list(previous_intent.match_mappings.state_to_target)
 
+    # Fast path for frequent grid edits:
+    # If only source->target mappings changed and there are no adopt/removal
+    # side-effects pending, avoid expensive full intent recomputation.
+    removal_keys = set(getattr(state.map, "removal_keys", None) or [])
+    adopt_rows = getattr(state.deploy, "reconcile_adopt_rows", []) or []
+    if previous_intent and state_to_target is None and not removal_keys and not adopt_rows:
+        previous_intent.match_mappings = new_mm
+        state.save_target_intent(previous_intent)
+        # region agent log
+        _dbg_db419a(
+            "H18",
+            "match.py:_persist_target_intent_from_match",
+            "fast-path persist: skipped full intent recomputation",
+            {
+                "confirmed_mappings": len(state.map.confirmed_mappings),
+                "state_to_target": len(new_mm.state_to_target),
+                "source_to_target": len(new_mm.source_to_target),
+                "elapsed_ms": int((time.time() - _dbg_started_at) * 1000),
+            },
+        )
+        # endregion
+        return
+
     # Gather inputs for compute_target_intent
     tf_dir = state.deploy.terraform_dir or "deployments/migration"
     tf_path = Path(tf_dir)
     if not tf_path.is_absolute():
-        # match.py is at importer/web/pages/match.py — 4 levels to project root
-        project_root = Path(__file__).parent.parent.parent.parent.resolve()
-        tf_path = project_root / tf_dir
+        tf_path = _project_root(state) / tf_dir
+    # region agent log
+    _dbg_db419a(
+        "H31",
+        "match.py:_persist_target_intent_from_match",
+        "resolved terraform path for target intent compute",
+        {
+            "project_path": getattr(state, "project_path", None),
+            "terraform_dir_state": state.deploy.terraform_dir,
+            "resolved_tf_path": str(tf_path),
+            "source_yaml": getattr(state.map, "last_yaml_file", None),
+        },
+    )
+    # endregion
     tfstate_path = tf_path / "terraform.tfstate"
 
     source_focus_yaml = getattr(state.map, "last_yaml_file", None)
-    removal_keys = set(getattr(state.map, "removal_keys", None) or [])
-    adopt_rows = getattr(state.deploy, "reconcile_adopt_rows", []) or []
-
     # Load target report items
     target_report_items = None
     if getattr(state, "target_fetch", None) and getattr(state.target_fetch, "last_report_items_file", None):
@@ -328,11 +427,38 @@ def _persist_target_intent_from_match(
             f"{len(intent.adopted_keys)} adopted, "
             f"{len(intent.removed_keys)} removed"
         )
+        # region agent log
+        _dbg_db419a(
+            "H13",
+            "match.py:_persist_target_intent_from_match",
+            "persist target intent computed successfully",
+            {
+                "retained": len(intent.retained_keys),
+                "upserted": len(intent.upserted_keys),
+                "adopted": len(intent.adopted_keys),
+                "removed": len(intent.removed_keys),
+                "state_to_target": len(intent.match_mappings.state_to_target),
+                "source_to_target": len(intent.match_mappings.source_to_target),
+                "elapsed_ms": int((time.time() - _dbg_started_at) * 1000),
+            },
+        )
+        # endregion
     except Exception as e:
         logger.warning(f"Failed to compute full target intent: {e}")
         # Fallback: save match_mappings only (backward compat)
         intent = previous_intent if previous_intent else TargetIntentResult(version=2)
         intent.match_mappings = new_mm
+        # region agent log
+        _dbg_db419a(
+            "H14",
+            "match.py:_persist_target_intent_from_match",
+            "persist target intent fell back after compute exception",
+            {
+                "error": str(e),
+                "elapsed_ms": int((time.time() - _dbg_started_at) * 1000),
+            },
+        )
+        # endregion
 
     state.save_target_intent(intent)
 
@@ -360,6 +486,43 @@ def _create_matching_content(
     from importer.web.components.clone_dialog import show_clone_dialog
     from importer.web.state import CloneConfig
     
+    # If the state file is missing, clear stale "loaded" flags from persisted UI state.
+    _tf_dir_for_status = state.deploy.terraform_dir or "deployments/migration"
+    _tf_path_for_status = Path(_tf_dir_for_status)
+    if not _tf_path_for_status.is_absolute():
+        _tf_path_for_status = _project_root(state) / _tf_dir_for_status
+    _tfstate_file_for_status = _tf_path_for_status / "terraform.tfstate"
+    # region agent log
+    _dbg_db419a(
+        "H52",
+        "match.py:_create_matching_content",
+        "match page state-loaded snapshot before grid build",
+        {
+            "reconcile_state_loaded": bool(state.deploy.reconcile_state_loaded),
+            "reconcile_state_resources_count": len(state.deploy.reconcile_state_resources or []),
+            "terraform_dir": str(_tf_path_for_status),
+            "tfstate_exists": _tfstate_file_for_status.exists(),
+        },
+    )
+    # endregion
+    if state.deploy.reconcile_state_loaded and not _tfstate_file_for_status.exists():
+        # region agent log
+        _dbg_db419a(
+            "H51",
+            "match.py:_create_matching_content",
+            "clearing stale state_loaded flag because terraform.tfstate is missing",
+            {
+                "terraform_dir": str(_tf_path_for_status),
+                "tfstate_path": str(_tfstate_file_for_status),
+                "previous_state_loaded": True,
+                "previous_cached_resources": len(state.deploy.reconcile_state_resources or []),
+            },
+        )
+        # endregion
+        state.deploy.reconcile_state_loaded = False
+        state.deploy.reconcile_state_resources = []
+        save_state()
+
     # Mutable container for state result (shared across callbacks)
     state_ref = {
         "state_result": None,
@@ -431,9 +594,24 @@ def _create_matching_content(
         rejected_keys,
         clone_configs,
         state_result=state_ref["state_result"],
+        state_loaded=state_ref["state_loaded"],
         protected_resources=state.map.protected_resources,
         protection_intent_manager=protection_intent_manager,
     )
+    # region agent log
+    _dbg_db419a(
+        "H15",
+        "match.py:_create_matching_content",
+        "grid data built for target intent page",
+        {
+            "grid_rows_all": len(grid_row_data_all),
+            "source_items": len(source_items),
+            "target_items": len(target_items),
+            "confirmed_mappings": len(state.map.confirmed_mappings),
+            "state_loaded": state_ref["state_loaded"],
+        },
+    )
+    # endregion
     
     # Load adoption preferences (project-level) and apply target-only visibility
     from importer.web.utils.adoption_preferences import AdoptionPreferenceManager
@@ -470,6 +648,21 @@ def _create_matching_content(
             else:
                 visible_rows.append(r)
         grid_row_data = visible_rows
+    # region agent log
+    _dbg_db419a(
+        "H15",
+        "match.py:_create_matching_content",
+        "grid visibility filters applied",
+        {
+            "grid_rows_visible": len(grid_row_data),
+            "show_target_only": show_target_only,
+            "target_only_exclusive": target_only_exclusive,
+            "show_scope_only": show_scope_only,
+            "hidden_by_scope": hidden_by_scope,
+            "target_only_in_all": target_only_in_all,
+        },
+    )
+    # endregion
     
     # First-run dialog: show once when target-only rows are detected
     if adoption_prefs.should_show_first_run_dialog(target_only_in_all > 0):
@@ -477,13 +670,13 @@ def _create_matching_content(
             adoption_prefs.mark_first_run_shown(True, remember=remember)
             state.map.show_target_only = True
             save_state()
-            ui.navigate.reload()
+            _reload_with_debug("first_run_yes", remember=remember)
         
         def _on_first_run_no(remember: bool = False):
             adoption_prefs.mark_first_run_shown(False, remember=remember)
             state.map.show_target_only = False
             save_state()
-            ui.navigate.reload()
+            _reload_with_debug("first_run_no", remember=remember)
         
         with ui.dialog() as first_run_dlg, ui.card().classes("p-6").style("min-width: 450px;"):
             with ui.row().classes("items-center gap-3 mb-4"):
@@ -524,7 +717,11 @@ def _create_matching_content(
     primary_rows = [r for r in grid_row_data if r.get("source_type") not in derived_types]
     derived_rows = [r for r in grid_row_data if r.get("source_type") in derived_types]
     
-    pending = sum(1 for r in primary_rows if r.get("status") == "pending" and r.get("action") == "match")
+    pending = sum(
+        1
+        for r in primary_rows
+        if r.get("status") == "pending" and r.get("action") in {"match", "adopt"}
+    )
     confirmed = sum(1 for r in primary_rows if r.get("status") == "confirmed")
     create_new_primary = sum(1 for r in primary_rows if r.get("action") == "create_new")
     create_new_derived = len(derived_rows)  # All derived resources are create_new
@@ -602,6 +799,18 @@ def _create_matching_content(
     # Store grid row data in a mutable container for callbacks
     # "data" = visible rows (after filtering), "all" = all rows (before filtering)
     grid_data_ref = {"data": grid_row_data, "all": grid_row_data_all}
+    row_change_counter = {"count": 0}
+
+    def _reload_with_debug(reason: str, **extra: object) -> None:
+        # region agent log
+        _dbg_db419a(
+            "H16",
+            "match.py:_create_matching_content",
+            "issuing full page reload from target intent workflow",
+            {"reason": reason, **extra},
+        )
+        # endregion
+        ui.navigate.reload()
     
     # Reset all mappings function
     def reset_all_mappings():
@@ -628,7 +837,7 @@ def _create_matching_content(
         save_state()
         _persist_target_intent_from_match(state)
         ui.notify("All mappings reset. Suggestions will be regenerated.", type="info")
-        ui.navigate.reload()
+        _reload_with_debug("reset_all_mappings")
     
     def accept_all_pending():
         """Accept all pending matches."""
@@ -653,7 +862,7 @@ def _create_matching_content(
                 })
         save_state()
         _persist_target_intent_from_match(state)
-        ui.navigate.reload()
+        _reload_with_debug("accept_all_pending", visible_rows=len(grid_data_ref["data"]))
                     
     def reject_all_pending():
         """Reject all pending matches - set them to create new."""
@@ -666,7 +875,7 @@ def _create_matching_content(
                     state.map.rejected_suggestions.add(row.get("source_key"))
         save_state()
         _persist_target_intent_from_match(state)
-        ui.navigate.reload()
+        _reload_with_debug("reject_all_pending", visible_rows=len(grid_data_ref["data"]))
     
     def adopt_all_matched():
         """Bulk adopt all resources that have a target match but aren't already adopted.
@@ -709,7 +918,7 @@ def _create_matching_content(
         save_state()
         _persist_target_intent_from_match(state)
         ui.notify(f"Set {adopted_count} matched resources to adopt", type="positive")
-        ui.navigate.reload()
+        _reload_with_debug("adopt_all_matched", adopted_count=adopted_count)
     
     def ignore_all_unmatched():
         """Bulk ignore all resources that have no target match.
@@ -735,7 +944,7 @@ def _create_matching_content(
         save_state()
         _persist_target_intent_from_match(state)
         ui.notify(f"Set {ignored_count} unmatched resources to skip", type="info")
-        ui.navigate.reload()
+        _reload_with_debug("ignore_all_unmatched", ignored_count=ignored_count)
     
     def adopt_all_target_only():
         """Bulk adopt all target-only resources (those with is_target_only=True).
@@ -773,7 +982,7 @@ def _create_matching_content(
         save_state()
         _persist_target_intent_from_match(state)
         ui.notify(f"Adopted {adopted_count} target-only resources", type="positive")
-        ui.navigate.reload()
+        _reload_with_debug("adopt_all_target_only", adopted_count=adopted_count)
     
     def select_project(project_name: str):
         """Handle 'Select Whole Project' from toolbar dropdown.
@@ -819,7 +1028,7 @@ def _create_matching_content(
             state.map.show_target_only = True
             state.map.target_only_exclusive = True
         save_state()
-        ui.navigate.reload()
+        _reload_with_debug("toggle_target_only", mode=mode)
     
     def toggle_scope_only(visible: bool):
         """Toggle scope visibility filter.
@@ -828,7 +1037,7 @@ def _create_matching_content(
         """
         state.map.show_scope_only = visible
         save_state()
-        ui.navigate.reload()
+        _reload_with_debug("toggle_scope_only", visible=visible)
                     
     async def export_csv():
         """Export current mappings to CSV."""
@@ -889,7 +1098,11 @@ def _create_matching_content(
             save_state()
             cascade_dlg.close()
             ui.notify(f"Adopted {child_name} + {len(unadopted_parents)} parent(s)", type="positive")
-            ui.navigate.reload()
+            _reload_with_debug(
+                "adopt_cascade_adopt_all",
+                child_name=child_name,
+                parent_count=len(unadopted_parents),
+            )
         
         def _skip():
             """Adopt only the child, skip parents."""
@@ -972,7 +1185,11 @@ def _create_matching_content(
                 f"Adopted {project_name} + {len(rows_to_adopt) - 1} child resource(s)",
                 type="positive",
             )
-            ui.navigate.reload()
+            _reload_with_debug(
+                "select_project_apply",
+                project_name=project_name,
+                rows_to_adopt=len(rows_to_adopt),
+            )
         
         with ui.dialog() as project_dlg, ui.card().classes("p-6").style("min-width: 500px;"):
             with ui.row().classes("items-center gap-3 mb-4"):
@@ -1371,6 +1588,22 @@ def _create_matching_content(
                 _old_action_for_row = row.get("action", "")
                 break
         _action_changed = _old_action_for_row is not None and _old_action_for_row != action
+        row_change_counter["count"] += 1
+        if row_change_counter["count"] <= 5 or row_change_counter["count"] % 25 == 0:
+            # region agent log
+            _dbg_db419a(
+                "H17",
+                "match.py:on_row_change",
+                "row change event observed",
+                {
+                    "count": row_change_counter["count"],
+                    "source_key": source_key,
+                    "action": action,
+                    "action_changed": _action_changed,
+                    "new_protected": new_protected,
+                },
+            )
+            # endregion
         
         # IMPORTANT: Always update grid_data_ref immediately so dialogs see current state
         # This must happen BEFORE any early returns for cascade dialogs
@@ -1508,7 +1741,11 @@ def _create_matching_content(
                     # #endregion
                     save_state()
                     ui.notify(f"Adopted & protected: {display_name}", type="positive")
-                    ui.navigate.reload()
+                    _reload_with_debug(
+                        "adopt_and_protect_guard_yes",
+                        source_key=sk,
+                        source_type=st,
+                    )
 
                 # Show the dialog
                 with ui.dialog() as guard_dlg, ui.card().classes("p-6").style("min-width: 400px;"):
@@ -1579,7 +1816,7 @@ def _create_matching_content(
                 save_state()
                 ui.notify(f"Protected: {target_resource.name}", type="positive")
                 # Reload to refresh protection mismatch panel
-                ui.navigate.reload()
+                _reload_with_debug("single_protect", source_key=source_key)
                 return
         
         elif not new_protected and old_protected:
@@ -1626,7 +1863,7 @@ def _create_matching_content(
                 save_state()
                 ui.notify(f"Unprotected: {target_resource.name}", type="info")
                 # Reload to refresh protection mismatch panel
-                ui.navigate.reload()
+                _reload_with_debug("single_unprotect", source_key=source_key)
                 return
         
         # Note: grid_data_ref update now happens at the start of this function
@@ -1639,7 +1876,31 @@ def _create_matching_content(
             from importer.web.utils.adoption_dependencies import find_unadopted_parents
             all_rows = grid_data_ref.get("all", grid_data_ref.get("data", []))
             unadopted = find_unadopted_parents(row_data, all_rows)
+            # region agent log
+            _dbg_db419a(
+                "H41",
+                "match.py:on_row_change",
+                "evaluated adopt cascade dependencies",
+                {
+                    "source_key": source_key,
+                    "all_rows_count": len(all_rows),
+                    "unadopted_parent_count": len(unadopted),
+                    "unadopted_parent_keys": [str(p.get("source_key", "")) for p in unadopted[:20]],
+                },
+            )
+            # endregion
             if unadopted:
+                # region agent log
+                _dbg_db419a(
+                    "H42",
+                    "match.py:on_row_change",
+                    "opening adopt cascade dialog",
+                    {
+                        "source_key": source_key,
+                        "unadopted_parent_count": len(unadopted),
+                    },
+                )
+                # endregion
                 _show_adopt_cascade_dialog(
                     child_row=row_data,
                     unadopted_parents=unadopted,
@@ -1726,7 +1987,7 @@ def _create_matching_content(
         _persist_target_intent_from_match(state)
         # If protection was cleared due to action change, reload to refresh grid
         if _protection_was_cleared:
-            ui.navigate.reload()
+            _reload_with_debug("action_change_cleared_protection", source_key=source_key)
             return
     
     def on_accept(source_key: str):
@@ -1747,7 +2008,7 @@ def _create_matching_content(
                     break
         save_state()
         _persist_target_intent_from_match(state)
-        ui.navigate.reload()
+        _reload_with_debug("on_accept", source_key=source_key)
     
     def on_reject(source_key: str):
         """Reject a single suggestion."""
@@ -1758,7 +2019,7 @@ def _create_matching_content(
             state.map.rejected_suggestions.add(source_key)
         save_state()
         _persist_target_intent_from_match(state)
-        ui.navigate.reload()
+        _reload_with_debug("on_reject", source_key=source_key)
     
     def find_source_item(source_key: str) -> Optional[dict]:
         """Find source item by key, checking both 'key' and 'element_mapping_id'.
@@ -2162,21 +2423,69 @@ def _create_matching_content(
                 source_type = source_item.get("element_type_code", "")
                 target_id = selected_target.get("dbt_id")
                 target_name = selected_target.get("name", "")
+                # region agent log
+                _dbg_db419a(
+                    "H43",
+                    "match.py:handle_target_selected",
+                    "manual target selected from detail dialog",
+                    {
+                        "source_key": source_key,
+                        "source_type": source_type,
+                        "source_name": source_item.get("name", ""),
+                        "selected_target_id": target_id,
+                        "selected_target_name": target_name,
+                        "grid_row_drift_status": grid_row.get("drift_status", ""),
+                        "state_loaded": bool(state_ref.get("state_loaded")),
+                        "state_resource_count": len(getattr(state_ref.get("state_result"), "resources", []) or []),
+                    },
+                )
+                # endregion
                 
                 # Check if target is in TF state to determine action
                 action = "match"
                 if state_ref.get("state_result") and state_ref["state_result"].resources:
                     # Check if this target_id is in state
                     found_in_state = False
+                    _matching_state_addresses: list[str] = []
                     for res in state_ref["state_result"].resources:
                         if res.dbt_id == target_id and res.element_code == source_type:
                             found_in_state = True
+                            if len(_matching_state_addresses) < 8:
+                                _matching_state_addresses.append(str(res.address))
                             break
                     if not found_in_state:
                         action = "adopt"  # Target exists but not in TF state - needs adoption
+                    # region agent log
+                    _dbg_db419a(
+                        "H43",
+                        "match.py:handle_target_selected",
+                        "manual target evaluated against terraform state",
+                        {
+                            "source_key": source_key,
+                            "source_type": source_type,
+                            "selected_target_id": target_id,
+                            "found_in_state": found_in_state,
+                            "matching_state_addresses": _matching_state_addresses,
+                            "final_action": action,
+                        },
+                    )
+                    # endregion
                 elif state_ref.get("state_loaded"):
                     # State is loaded but target not found
                     action = "adopt"
+                    # region agent log
+                    _dbg_db419a(
+                        "H43",
+                        "match.py:handle_target_selected",
+                        "state marked loaded but no state_result rows available",
+                        {
+                            "source_key": source_key,
+                            "source_type": source_type,
+                            "selected_target_id": target_id,
+                            "final_action": action,
+                        },
+                    )
+                    # endregion
                 
                 # Add to confirmed mappings
                 if not hasattr(state.map, "confirmed_mappings"):
@@ -2196,6 +2505,18 @@ def _create_matching_content(
                     "match_type": "manual",
                     "action": action,  # Store the action with the mapping
                 })
+                # region agent log
+                _dbg_db419a(
+                    "H43",
+                    "match.py:handle_target_selected",
+                    "persisted manual mapping from detail dialog",
+                    {
+                        "source_key": source_key,
+                        "selected_target_id": target_id,
+                        "persisted_action": action,
+                    },
+                )
+                # endregion
                 
                 # Also remove from rejected keys if it was there
                 if hasattr(state.map, "rejected_suggestions"):
@@ -2309,14 +2630,29 @@ def _create_matching_content(
         tf_path = Path(tf_dir)
         if not tf_path.is_absolute():
             # Make relative to project root
-            project_root = Path(state.fetch.output_dir).parent.parent if state.fetch.output_dir else Path.cwd()
-            tf_path = project_root / tf_dir
+            tf_path = _project_root(state) / tf_dir
         
         ui.notify("Loading Terraform state...", type="info")
         
         result = await read_terraform_state(tf_path)
+        # region agent log
+        _dbg_db419a(
+            "H53",
+            "match.py:load_terraform_state",
+            "terraform state read completed",
+            {
+                "tf_path": str(tf_path),
+                "success": bool(result.success),
+                "resource_count": len(result.resources or []),
+                "error_message": result.error_message or "",
+            },
+        )
+        # endregion
         
         if not result.success:
+            state.deploy.reconcile_state_loaded = False
+            state.deploy.reconcile_state_resources = []
+            save_state()
             ui.notify(f"Failed to load state: {result.error_message}", type="negative")
             return
         
@@ -2341,6 +2677,17 @@ def _create_matching_content(
             for r in result.resources
         ]
         save_state()
+        # region agent log
+        _dbg_db419a(
+            "H54",
+            "match.py:load_terraform_state",
+            "persisted reconcile state flags after load",
+            {
+                "reconcile_state_loaded": bool(state.deploy.reconcile_state_loaded),
+                "reconcile_state_resources_count": len(state.deploy.reconcile_state_resources or []),
+            },
+        )
+        # endregion
 
         # Compute state-to-target alignment and persist to target-intent.json
         target_items_list = target_items_ref.get("items", [])
@@ -2375,8 +2722,7 @@ def _create_matching_content(
         _auto_tf_dir = state.deploy.terraform_dir or "deployments/migration"
         _auto_tf_path = Path(_auto_tf_dir)
         if not _auto_tf_path.is_absolute():
-            _auto_project_root = Path(state.fetch.output_dir).parent.parent if state.fetch.output_dir else Path.cwd()
-            _auto_tf_path = _auto_project_root / _auto_tf_dir
+            _auto_tf_path = _project_root(state) / _auto_tf_dir
         _auto_tfstate_file = _auto_tf_path / "terraform.tfstate"
         if _auto_tfstate_file.exists():
             logging.getLogger(__name__).info(f"Auto-loading Terraform state from {_auto_tfstate_file}")
@@ -2489,6 +2835,7 @@ def _create_matching_content(
             clone_configs=clone_configs,
             on_configure_clone=on_configure_clone,
             state_result=state_ref["state_result"],
+            state_loaded=state_ref["state_loaded"],
             on_unadopt=on_unadopt,
             removal_keys=removal_keys_set,
             protected_resources=state.map.protected_resources,
@@ -3290,13 +3637,7 @@ def _create_matching_content(
                             tf_dir = state.deploy.terraform_dir or "deployments/migration"
                             tf_path = Path(tf_dir)
                             if not tf_path.is_absolute():
-                                # Resolve project root robustly: prefer fetch output_dir
-                                # parent chain, fall back to cwd, then __file__ traversal.
-                                if state.fetch.output_dir:
-                                    project_root = Path(state.fetch.output_dir).parent.parent.resolve()
-                                else:
-                                    project_root = Path.cwd().resolve()
-                                tf_path = project_root / tf_dir
+                                tf_path = _project_root(state) / tf_dir
                             
                             # Look for YAML config file - check multiple possible names & locations
                             yaml_file = tf_path / "dbt-cloud-config.yml"
@@ -3680,8 +4021,7 @@ def _create_matching_content(
                             tf_dir = state.deploy.terraform_dir or "deployments/migration"
                             tf_path_for_cmd = Path(tf_dir)
                             if not tf_path_for_cmd.is_absolute():
-                                project_root = Path(state.fetch.output_dir).parent.parent if state.fetch.output_dir else Path.cwd()
-                                tf_path_for_cmd = project_root / tf_dir
+                                tf_path_for_cmd = _project_root(state) / tf_dir
                             tf_path_for_cmd = tf_path_for_cmd.resolve()
                             
                             # Build -target flags from pending protection intents
@@ -4215,8 +4555,7 @@ def _create_matching_content(
                             sync_tf_path = Path(tf_dir)
                             
                             if not sync_tf_path.is_absolute():
-                                project_root = Path(state.fetch.output_dir).parent.parent if state.fetch.output_dir else Path.cwd()
-                                sync_tf_path = project_root / tf_dir
+                                sync_tf_path = _project_root(state) / tf_dir
                             
                             if not sync_tf_path.exists():
                                 ui.notify(f"Terraform directory not found: {sync_tf_path}", type="negative")
@@ -4351,8 +4690,7 @@ def _create_matching_content(
                         tf_dir = state.deploy.terraform_dir or "deployments/migration"
                         tf_path = Path(tf_dir)
                         if not tf_path.is_absolute():
-                            project_root = Path(state.fetch.output_dir).parent.parent if state.fetch.output_dir else Path.cwd()
-                            tf_path = project_root / tf_dir
+                            tf_path = _project_root(state) / tf_dir
                         
                         if not tf_path.exists():
                             ui.notify(f"Terraform directory not found: {tf_path}", type="negative")
@@ -4671,8 +5009,7 @@ This will **UNPROTECT** all {len(protection_mismatches)} mismatched resource(s):
             tf_dir = state.deploy.terraform_dir or "deployments/migration"
             tf_path = Path(tf_dir)
             if not tf_path.is_absolute():
-                project_root = Path(state.fetch.output_dir).parent.parent if state.fetch.output_dir else Path.cwd()
-                tf_path = project_root / tf_dir
+                tf_path = _project_root(state) / tf_dir
             # Always resolve to absolute path
             tf_path = tf_path.resolve()
             

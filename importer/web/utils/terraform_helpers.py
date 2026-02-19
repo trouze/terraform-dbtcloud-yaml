@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import subprocess
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
 
@@ -27,6 +28,35 @@ logger = logging.getLogger(__name__)
 
 # Module prefix for Terraform resource addresses.
 MODULE_PREFIX = "module.dbt_cloud.module.projects_v2[0]"
+
+
+def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    payload = {
+        "sessionId": "db419a",
+        "runId": "pre-fix",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(
+            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    except Exception:
+        return
+
+
+def _project_root(state: Optional["AppState"] = None) -> Path:
+    """Return active project root when available, else repository root."""
+    project_path = getattr(state, "project_path", None) if state is not None else None
+    if project_path:
+        return Path(str(project_path)).resolve()
+    return Path(__file__).parent.parent.parent.parent.resolve()
 
 
 @dataclass(frozen=True)
@@ -110,12 +140,23 @@ def resolve_deployment_paths(
     tf_dir = state.deploy.terraform_dir or "deployments/migration"
     tf_path = Path(tf_dir)
     if not tf_path.is_absolute():
-        if state.fetch.output_dir:
-            project_root = Path(state.fetch.output_dir).parent.parent.resolve()
-        else:
-            project_root = Path.cwd().resolve()
-        tf_path = project_root / tf_dir
+        tf_path = _project_root(state) / tf_dir
     tf_path = tf_path.resolve()
+    # region agent log
+    _dbg_db419a(
+        "H34",
+        "terraform_helpers.py:resolve_deployment_paths",
+        "resolved deployment paths for terraform helpers",
+        {
+            "project_path": getattr(state, "project_path", None),
+            "active_project": getattr(state, "active_project", None),
+            "terraform_dir_state": getattr(state.deploy, "terraform_dir", None),
+            "resolved_tf_path": str(tf_path),
+            "root_used_for_relative_tf_dir": str(_project_root(state)),
+            "uses_absolute_tf_dir": Path(tf_dir).is_absolute(),
+        },
+    )
+    # endregion
 
     # --- YAML config file ---
     yaml_file = tf_path / "dbt-cloud-config.yml"

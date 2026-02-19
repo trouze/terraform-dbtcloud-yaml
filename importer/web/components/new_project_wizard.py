@@ -10,6 +10,8 @@ through 4 steps:
 See PRD 21.02-Project-Management.md for the full specification.
 """
 
+import json
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -64,9 +66,7 @@ def show_new_project_wizard(
         "import_source": True,
         "import_target": True,
         # Step 3: output config
-        "source_dir": "outputs/source/",
-        "target_dir": "outputs/target/",
-        "normalized_dir": "outputs/normalized/",
+        "base_dir": "outputs",
         "use_timestamps": True,
     }
     current_step = {"value": 0}
@@ -181,9 +181,10 @@ def show_new_project_wizard(
                 ui.separator()
 
                 ui.label("Output Directories").classes("text-xs text-gray-400")
-                ui.label(f"Source: {wizard_data['source_dir']}").classes("text-xs")
-                ui.label(f"Target: {wizard_data['target_dir']}").classes("text-xs")
-                ui.label(f"Normalized: {wizard_data['normalized_dir']}").classes("text-xs")
+                ui.label(f"Base: {wizard_data['base_dir']}").classes("text-xs")
+                ui.label(f"Source: {wizard_data['base_dir']}/source").classes("text-xs")
+                ui.label(f"Target: {wizard_data['base_dir']}/target").classes("text-xs")
+                ui.label(f"Normalized: {wizard_data['base_dir']}/normalized").classes("text-xs")
                 ts_text = "Yes" if wizard_data["use_timestamps"] else "No"
                 ui.label(f"Timestamped subdirs: {ts_text}").classes("text-xs")
 
@@ -194,11 +195,34 @@ def show_new_project_wizard(
         create_btn.props("loading")
         try:
             output_config = OutputConfig(
-                source_dir=wizard_data["source_dir"],
-                target_dir=wizard_data["target_dir"],
-                normalized_dir=wizard_data["normalized_dir"],
+                base_dir=wizard_data["base_dir"],
                 use_timestamps=wizard_data["use_timestamps"],
             )
+            # region agent log
+            try:
+                payload = {
+                    "sessionId": "db419a",
+                    "runId": "pre-fix",
+                    "hypothesisId": "H24",
+                    "location": "new_project_wizard.py:_create_project",
+                    "message": "new project wizard submitted base_dir config",
+                    "data": {
+                        "base_dir": output_config.base_dir,
+                        "source_dir": output_config.source_dir,
+                        "target_dir": output_config.target_dir,
+                        "normalized_dir": output_config.normalized_dir,
+                    },
+                    "timestamp": int(time.time() * 1000),
+                }
+                with open(
+                    "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
+                    "a",
+                    encoding="utf-8",
+                ) as f:
+                    f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+            except Exception:
+                pass
+            # endregion
             config = project_manager.create_project(
                 name=wizard_data["name"].strip(),
                 workflow_type=WorkflowType(wizard_data["workflow_type"]),
@@ -374,13 +398,22 @@ def show_new_project_wizard(
         with ui.column().classes("w-full gap-3") as step2:
             step2.set_visibility(False)
             ui.label("Output Configuration").classes("text-lg font-semibold")
-            ui.label("Configure where output files are stored within your project.").classes("text-sm text-gray-400")
+            ui.label(
+                "Set one base folder. Project output subfolders are fixed and cannot be changed."
+            ).classes("text-sm text-gray-400")
 
-            ui.input(label="Source output directory", value="outputs/source/").classes("w-full").bind_value(wizard_data, "source_dir")
-            ui.input(label="Target output directory", value="outputs/target/").classes("w-full").bind_value(wizard_data, "target_dir")
-            ui.input(label="Normalized YAML directory", value="outputs/normalized/").classes("w-full").bind_value(wizard_data, "normalized_dir")
+            ui.input(
+                label="Project base folder",
+                value="outputs",
+                placeholder="outputs",
+            ).classes("w-full").bind_value(wizard_data, "base_dir")
+            ui.label("Fixed subfolders (auto-created):").classes("text-sm font-medium mt-1")
+            ui.label("source, target, normalized").classes("text-xs text-gray-500")
             ui.checkbox("Use timestamped subdirectories", value=True).bind_value(wizard_data, "use_timestamps")
-            ui.label("When enabled, each fetch creates a timestamped subfolder (e.g., outputs/source/2024-01-15_143022/)").classes("text-xs text-gray-500 ml-6")
+            ui.label(
+                "When enabled, each fetch creates a timestamped subfolder "
+                "(e.g., outputs/source/2024-01-15_143022/)"
+            ).classes("text-xs text-gray-500 ml-6")
 
         step_containers.append(step2)
 

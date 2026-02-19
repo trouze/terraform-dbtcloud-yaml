@@ -11,6 +11,7 @@ import asyncio
 import json
 import re
 import shutil
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -25,15 +26,39 @@ from importer.web.state import AppState, WorkflowType
 
 @dataclass
 class OutputConfig:
-    """Configuration for project output directories."""
+    """Configuration for project output directories.
 
-    source_dir: str = "outputs/source/"
-    target_dir: str = "outputs/target/"
-    normalized_dir: str = "outputs/normalized/"
+    Projects now expose a single configurable base folder. Subfolders are fixed:
+    ``source``, ``target``, and ``normalized``.
+    """
+
+    base_dir: str = "outputs"
     use_timestamps: bool = True
+
+    def __post_init__(self) -> None:
+        self.base_dir = self._normalize_base_dir(self.base_dir)
+
+    @staticmethod
+    def _normalize_base_dir(value: str) -> str:
+        candidate = (value or "").strip().replace("\\", "/").strip("/")
+        return candidate or "outputs"
+
+    @property
+    def source_dir(self) -> str:
+        return f"{self.base_dir}/source"
+
+    @property
+    def target_dir(self) -> str:
+        return f"{self.base_dir}/target"
+
+    @property
+    def normalized_dir(self) -> str:
+        return f"{self.base_dir}/normalized"
 
     def to_dict(self) -> dict:
         return {
+            "base_dir": self.base_dir,
+            # Keep derived values for compatibility with older readers.
             "source_dir": self.source_dir,
             "target_dir": self.target_dir,
             "normalized_dir": self.normalized_dir,
@@ -42,10 +67,15 @@ class OutputConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> "OutputConfig":
+        base_dir = data.get("base_dir")
+        if not base_dir:
+            # Backward compatibility: derive base folder from legacy paths.
+            legacy_source = str(data.get("source_dir", "")).replace("\\", "/").strip()
+            if legacy_source:
+                parent = Path(legacy_source).parent.as_posix()
+                base_dir = "" if parent in ("", ".") else parent
         return cls(
-            source_dir=data.get("source_dir", "outputs/source/"),
-            target_dir=data.get("target_dir", "outputs/target/"),
-            normalized_dir=data.get("normalized_dir", "outputs/normalized/"),
+            base_dir=cls._normalize_base_dir(str(base_dir or "outputs")),
             use_timestamps=data.get("use_timestamps", True),
         )
 
@@ -232,12 +262,42 @@ outputs/
         if project_path.exists():
             raise ValueError(f"Project with slug '{slug}' already exists")
 
+        resolved_output_config = output_config or OutputConfig()
+        resolved_base_dir = Path(resolved_output_config.base_dir)
+
         # Create folder structure
         project_path.mkdir(parents=True)
         (project_path / "logs").mkdir(parents=True, exist_ok=True)
-        (project_path / "outputs" / "source").mkdir(parents=True, exist_ok=True)
-        (project_path / "outputs" / "target").mkdir(parents=True, exist_ok=True)
-        (project_path / "outputs" / "normalized").mkdir(parents=True, exist_ok=True)
+        (project_path / resolved_base_dir / "source").mkdir(parents=True, exist_ok=True)
+        (project_path / resolved_base_dir / "target").mkdir(parents=True, exist_ok=True)
+        (project_path / resolved_base_dir / "normalized").mkdir(parents=True, exist_ok=True)
+
+        # region agent log
+        try:
+            payload = {
+                "sessionId": "db419a",
+                "runId": "pre-fix",
+                "hypothesisId": "H23",
+                "location": "project_manager.py:ProjectManager.create_project",
+                "message": "created project output folders from base_dir",
+                "data": {
+                    "slug": slug,
+                    "base_dir": resolved_output_config.base_dir,
+                    "source_dir": resolved_output_config.source_dir,
+                    "target_dir": resolved_output_config.target_dir,
+                    "normalized_dir": resolved_output_config.normalized_dir,
+                },
+                "timestamp": int(time.time() * 1000),
+            }
+            with open(
+                "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
+                "a",
+                encoding="utf-8",
+            ) as f:
+                f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+        except Exception:
+            pass
+        # endregion
 
         # Create .gitignore first (before any sensitive files)
         (project_path / ".gitignore").write_text(self.GITIGNORE_TEMPLATE, encoding="utf-8")
@@ -248,7 +308,7 @@ outputs/
             slug=slug,
             workflow_type=workflow_type,
             description=description,
-            output_config=output_config or OutputConfig(),
+            output_config=resolved_output_config,
         )
 
         with open(project_path / "project.json", "w", encoding="utf-8") as f:
@@ -436,6 +496,33 @@ outputs/
 
         lines = [f"{k}={v}" for k, v in sorted(existing.items())]
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def resolve_fetch_output_dirs_for_project(
+    project_path: Optional[str],
+) -> tuple[Optional[str], Optional[str]]:
+    """Resolve absolute source/target fetch output dirs for a project.
+
+    Returns ``(source_dir, target_dir)`` or ``(None, None)`` when the project
+    does not exist or has no readable config.
+    """
+    if not project_path:
+        return None, None
+
+    base = Path(project_path)
+    config_path = base / "project.json"
+    if not config_path.exists():
+        return None, None
+
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            raw = json.load(f)
+        config = ProjectConfig.from_dict(raw)
+        source_dir = str(base / config.output_config.source_dir)
+        target_dir = str(base / config.output_config.target_dir)
+        return source_dir, target_dir
+    except Exception:
+        return None, None
 
 
 # ---------------------------------------------------------------------------

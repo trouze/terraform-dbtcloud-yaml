@@ -75,8 +75,12 @@ __pycache__/
 .venv/
 venv/
 *.egg-info/
+.DS_Store
 .cursor/debug.log
+.cursor/debug*.log
 .cursor/ui_actions.log
+.cursor/ui_actions.log*
+.cursor/plans/full-suite-recovery_*.plan.md
 
 # Nicegui preferences
 .nicegui/*
@@ -95,3 +99,8 @@ venv/
 # Project folders (contain credentials, state, logs — defense-in-depth)
 # Each project folder also has its own .gitignore as a second layer
 projects/
+
+# Local debug/sample output folders
+dev_support/bt/
+dev_support/bt2/
+dev_support/btrsamples/

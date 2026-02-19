@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.3] - 2026-02-19
+
+### Fixed
+- **Adopt grid stability and visibility**: resolved regressions where Adopt showed correct counts but blank/white AG Grid output by standardizing theme usage and preserving action/row shaping behavior for actionable rows.
+- **Adopt plan reliability**: hardened adopt plan sequencing with safer fallback generation/init behavior and retry handling for module-install races in scoped import plans.
+- **Match/intent consistency**: corrected state-aware match/adopt defaults and stale state indicators so pending/action status and "state loaded" messaging remain consistent across page transitions.
+
+### Changed
+- **Project and target-intent path handling**: improved project-scoped folder/path resolution and persisted intent metadata used across fetch/match/adopt/deploy flows.
+- **AG Grid guardrails**: codified AG Grid regression standards in guardrails/standards docs and added contract tests to prevent reintroduction of Adopt theme regressions.
+- **Repository hygiene**: expanded ignore rules to prevent local runtime logs and machine artifacts from polluting commits.
+
 ## [0.23.2] - 2026-02-18
 
 ### Fixed

@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
-**Last Updated:** 2026-02-18  
-**Current Importer Version:** 0.23.2  
+**Last Updated:** 2026-02-19  
+**Current Importer Version:** 0.23.3  
 **Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix + Match Diagnostics Improvements + AG Grid Standardization + Dialog Width Fix + Protection Mismatch Fix + Adoption Override Data Flow Fix + Debug Logging Standards + View Output Plan Dialog Fix + Independent Protection Architecture + Comprehensive Protection Unit Tests + Repository Key Prefix Matching Fix + Extended Attributes (EXTATTR) Support + Target Intent State File + Protection as Disposition Property + Explicit Global Intent Filtering + Drift Detection + TF State Repo Identity Fixup + Global Resources Configuration + Protection Intent Key Fix + EnvVar Protection + State-Only Resource Fixes + TF Plan Stability + Plan Targeting Fix + Deploy Page State-Based Protection
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -420,9 +420,9 @@ Before starting end-to-end testing with a real account, verify:
 ## Version Tracking
 
 ### Importer Version
-- **Current:** 0.23.2
+- **Current:** 0.23.3
 - **File:** `importer/VERSION`
-- **Last Updated:** 2026-02-18
+- **Last Updated:** 2026-02-19
 
 ### Terraform Module Version
 - **Current:** Supports v1 and v2 schemas
@@ -666,6 +666,14 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2026-02-19 (v0.23.3)
+- **Version:** Incremented to 0.23.3 (patch release - Adopt/Match stability + AG Grid regression hardening + repo hygiene)
+- Fixed Adopt-page AG Grid regressions where counts were correct but rows/headers were visually blank under certain theme and row-shaping conditions.
+- Hardened adopt plan execution with safer fallback config/init sequencing and retry handling around transient module-install failures.
+- Improved Match/Target Intent consistency for state-loaded indicators, pending/action status behavior, and cross-page transitions.
+- Added AG Grid standards/guardrails + contract tests to prevent reintroduction of Adopt whiteout regressions.
+- Expanded ignore coverage and removed local runtime log artifacts from tracked release content.
 
 ### 2026-02-18 (v0.23.2)
 - **Version:** Incremented to 0.23.2 (patch release - UI compatibility + performance stabilization)

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,28 @@ import yaml
 from importer.web.utils.adoption_yaml_updater import merge_yaml_configs
 
 logger = logging.getLogger(__name__)
+
+
+def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    """Write one NDJSON debug record for target-intent diagnostics."""
+    payload = {
+        "sessionId": "db419a",
+        "runId": "pre-fix",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(
+            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    except Exception:
+        return
 
 # Disposition values
 DISP_RETAINED = "retained"
@@ -249,6 +272,7 @@ class TargetIntentResult:
     drift_warnings: list[str] = field(default_factory=list)
     tf_state_path: Optional[str] = None
     source_focus_path: Optional[str] = None
+    source_focus_base_folder: Optional[str] = None
     baseline_path: Optional[str] = None
     workflow_state: dict[str, Any] = field(default_factory=dict)
 
@@ -335,6 +359,7 @@ class TargetIntentResult:
             "provenance": {
                 "tf_state_path": self.tf_state_path,
                 "source_focus_path": self.source_focus_path,
+                "source_focus_base_folder": self.source_focus_base_folder,
                 "baseline_path": self.baseline_path,
             },
             "dispositions": {k: v.to_dict() for k, v in self.dispositions.items()},
@@ -374,6 +399,14 @@ class TargetIntentResult:
             drift_warnings=data.get("drift_warnings", []),
             tf_state_path=data.get("provenance", {}).get("tf_state_path"),
             source_focus_path=data.get("provenance", {}).get("source_focus_path"),
+            source_focus_base_folder=(
+                data.get("provenance", {}).get("source_focus_base_folder")
+                or (
+                    str(Path(data.get("provenance", {}).get("source_focus_path")).parent)
+                    if data.get("provenance", {}).get("source_focus_path")
+                    else None
+                )
+            ),
             baseline_path=data.get("provenance", {}).get("baseline_path"),
             workflow_state=data.get("workflow_state", {}),
         )
@@ -572,6 +605,21 @@ def compute_target_intent(
     10. Validate coverage.
     """
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    source_focus_base_folder = str(Path(source_focus_yaml).parent) if source_focus_yaml else ""
+    # region agent log
+    _dbg_db419a(
+        "H20",
+        "target_intent.py:compute_target_intent",
+        "compute_target_intent called with source focus provenance",
+        {
+            "source_focus_yaml": source_focus_yaml,
+            "source_focus_base_folder": source_focus_base_folder,
+            "baseline_yaml": baseline_yaml,
+            "adopt_rows_count": len(adopt_rows),
+            "removal_keys_count": len(removal_keys),
+        },
+    )
+    # endregion
     tf_state_keys = get_tf_state_project_keys(tfstate_path)
     target_project_keys = _project_keys_in_target_fetch(target_report_items)
     # Only treat "not in target" as orphan when key spaces align: at least one TF state key
@@ -728,6 +776,25 @@ def compute_target_intent(
         if d.disposition not in (DISP_REMOVED, DISP_ORPHAN_FLAGGED)
     }
     merged = merge_yaml_configs(baseline_config, source_config)
+    # region agent log
+    _dbg_db419a(
+        "H21",
+        "target_intent.py:compute_target_intent",
+        "merged output_config base-folder fields snapshot",
+        {
+            "has_output_metadata": isinstance(merged.get("metadata"), dict),
+            "metadata_keys": sorted(list(merged.get("metadata", {}).keys()))
+            if isinstance(merged.get("metadata"), dict)
+            else [],
+            "has_base_folder": "base_folder" in merged,
+            "has_project_base_folder": any(
+                isinstance(p, dict) and "base_folder" in p
+                for p in merged.get("projects", [])
+            ),
+            "projects_count": len(merged.get("projects", [])),
+        },
+    )
+    # endregion
     # Filter projects to only those we intend to keep
     all_projects = merged.get("projects", [])
     merged["projects"] = [p for p in all_projects if (p.get("key") or "") in include_keys]
@@ -768,6 +835,7 @@ def compute_target_intent(
         drift_warnings=[],
         tf_state_path=str(tfstate_path) if tfstate_path else None,
         source_focus_path=source_focus_yaml or None,
+        source_focus_base_folder=source_focus_base_folder or None,
         baseline_path=baseline_yaml or None,
     )
 
@@ -845,11 +913,35 @@ class TargetIntentManager:
         output_config is restored from the file (self-contained state file).
         """
         if not self.intent_path.exists():
+            # region agent log
+            _dbg_db419a(
+                "H32",
+                "target_intent.py:TargetIntentManager.load",
+                "target intent file missing at resolved path",
+                {
+                    "deployment_dir": str(self.deployment_dir),
+                    "intent_path": str(self.intent_path),
+                },
+            )
+            # endregion
             return None
         try:
             with open(self.intent_path, "r") as f:
                 data = json.load(f)
             result = TargetIntentResult.from_dict(data)
+            # region agent log
+            _dbg_db419a(
+                "H32",
+                "target_intent.py:TargetIntentManager.load",
+                "loaded target intent from resolved path",
+                {
+                    "deployment_dir": str(self.deployment_dir),
+                    "intent_path": str(self.intent_path),
+                    "source_focus_base_folder": result.source_focus_base_folder,
+                    "source_focus_path": result.source_focus_path,
+                },
+            )
+            # endregion
             return result
         except (json.JSONDecodeError, OSError) as e:
             logger.warning(f"Failed to load target intent: {e}")
@@ -861,6 +953,26 @@ class TargetIntentManager:
         # Include output_config for self-contained state file
         if intent.output_config:
             data["output_config"] = intent.output_config
+        # region agent log
+        _dbg_db419a(
+            "H22",
+            "target_intent.py:TargetIntentManager.save",
+            "saving target intent with provenance and output_config shape",
+            {
+                "deployment_dir": str(self.deployment_dir),
+                "intent_path": str(self.intent_path),
+                "source_focus_path": intent.source_focus_path,
+                "source_focus_base_folder": intent.source_focus_base_folder,
+                "has_output_config": bool(intent.output_config),
+                "has_output_metadata": isinstance(intent.output_config.get("metadata"), dict)
+                if isinstance(intent.output_config, dict)
+                else False,
+                "has_output_base_folder": "base_folder" in intent.output_config
+                if isinstance(intent.output_config, dict)
+                else False,
+            },
+        )
+        # endregion
         try:
             self.deployment_dir.mkdir(parents=True, exist_ok=True)
             with open(self.intent_path, "w") as f:

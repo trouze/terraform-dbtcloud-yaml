@@ -7,7 +7,11 @@ from nicegui import app, ui
 
 from importer.web.state import AppState, WorkflowStep, WorkflowType, STEP_NAMES
 from importer.web.components.stepper import create_nav_drawer, create_progress_header
-from importer.web.project_manager import ProjectManager, StateSaver
+from importer.web.project_manager import (
+    ProjectManager,
+    StateSaver,
+    resolve_fetch_output_dirs_for_project,
+)
 from importer.web.pages.home import create_home_page
 from importer.web.pages.requirements import create_requirements_page
 from importer.web.pages.fetch_source import create_fetch_source_page
@@ -84,6 +88,44 @@ def load_project(slug: str) -> None:
             _app_state.workflow = config.workflow_type
         _app_state.active_project = slug
         _app_state.project_path = str(pm.get_project_path(slug))
+        source_dir, target_dir = resolve_fetch_output_dirs_for_project(_app_state.project_path)
+        if source_dir:
+            _app_state.fetch.output_dir = source_dir
+        if target_dir:
+            _app_state.target_fetch.output_dir = target_dir
+        # region agent log
+        try:
+            import json as _json_dbg
+            import time as _time_dbg
+
+            with open(
+                "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
+                "a",
+                encoding="utf-8",
+            ) as _f_dbg:
+                _f_dbg.write(
+                    _json_dbg.dumps(
+                        {
+                            "sessionId": "db419a",
+                            "runId": "post-fix",
+                            "hypothesisId": "H29",
+                            "location": "app.py:load_project",
+                            "message": "project load applied fixed fetch output directories",
+                            "data": {
+                                "slug": slug,
+                                "project_path": _app_state.project_path,
+                                "source_output_dir": _app_state.fetch.output_dir,
+                                "target_output_dir": _app_state.target_fetch.output_dir,
+                            },
+                            "timestamp": int(_time_dbg.time() * 1000),
+                        },
+                        ensure_ascii=True,
+                    )
+                    + "\n"
+                )
+        except Exception:
+            pass
+        # endregion
         save_state()
         ui.notify(f"Loaded project: {config.name}", type="positive")
         ui.navigate.to("/")
@@ -99,6 +141,40 @@ def get_state() -> AppState:
         stored = app.storage.user.get("app_state")
         if stored:
             _app_state = AppState.from_dict(stored)
+            # region agent log
+            try:
+                import json as _json_dbg_s
+                import time as _time_dbg_s
+
+                with open(
+                    "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
+                    "a",
+                    encoding="utf-8",
+                ) as _f_dbg_s:
+                    _f_dbg_s.write(
+                        _json_dbg_s.dumps(
+                            {
+                                "sessionId": "db419a",
+                                "runId": "pre-fix",
+                                "hypothesisId": "H35",
+                                "location": "app.py:get_state",
+                                "message": "rehydrated state from storage",
+                                "data": {
+                                    "active_project": _app_state.active_project,
+                                    "project_path": _app_state.project_path,
+                                    "terraform_dir_state": _app_state.deploy.terraform_dir,
+                                    "fetch_output_dir": _app_state.fetch.output_dir,
+                                    "target_fetch_output_dir": _app_state.target_fetch.output_dir,
+                                },
+                                "timestamp": int(_time_dbg_s.time() * 1000),
+                            },
+                            ensure_ascii=True,
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
+            # endregion
         else:
             _app_state = AppState()
         

@@ -1,5 +1,7 @@
 """Session state management for the web UI."""
 
+import json
+import time
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum
 from pathlib import Path
@@ -8,6 +10,27 @@ from typing import Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from importer.web.utils.protection_intent import ProtectionIntentManager
     from importer.web.utils.target_intent import TargetIntentManager, TargetIntentResult
+
+
+def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    payload = {
+        "sessionId": "db419a",
+        "runId": "pre-fix",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(
+            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    except Exception:
+        return
 
 
 class WorkflowStep(IntEnum):
@@ -899,15 +922,12 @@ class AppState:
         if self._protection_intent_manager is None:
             from importer.web.utils.protection_intent import ProtectionIntentManager
             
-            # Determine the terraform directory
+            # Determine terraform directory, preferring active project root when set.
             tf_dir = self.deploy.terraform_dir or "deployments/migration"
             tf_path = Path(tf_dir)
-            
-            # Make relative paths absolute based on project root
             if not tf_path.is_absolute():
-                # Get project root (parent of importer directory)
-                project_root = Path(__file__).parent.parent.parent.resolve()
-                tf_path = project_root / tf_dir
+                base_root = Path(self.project_path).resolve() if self.project_path else Path(__file__).parent.parent.parent.resolve()
+                tf_path = base_root / tf_dir
             
             # Intent file is stored in the terraform directory
             intent_file = tf_path / "protection-intent.json"
@@ -946,9 +966,22 @@ class AppState:
             tf_dir = self.deploy.terraform_dir or "deployments/migration"
             tf_path = Path(tf_dir)
             if not tf_path.is_absolute():
-                project_root = Path(__file__).parent.parent.parent.resolve()
-                tf_path = project_root / tf_dir
+                base_root = Path(self.project_path).resolve() if self.project_path else Path(__file__).parent.parent.parent.resolve()
+                tf_path = base_root / tf_dir
             deployment_dir = tf_path
+            # region agent log
+            _dbg_db419a(
+                "H30",
+                "state.py:AppState.get_target_intent_manager",
+                "resolved target intent deployment directory",
+                {
+                    "project_path": self.project_path,
+                    "terraform_dir_state": self.deploy.terraform_dir,
+                    "resolved_deployment_dir": str(deployment_dir),
+                    "uses_absolute_tf_dir": Path(tf_dir).is_absolute(),
+                },
+            )
+            # endregion
             self._target_intent_manager = TargetIntentManager(deployment_dir)
         return self._target_intent_manager
 

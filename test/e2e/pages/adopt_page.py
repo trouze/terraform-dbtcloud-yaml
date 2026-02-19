@@ -85,9 +85,7 @@ class AdoptPage(BasePage):
 
     def assert_page_loads_without_error(self) -> None:
         """Assert the Adopt page loads without 500 errors."""
-        page_content = self.get_page_content()
-        assert "500" not in page_content, "Page should not return 500 error"
-        assert "Internal Server Error" not in page_content
+        self.assert_page_has_no_server_error()
 
     # =====================================================================
     # Summary Card
@@ -124,11 +122,12 @@ class AdoptPage(BasePage):
     def get_grid_row_count(self) -> int:
         """Count the number of rows in the adopt grid."""
         rows = self.page.locator(self.AG_ROW)
-        return rows.count()
+        return sum(1 for i in range(rows.count()) if rows.nth(i).is_visible())
 
     def get_grid_rows(self) -> List[Locator]:
         """Get all row locators from the adopt grid."""
-        return self.page.locator(self.AG_ROW).all()
+        rows = self.page.locator(self.AG_ROW)
+        return [rows.nth(i) for i in range(rows.count()) if rows.nth(i).is_visible()]
 
     def find_row_by_name(self, name: str) -> Optional[Locator]:
         """Find a grid row by resource name.
@@ -176,7 +175,25 @@ class AdoptPage(BasePage):
             row: Locator for the row
         """
         shield_cell = row.locator('[col-id="protected"]')
-        shield_cell.click()
+        shield_cell.scroll_into_view_if_needed()
+
+        clickable_selectors = [
+            "button",
+            "[role='button']",
+            ".q-btn",
+            "span:has-text('🛡')",
+            "span:has-text('⚪')",
+            ".cursor-pointer",
+            "svg",
+        ]
+        for selector in clickable_selectors:
+            candidate = shield_cell.locator(selector)
+            if candidate.count() > 0 and candidate.first.is_visible():
+                candidate.first.click()
+                self.page.wait_for_timeout(500)
+                return
+
+        shield_cell.first.click(force=True)
         self.page.wait_for_timeout(500)
 
     def click_details(self, row: Locator) -> None:

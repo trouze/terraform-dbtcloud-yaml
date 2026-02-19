@@ -3,6 +3,7 @@
 import asyncio
 import json
 import threading
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -28,10 +29,62 @@ from importer.web.env_manager import (
     auto_seed_project_env,
 )
 from importer.element_ids import apply_element_ids
+from importer.web.project_manager import resolve_fetch_output_dirs_for_project
 
 
 # dbt brand colors
 DBT_ORANGE = "#FF694A"
+
+# Default source folder when no active project is loaded.
+_DEFAULT_SOURCE_OUTPUT_DIR = "dev_support/samples/source"
+
+
+def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    payload = {
+        "sessionId": "db419a",
+        "runId": "post-fix",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(
+            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    except Exception:
+        return
+
+
+def _enforced_source_output_dir(state: AppState) -> str:
+    project_source_dir, _ = resolve_fetch_output_dirs_for_project(state.project_path)
+    if project_source_dir:
+        return project_source_dir
+    return _DEFAULT_SOURCE_OUTPUT_DIR
+
+
+def _enforce_source_output_dir(state: AppState, save_state: Callable[[], None]) -> None:
+    enforced_dir = _enforced_source_output_dir(state)
+    if state.fetch.output_dir != enforced_dir:
+        previous = state.fetch.output_dir
+        state.fetch.output_dir = enforced_dir
+        save_state()
+        # region agent log
+        _dbg_db419a(
+            "H27",
+            "fetch_source.py:_enforce_source_output_dir",
+            "enforced read-only source output directory",
+            {
+                "project_path": state.project_path,
+                "previous_output_dir": previous,
+                "enforced_output_dir": enforced_dir,
+            },
+        )
+        # endregion
 
 
 def create_fetch_source_page(
@@ -56,6 +109,8 @@ def create_fetch_source_page(
     fetch_in_progress = {"value": False}
     cancel_event = {"event": None}  # Will hold threading.Event during fetch
     fetch_complete = {"value": state.fetch.fetch_complete}
+
+    _enforce_source_output_dir(state, save_state)
     
     with ui.column().classes("w-full max-w-6xl mx-auto p-6 gap-4"):
         # Page header
@@ -111,10 +166,19 @@ def create_fetch_source_page(
         # Add the fetch button now that results_container exists
         with fetch_btn_container:
             with ui.row().classes("w-full gap-2"):
+                cancel_btn = ui.button(
+                    "Cancel",
+                    icon="cancel",
+                    on_click=lambda: _cancel_fetch(cancel_event, terminal),
+                ).props("outline color=negative").classes("hidden")
+
                 fetch_btn = ui.button(
                     "Fetch Account Data",
                     icon="cloud_download",
-                    on_click=lambda: _run_fetch(
+                ).classes("flex-grow").style(f"background-color: {DBT_ORANGE};")
+                fetch_btn.on(
+                    "click",
+                    lambda: _run_fetch(
                         state,
                         terminal,
                         progress_tree,
@@ -127,13 +191,7 @@ def create_fetch_source_page(
                         save_state,
                         results_container,
                     ),
-                ).classes("flex-grow").style(f"background-color: {DBT_ORANGE};")
-
-                cancel_btn = ui.button(
-                    "Cancel",
-                    icon="cancel",
-                    on_click=lambda: _cancel_fetch(cancel_event, terminal),
-                ).props("outline color=negative").classes("hidden")
+                )
 
         # 4. Terminal output (full width)
         terminal.create(height="500px")
@@ -152,11 +210,8 @@ def _create_fetch_options(
             ui.input(
                 label="Output Directory",
                 value=state.fetch.output_dir,
-                placeholder="dev_support/samples",
-            ).classes("flex-grow").props('outlined dense').on(
-                'update:model-value',
-                lambda e: _update_output_dir(state, e.args, save_state)
-            )
+                placeholder=_DEFAULT_SOURCE_OUTPUT_DIR,
+            ).classes("flex-grow").props("outlined dense readonly")
 
             # Auto-timestamp toggle (inline)
             ui.switch(
@@ -232,16 +287,6 @@ def _on_credentials_change(state: AppState, save_state: Callable[[], None]) -> N
     save_state()
 
 
-def _update_output_dir(
-    state: AppState,
-    value: str,
-    save_state: Callable[[], None],
-) -> None:
-    """Update output directory in state."""
-    state.fetch.output_dir = value if value else "dev_support/samples"
-    save_state()
-
-
 def _update_auto_timestamp(
     state: AppState,
     value: bool,
@@ -290,7 +335,7 @@ def _do_load_env_credentials(
     
     try:
         env_path = resolve_project_env_path(state.project_path, "source")
-        if env_path and not Path(env_path).exists():
+        if env_path and not Path(env_path).exists() and state.project_path:
             auto_seed_project_env(state.project_path, "source")
         creds = load_source_credentials(env_path=env_path)
         

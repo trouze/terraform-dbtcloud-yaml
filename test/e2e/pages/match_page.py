@@ -350,3 +350,7 @@ class MatchPage(BasePage):
         """
         output = self.get_generate_output()
         assert text in output, f"Expected '{text}' in generate output, got: {output[:200]}"
+
+    def assert_page_loads_without_error(self) -> None:
+        """Assert the Match page loads without server errors."""
+        self.assert_page_has_no_server_error()

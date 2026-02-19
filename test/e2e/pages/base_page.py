@@ -9,7 +9,7 @@ This provides common functionality for all page objects including:
 Reference: PRD 11.01-Protection-Workflow-Testing.md Section 1.4
 """
 
-from typing import Optional, List
+from typing import Optional, List, Literal
 from playwright.sync_api import Page, Locator, expect
 
 
@@ -76,7 +76,7 @@ class BasePage:
     def wait_for_element(
         self,
         selector: str,
-        state: str = "visible",
+        state: Literal["visible", "hidden", "attached", "detached"] = "visible",
         timeout: Optional[int] = None,
     ) -> Locator:
         """Wait for an element to be in a specific state.
@@ -261,6 +261,18 @@ class BasePage:
             Page text content
         """
         return self.page.text_content("body") or ""
+
+    def assert_page_has_no_server_error(self) -> None:
+        """Assert page loaded and does not show server error markers."""
+        self.wait_for_page_load()
+        page_content = self.get_page_content()
+        lowered_title = self.page.title().lower()
+
+        assert "500 internal server error" not in page_content
+        assert "http 500" not in page_content
+        assert "internal server error" not in page_content
+        assert "application error" not in page_content
+        assert "error" not in lowered_title
     
     def print_console_logs(self) -> None:
         """Print browser console logs for debugging."""

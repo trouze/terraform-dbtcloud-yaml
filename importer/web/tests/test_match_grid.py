@@ -591,3 +591,115 @@ class TestAdoptAndProtectRoundtrip:
         assert everyone["action"] == "adopt"
         assert everyone["protected"] is True
         assert everyone["yaml_protected"] is True
+
+
+class TestBuildGridDataStateLoadedFlag:
+    """Regression coverage for state_loaded-only paths."""
+
+    def test_state_loaded_without_state_result_does_not_crash_and_defaults_to_adopt(self):
+        """When state is marked loaded but no state_result is present, rows still build."""
+        source_items = [
+            {
+                "key": "conn_foo",
+                "name": "conn_foo",
+                "element_type_code": "CON",
+                "dbt_id": 11,
+                "project_name": "",
+            }
+        ]
+        target_items = [
+            {
+                "key": "conn_foo",
+                "name": "conn_foo",
+                "element_type_code": "CON",
+                "dbt_id": 1636,
+                "project_name": "",
+            }
+        ]
+
+        rows = build_grid_data(
+            source_items=source_items,
+            target_items=target_items,
+            confirmed_mappings=[],
+            rejected_keys=set(),
+            state_result=None,
+            state_loaded=True,
+        )
+
+        assert len(rows) >= 1
+        row = rows[0]
+        assert row["source_type"] == "CON"
+        assert row["drift_status"] == "not_in_state"
+        assert row["action"] == "adopt"
+
+    def test_no_state_loaded_exact_match_defaults_to_adopt(self):
+        """Exact target match with no Terraform state defaults to adopt."""
+        source_items = [
+            {
+                "key": "conn_foo",
+                "name": "conn_foo",
+                "element_type_code": "CON",
+                "dbt_id": 11,
+                "project_name": "",
+            }
+        ]
+        target_items = [
+            {
+                "key": "conn_foo",
+                "name": "conn_foo",
+                "element_type_code": "CON",
+                "dbt_id": 1636,
+                "project_name": "",
+            }
+        ]
+
+        rows = build_grid_data(
+            source_items=source_items,
+            target_items=target_items,
+            confirmed_mappings=[],
+            rejected_keys=set(),
+            state_result=None,
+            state_loaded=False,
+        )
+
+        assert len(rows) >= 1
+        row = rows[0]
+        assert row["source_type"] == "CON"
+        assert row["drift_status"] == "no_state"
+        assert row["action"] == "adopt"
+
+    def test_no_state_loaded_group_exact_match_defaults_to_match(self):
+        """No-state auto-match should not auto-adopt groups."""
+        source_items = [
+            {
+                "key": "member",
+                "name": "member",
+                "element_type_code": "GRP",
+                "dbt_id": 10,
+                "project_name": "",
+            }
+        ]
+        target_items = [
+            {
+                "key": "member",
+                "name": "member",
+                "element_type_code": "GRP",
+                "dbt_id": 774,
+                "project_name": "",
+            }
+        ]
+
+        rows = build_grid_data(
+            source_items=source_items,
+            target_items=target_items,
+            confirmed_mappings=[],
+            rejected_keys=set(),
+            state_result=None,
+            state_loaded=False,
+        )
+
+        assert len(rows) >= 1
+        row = rows[0]
+        assert row["source_type"] == "GRP"
+        assert row["drift_status"] == "no_state"
+        assert row["action"] == "match"

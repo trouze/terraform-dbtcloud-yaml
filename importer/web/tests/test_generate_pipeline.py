@@ -107,7 +107,7 @@ class TestP1ApplyIntentsAfterMerge:
         with patch("importer.web.utils.generate_pipeline.resolve_deployment_paths") as mock_paths:
             mock_paths.return_value = (tmp_path, tmp_path / "dbt-cloud-config.yml", None)
             # Skip HCL regen (no actual TF module)
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 run_generate_pipeline(
                     mock_state,
                     merge_baseline=False,
@@ -148,7 +148,7 @@ class TestP2SkipMovedNotInState:
 
         with patch("importer.web.utils.generate_pipeline.resolve_deployment_paths") as mock_paths:
             mock_paths.return_value = (tmp_path, tmp_path / "dbt-cloud-config.yml", None)
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 run_generate_pipeline(
                     mock_state,
                     merge_baseline=False,
@@ -187,7 +187,7 @@ class TestP3ExpandPRJ:
 
         with patch("importer.web.utils.generate_pipeline.resolve_deployment_paths") as mock_paths:
             mock_paths.return_value = (tmp_path, tmp_path / "dbt-cloud-config.yml", None)
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 run_generate_pipeline(
                     mock_state,
                     merge_baseline=False,
@@ -234,7 +234,7 @@ class TestP4ProtectedAdoptAddress:
 
         with patch("importer.web.utils.generate_pipeline.resolve_deployment_paths") as mock_paths:
             mock_paths.return_value = (tmp_path, tmp_path / "dbt-cloud-config.yml", None)
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 run_generate_pipeline(
                     mock_state,
                     include_adopt=True,
@@ -283,7 +283,7 @@ class TestP5TargetFlagsComplete:
 
         with patch("importer.web.utils.generate_pipeline.resolve_deployment_paths") as mock_paths:
             mock_paths.return_value = (tmp_path, tmp_path / "dbt-cloud-config.yml", None)
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 run_generate_pipeline(
                     mock_state,
                     merge_baseline=False,
@@ -319,7 +319,7 @@ class TestP6UnprotectUpdatesYAML:
 
         with patch("importer.web.utils.generate_pipeline.resolve_deployment_paths") as mock_paths:
             mock_paths.return_value = (tmp_path, tmp_path / "dbt-cloud-config.yml", None)
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 run_generate_pipeline(
                     mock_state,
                     merge_baseline=False,
@@ -354,7 +354,7 @@ class TestP7Idempotent:
 
         with patch("importer.web.utils.generate_pipeline.resolve_deployment_paths") as mock_paths:
             mock_paths.return_value = (tmp_path, tmp_path / "dbt-cloud-config.yml", None)
-            result1 = asyncio.get_event_loop().run_until_complete(
+            result1 = asyncio.run(
                 run_generate_pipeline(
                     mock_state,
                     merge_baseline=False,
@@ -368,7 +368,7 @@ class TestP7Idempotent:
         # Run again (intent now marked applied_to_yaml)
         with patch("importer.web.utils.generate_pipeline.resolve_deployment_paths") as mock_paths:
             mock_paths.return_value = (tmp_path, tmp_path / "dbt-cloud-config.yml", None)
-            result2 = asyncio.get_event_loop().run_until_complete(
+            result2 = asyncio.run(
                 run_generate_pipeline(
                     mock_state,
                     merge_baseline=False,
@@ -397,7 +397,7 @@ class TestP8NothingPending:
 
         with patch("importer.web.utils.generate_pipeline.resolve_deployment_paths") as mock_paths:
             mock_paths.return_value = (tmp_path, tmp_path / "dbt-cloud-config.yml", None)
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 run_generate_pipeline(
                     mock_state,
                     merge_baseline=False,
@@ -459,7 +459,7 @@ class TestP9AdoptBaselineProjectsOnly:
             "importer.web.utils.generate_pipeline.resolve_deployment_paths"
         ) as mock_paths:
             mock_paths.return_value = (tmp_path, tmp_path / "dbt-cloud-config.yml", None)
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 run_generate_pipeline(
                     mock_state,
                     include_adopt=True,

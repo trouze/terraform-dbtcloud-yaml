@@ -53,6 +53,27 @@ def _dbg_673991(hypothesis_id: str, location: str, message: str, data: dict) -> 
     _ = (hypothesis_id, location, message, data)
 
 
+def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    payload = {
+        "sessionId": "db419a",
+        "runId": "pre-fix",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(
+            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    except Exception:
+        return
+
+
 def _get_terraform_dir(state: AppState) -> Path:
     """Resolve the terraform directory from state.
 
@@ -200,7 +221,34 @@ def _get_grid_rows_from_state(state: AppState) -> list[dict]:
     source_items = _load_report_items(state, target=False)
     target_items = _load_report_items(state, target=True)
 
+    # region agent log
+    _dbg_db419a(
+        "H36",
+        "adopt.py:_get_grid_rows_from_state",
+        "loaded report items for adopt grid",
+        {
+            "source_items_count": len(source_items),
+            "target_items_count": len(target_items),
+            "has_source_report": bool(state.fetch.last_report_items_file),
+            "has_target_report": bool(state.target_fetch.last_report_items_file),
+            "source_report_path": state.fetch.last_report_items_file or "",
+            "target_report_path": state.target_fetch.last_report_items_file or "",
+        },
+    )
+    # endregion
     if not source_items or not target_items:
+        # region agent log
+        _dbg_db419a(
+            "H37",
+            "adopt.py:_get_grid_rows_from_state",
+            "falling back to confirmed mappings due missing report items",
+            {
+                "source_items_count": len(source_items),
+                "target_items_count": len(target_items),
+                "confirmed_mappings_count": len(state.map.confirmed_mappings or []),
+            },
+        )
+        # endregion
         # Fall back: return raw confirmed_mappings when report files are gone
         return _get_grid_rows_from_confirmed_mappings_fallback(state)
 
@@ -253,6 +301,19 @@ def _get_grid_rows_from_state(state: AppState) -> list[dict]:
         protected_resources=state.map.protected_resources,
         protection_intent_manager=protection_intent_manager,
     )
+    # region agent log
+    _dbg_db419a(
+        "H38",
+        "adopt.py:_get_grid_rows_from_state",
+        "build_grid_data completed for adopt page",
+        {
+            "grid_rows_count": len(grid_data),
+            "state_result_loaded": state_result is not None,
+            "confirmed_mappings_count": len(state.map.confirmed_mappings or []),
+            "adopt_action_rows": sum(1 for r in grid_data if r.get("action") == "adopt"),
+        },
+    )
+    # endregion
 
     return grid_data
 
@@ -316,9 +377,17 @@ def _compute_adopt_summary(
             cm_by_key[sk] = m.get("action", "match")
 
     # Filter by drift status — these resources need to be imported into TF.
-    # Only adopt if confirmed_mappings explicitly says "adopt".
+    # Priority for action source:
+    # 1) confirmed_mappings explicit action (source of truth when present)
+    # 2) row action from build_grid_data (for auto-adopt rows when no explicit mapping exists)
     adopt_rows = []
+    rows_without_confirmed_action = 0
+    rows_using_row_action = 0
     for r in grid_rows:
+        # Target-only rows are informational and can be very large in count;
+        # keep Adopt focused on source-selected resources.
+        if r.get("is_target_only"):
+            continue
         if r.get("drift_status") in _ADOPTABLE_DRIFT and r.get("target_id"):
             source_key = r.get("source_key", "")
 
@@ -327,12 +396,40 @@ def _compute_adopt_summary(
             if cm_action is None and not source_key.startswith("target__"):
                 cm_action = cm_by_key.get(f"target__{source_key}")
 
-            # Only adopt if explicitly "adopt" in confirmed_mappings
+            # Only adopt if explicitly "adopt" in confirmed_mappings.
+            # If there's no confirmed mapping yet, preserve row action from match grid.
             if cm_action == "adopt":
                 r["action"] = "adopt"
+            elif cm_action is None and r.get("action") == "adopt":
+                rows_without_confirmed_action += 1
+                rows_using_row_action += 1
+                r["action"] = "adopt"
             else:
+                if cm_action is None:
+                    rows_without_confirmed_action += 1
                 r["action"] = "ignore"
             adopt_rows.append(r)
+
+    # region agent log
+    _dbg_db419a(
+        "H55",
+        "adopt.py:_compute_adopt_summary",
+        "resolved adopt actions from confirmed mappings and row fallbacks",
+        {
+            "grid_rows_count": len(grid_rows),
+            "adopt_rows_count": len(adopt_rows),
+            "confirmed_mappings_count": len(cm_by_key),
+            "rows_without_confirmed_action": rows_without_confirmed_action,
+            "rows_using_row_action": rows_using_row_action,
+            "adopt_source_type_counts": {
+                str(k): int(v)
+                for k, v in __import__("collections").Counter(
+                    str(r.get("source_type", "")) for r in adopt_rows if r.get("action") == "adopt"
+                ).items()
+            },
+        },
+    )
+    # endregion
 
     # region agent log
     grp_rows = [r for r in grid_rows if r.get("source_type") == "GRP"]
@@ -370,6 +467,18 @@ def _compute_adopt_summary(
         "adopt_rows": adopt_rows,
         "state_rm_commands": state_rm_cmds,
     }
+
+
+def _terraform_declares_variable(tf_path: Path, variable_name: str) -> bool:
+    """Return True when the root module declares the given Terraform variable."""
+    pattern = re.compile(rf'variable\s+"{re.escape(variable_name)}"')
+    for tf_file in tf_path.glob("*.tf"):
+        try:
+            if pattern.search(tf_file.read_text(encoding="utf-8")):
+                return True
+        except Exception:
+            continue
+    return False
 
 
 def _invalidate_adopt_artifacts_for_action_change(
@@ -666,6 +775,67 @@ async def _run_adopt_plan(
 
         # Build -target flags from pipeline artifacts.
         target_flags: list[str] = pipeline_result.target_flags
+        tf_non_import_files = [p for p in tf_path.glob("*.tf") if p.name != "adopt_imports.tf"]
+        regen_fallback_generated_config = False
+        if not tf_non_import_files:
+            terminal.warning(
+                "No Terraform config files found besides adopt_imports.tf; "
+                "attempting HCL regeneration before plan."
+            )
+            candidate_yaml_paths: list[Path] = []
+            _tf_dir2, deployment_yaml_file, _baseline = resolve_deployment_paths(state)
+            if deployment_yaml_file:
+                candidate_yaml_paths.append(deployment_yaml_file)
+            try:
+                _intent = state.get_target_intent_manager().load()
+                if _intent and _intent.source_focus_path:
+                    candidate_yaml_paths.append(Path(_intent.source_focus_path))
+            except Exception:
+                pass
+            if state.map.last_yaml_file:
+                candidate_yaml_paths.append(Path(state.map.last_yaml_file))
+
+            selected_yaml: Optional[Path] = None
+            for candidate in candidate_yaml_paths:
+                if candidate and candidate.exists():
+                    selected_yaml = candidate
+                    break
+
+            if selected_yaml:
+                try:
+                    from importer.yaml_converter import YamlToTerraformConverter
+
+                    converter = YamlToTerraformConverter()
+                    await asyncio.to_thread(converter.convert, str(selected_yaml), str(tf_path))
+                    tf_files_after_regen = sorted([p.name for p in tf_path.glob("*.tf")])
+                    regen_fallback_generated_config = any(
+                        name != "adopt_imports.tf" for name in tf_files_after_regen
+                    )
+                except Exception as regen_err:
+                    terminal.warning(f"HCL regeneration fallback failed: {regen_err}")
+        if regen_fallback_generated_config:
+            terminal.info("Re-running terraform init after fallback HCL regeneration...")
+            reinit_result = await asyncio.to_thread(
+                subprocess.run,
+                ["terraform", "init", "-no-color"],
+                cwd=str(tf_path),
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            _emit_bounded_terminal_output(
+                terminal,
+                phase_name="re-init",
+                stdout=reinit_result.stdout,
+                stderr=reinit_result.stderr,
+                stdout_budget=OutputBudget(max_lines=700, head_lines=420, tail_lines=220),
+                stderr_budget=OutputBudget(max_lines=300, head_lines=180, tail_lines=100),
+            )
+            if reinit_result.returncode != 0:
+                raise RuntimeError(
+                    f"terraform init after fallback regeneration failed (exit code {reinit_result.returncode})"
+                )
+            terminal.success("✓ Terraform re-initialized after fallback regeneration")
         # In adopt flow, never fall back to broad target derivation when no
         # import targets were generated; this would produce a regular/full plan.
         if not target_flags:
@@ -679,7 +849,13 @@ async def _run_adopt_plan(
             # For global-only adoption plans, suppress project-linked
             # group/service-token permission expansion so -target does not
             # pull unmanaged projects into the plan graph.
-            plan_cmd += ["-var", "projects_v2_skip_global_project_permissions=true"]
+            _skip_var = "projects_v2_skip_global_project_permissions"
+            if _terraform_declares_variable(tf_path, _skip_var):
+                plan_cmd += ["-var", f"{_skip_var}=true"]
+            else:
+                terminal.warning(
+                    f"Skipping -var {_skip_var}=true because this module does not declare that variable."
+                )
 
         terminal.info(f"> {' '.join(plan_cmd)}")
         terminal.info("")
@@ -692,6 +868,38 @@ async def _run_adopt_plan(
             text=True,
             env=env,
         )
+
+        # Defensive recovery for occasional module-install race/miss:
+        # if plan reports modules are not installed, re-init once and retry plan.
+        if result.returncode != 0 and "Module not installed" in (result.stderr or ""):
+            terminal.warning(
+                "Plan reported 'Module not installed'; re-running terraform init and retrying plan once."
+            )
+            retry_init_result = await asyncio.to_thread(
+                subprocess.run,
+                ["terraform", "init", "-no-color"],
+                cwd=str(tf_path),
+                capture_output=True,
+                text=True,
+                env=env,
+            )
+            _emit_bounded_terminal_output(
+                terminal,
+                phase_name="retry-init",
+                stdout=retry_init_result.stdout,
+                stderr=retry_init_result.stderr,
+                stdout_budget=OutputBudget(max_lines=700, head_lines=420, tail_lines=220),
+                stderr_budget=OutputBudget(max_lines=300, head_lines=180, tail_lines=100),
+            )
+            if retry_init_result.returncode == 0:
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    plan_cmd,
+                    cwd=str(tf_path),
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                )
 
         # Color-code plan output lines like the deploy page, with bounded rendering.
         _emit_bounded_terminal_output(
@@ -942,6 +1150,19 @@ def create_adopt_page(
 
     # Resolve terraform directory
     tf_path = _get_terraform_dir(state)
+    # region agent log
+    _dbg_db419a(
+        "H39",
+        "adopt.py:create_adopt_page",
+        "adopt page entered with resolved terraform path",
+        {
+            "active_project": state.active_project or "",
+            "project_path": state.project_path or "",
+            "terraform_dir_state": state.deploy.terraform_dir or "",
+            "resolved_tf_path": str(tf_path),
+        },
+    )
+    # endregion
 
     # Restore adopt step state from disk (survives server restart).
     # Do this before any UI rendering so the "Already complete" card shows correctly.
@@ -975,6 +1196,22 @@ def create_adopt_page(
     has_target_credentials = bool(
         state.target_credentials.api_token and state.target_credentials.account_id
     )
+    # region agent log
+    _dbg_db419a(
+        "H40",
+        "adopt.py:create_adopt_page",
+        "computed adopt summary and gate flags",
+        {
+            "adopt_count": int(summary.get("adopt_count", 0)),
+            "adopt_rows_count": len(summary.get("adopt_rows", [])),
+            "has_adopt_rows": has_adopt_rows,
+            "confirmed_mappings_count": len(state.map.confirmed_mappings or []),
+            "reconcile_state_loaded": bool(state.deploy.reconcile_state_loaded),
+            "reconcile_state_resources_count": len(state.deploy.reconcile_state_resources or []),
+            "has_target_credentials": has_target_credentials,
+        },
+    )
+    # endregion
 
     # region agent log
     _dbg_673991(
@@ -1248,6 +1485,27 @@ def create_adopt_page(
             },
         )
         # endregion
+        # region agent log
+        _dbg_db419a(
+            "H56",
+            "adopt.py:create_adopt_page",
+            "adopt grid row data prepared for AG Grid render",
+            {
+                "row_count": len(adopt_grid_data),
+                "adopt_count_summary": int(summary.get("adopt_count", 0)),
+                "ignore_count_summary": int(len(adopt_grid_data) - int(summary.get("adopt_count", 0))),
+                "sample_rows": [
+                    {
+                        "source_key": str(r.get("source_key", "")),
+                        "source_type": str(r.get("source_type", "")),
+                        "source_name": str(r.get("source_name", "")),
+                        "action": str(r.get("action", "")),
+                    }
+                    for r in adopt_grid_data[:8]
+                ],
+            },
+        )
+        # endregion
 
         TYPE_LABELS_JS = """{
             'ACC': 'Account', 'CON': 'Connection', 'REP': 'Repository',
@@ -1387,7 +1645,6 @@ def create_adopt_page(
             "stopEditingWhenCellsLoseFocus": True,
             "singleClickEdit": True,
             "animateRows": False,
-            ":onGridReady": """params => { window.__adoptGridApi = params.api; }""",
         }
 
         # region agent log
@@ -1399,7 +1656,7 @@ def create_adopt_page(
                 "column_count": len(adopt_col_defs),
                 "column_fields": [str(c.get("field", "")) for c in adopt_col_defs],
                 "row_data_count": len(adopt_grid_options.get("rowData", [])),
-                "theme": "quartz + ag-theme-quartz-auto-dark",
+                "theme": "quartz + ag-theme-quartz",
             },
         )
         # endregion
@@ -1430,7 +1687,7 @@ def create_adopt_page(
 
         adopt_grid = ui.aggrid(
             adopt_grid_options, theme="quartz"
-        ).classes("w-full adopt-grid ag-theme-quartz-auto-dark").style(
+        ).classes("w-full adopt-grid ag-theme-quartz").style(
             "height: 400px; min-height: 200px; width: 100%;"
         )
 

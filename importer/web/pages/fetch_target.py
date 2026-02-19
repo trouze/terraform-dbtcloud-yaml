@@ -3,6 +3,7 @@
 import asyncio
 import json
 import threading
+import time
 from pathlib import Path
 from typing import Callable, List, Optional, Tuple
 
@@ -28,6 +29,7 @@ from importer.web.env_manager import (
     auto_seed_project_env,
 )
 from importer.element_ids import apply_element_ids
+from importer.web.project_manager import resolve_fetch_output_dirs_for_project
 
 
 # Native integration strategies that require PAT for target operations
@@ -37,6 +39,79 @@ NATIVE_INTEGRATION_STRATEGIES = {"github_app", "deploy_token", "azure_active_dir
 # dbt brand colors
 DBT_ORANGE = "#FF694A"
 DBT_TEAL = "#047377"  # Primary color for target pages
+_DEFAULT_TARGET_OUTPUT_DIR = "dev_support/samples/target"
+
+
+def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    """Write one NDJSON debug record for fetch-target runtime analysis."""
+    payload = {
+        "sessionId": "db419a",
+        "runId": "post-fix",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(
+            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    except Exception:
+        return
+
+
+def _safe_notify(message: str, *, notify_type: str = "info", timeout: Optional[float] = None) -> bool:
+    """Attempt UI notification; tolerate detached/deleted NiceGUI slot."""
+    try:
+        if timeout is None:
+            ui.notify(message, type=notify_type)
+        else:
+            ui.notify(message, type=notify_type, timeout=timeout)
+        return True
+    except RuntimeError as e:
+        error_text = str(e).lower()
+        if "slot belongs to has been deleted" in error_text or "client this element belongs to has been deleted" in error_text:
+            # region agent log
+            _dbg_db419a(
+                "H19",
+                "fetch_target.py:_safe_notify",
+                "suppressed notify after UI context deletion",
+                {"message": message, "error": str(e), "type": notify_type},
+            )
+            # endregion
+            return False
+        raise
+
+
+def _enforced_target_output_dir(state: AppState) -> str:
+    _, project_target_dir = resolve_fetch_output_dirs_for_project(state.project_path)
+    if project_target_dir:
+        return project_target_dir
+    return _DEFAULT_TARGET_OUTPUT_DIR
+
+
+def _enforce_target_output_dir(state: AppState, save_state: Callable[[], None]) -> None:
+    enforced_dir = _enforced_target_output_dir(state)
+    if state.target_fetch.output_dir != enforced_dir:
+        previous = state.target_fetch.output_dir
+        state.target_fetch.output_dir = enforced_dir
+        save_state()
+        # region agent log
+        _dbg_db419a(
+            "H28",
+            "fetch_target.py:_enforce_target_output_dir",
+            "enforced read-only target output directory",
+            {
+                "project_path": state.project_path,
+                "previous_output_dir": previous,
+                "enforced_output_dir": enforced_dir,
+            },
+        )
+        # endregion
 
 
 def _get_source_native_integration_repos(state: AppState) -> List[Tuple[str, str]]:
@@ -95,6 +170,7 @@ def create_fetch_target_page(
     fetch_in_progress = {"value": False}
     cancel_event = {"event": None}  # Will hold threading.Event during fetch
     fetch_complete = {"value": state.target_fetch.fetch_complete}
+    _enforce_target_output_dir(state, save_state)
     
     # Check for native integration repositories in source
     native_repos = _get_source_native_integration_repos(state)
@@ -239,11 +315,8 @@ def _create_fetch_options(
             ui.input(
                 label="Output Directory",
                 value=state.target_fetch.output_dir,
-                placeholder="dev_support/samples/target",
-            ).classes("flex-grow").props('outlined dense').on(
-                'update:model-value',
-                lambda e: _update_output_dir(state, e.args, save_state)
-            )
+                placeholder=_DEFAULT_TARGET_OUTPUT_DIR,
+            ).classes("flex-grow").props("outlined dense readonly")
 
             # Auto-timestamp toggle (inline)
             ui.switch(
@@ -311,16 +384,6 @@ def _create_results_section(
 
 def _on_credentials_change(state: AppState, save_state: Callable[[], None]) -> None:
     """Handle credentials change."""
-    save_state()
-
-
-def _update_output_dir(
-    state: AppState,
-    value: str,
-    save_state: Callable[[], None],
-) -> None:
-    """Update output directory in state."""
-    state.target_fetch.output_dir = value if value else "dev_support/samples/target"
     save_state()
 
 
@@ -871,7 +934,7 @@ async def _run_fetch(
         # Mark progress tree as complete
         progress_tree.complete()
         
-        ui.notify("Target fetch completed successfully!", type="positive")
+        _safe_notify("Target fetch completed successfully!", notify_type="positive")
 
         # Dynamically show the results section instead of reloading
         # This preserves the terminal logs and progress tree state
@@ -887,7 +950,7 @@ async def _run_fetch(
         # Mark progress tree as cancelled
         progress_tree.error("Cancelled")
         
-        ui.notify("Fetch cancelled", type="warning")
+        _safe_notify("Fetch cancelled", notify_type="warning")
 
     except Exception as e:
         terminal.error("")
@@ -905,7 +968,7 @@ async def _run_fetch(
         elif "connect" in error_str or "network" in error_str:
             terminal.warning("Hint: Check your Host URL and network connection")
 
-        ui.notify(f"Fetch failed: {e}", type="negative", timeout=10)
+        _safe_notify(f"Fetch failed: {e}", notify_type="negative", timeout=10)
 
     finally:
         fetch_in_progress["value"] = False

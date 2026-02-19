@@ -6,6 +6,8 @@ Provides functions to:
 - Build project-scoped child lists for "Select Whole Project"
 """
 
+import json
+import time
 from typing import Dict, List, Optional, Set, Tuple
 
 from importer.web.components.hierarchy_index import ENTITY_PARENT_TYPES, TYPE_DEPTH
@@ -13,6 +15,27 @@ from importer.web.components.hierarchy_index import ENTITY_PARENT_TYPES, TYPE_DE
 
 # Parent types that are adoptable (not account-level, since we don't adopt accounts)
 ADOPTABLE_PARENT_TYPES = {"PRJ", "ENV"}
+
+
+def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    payload = {
+        "sessionId": "db419a",
+        "runId": "pre-fix",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(
+            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    except Exception:
+        return
 
 
 def get_parent_chain(resource_type: str) -> List[str]:
@@ -36,6 +59,20 @@ def get_parent_chain(resource_type: str) -> List[str]:
 
     while current in ENTITY_PARENT_TYPES:
         parents = ENTITY_PARENT_TYPES[current]
+        # region agent log
+        if resource_type == "CON":
+            _dbg_db419a(
+                "H45",
+                "adoption_dependencies.py:get_parent_chain",
+                "evaluating parent candidates for connection",
+                {
+                    "resource_type": resource_type,
+                    "current_type": current,
+                    "raw_parent_candidates": list(parents),
+                    "visited": sorted(list(visited)),
+                },
+            )
+        # endregion
         # Find the first non-ACC adoptable parent
         next_parent = None
         for p in parents:
@@ -78,6 +115,20 @@ def find_unadopted_parents(
     child_project = child_row.get("project_name", "")
 
     parent_chain = get_parent_chain(child_type)
+    # region agent log
+    if child_type == "CON":
+        _dbg_db419a(
+            "H46",
+            "adoption_dependencies.py:find_unadopted_parents",
+            "computed parent chain for connection adoption check",
+            {
+                "child_type": child_type,
+                "child_source_key": child_row.get("source_key", ""),
+                "child_project": child_project,
+                "parent_chain": parent_chain,
+            },
+        )
+    # endregion
     if not parent_chain:
         return []
 
@@ -120,6 +171,22 @@ def find_unadopted_parents(
             if action not in ("adopt", "match"):
                 # Parent is not adopted and not already matched → needs adoption
                 unadopted.append(candidate)
+        # region agent log
+        if child_type == "CON":
+            _dbg_db419a(
+                "H46",
+                "adoption_dependencies.py:find_unadopted_parents",
+                "evaluated candidates for computed parent type",
+                {
+                    "child_source_key": child_row.get("source_key", ""),
+                    "parent_type": parent_type,
+                    "candidate_count": len(candidates),
+                    "candidate_keys": [str(c.get("source_key", "")) for c in candidates[:20]],
+                    "candidate_actions": [str(c.get("action", "")) for c in candidates[:20]],
+                    "unadopted_keys_so_far": [str(u.get("source_key", "")) for u in unadopted[:20]],
+                },
+            )
+        # endregion
 
     return unadopted
 

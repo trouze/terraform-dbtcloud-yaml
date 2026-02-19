@@ -50,9 +50,26 @@ STATUS_WARNING = "#EAB308"  # yellow-500
 STATUS_ERROR = "#EF4444"    # red-500
 
 
-def _dbg_673991(hypothesis_id: str, location: str, message: str, data: dict) -> None:
-    """Temporary debug hook (disabled)."""
-    _ = (hypothesis_id, location, message, data)
+def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    """Write one NDJSON debug record for deploy runtime analysis."""
+    payload = {
+        "sessionId": "db419a",
+        "runId": "pre-fix",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(
+            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    except Exception:
+        return
 
 
 def create_deploy_page(
@@ -69,6 +86,14 @@ def create_deploy_page(
     """
     # Terminal output for Terraform operations
     terminal = TerminalOutput(show_timestamps=True)
+    # region agent log
+    _dbg_db419a(
+        "H6",
+        "deploy.py:create_deploy_page",
+        "deploy page created with terminal output",
+        {"optimization_target": "localhost"},
+    )
+    # endregion
     
     # Track deployment state
     deploy_state = {
@@ -2065,6 +2090,23 @@ async def _run_generate(
                                if i.applied_to_yaml and not i.applied_to_tf_state}
             
             all_pending = {**pending_yaml_updates, **pending_tf_apply}
+
+            # Guard against stale protection intent entries from previous runs/projects.
+            # Only apply intents that exist in the current target intent disposition set.
+            valid_intent_keys = set()
+            for key, disp in target_intent.dispositions.items():
+                valid_intent_keys.add(key)
+                valid_intent_keys.add(f"{disp.resource_type}:{key}")
+            stale_pending_keys = set(all_pending) - valid_intent_keys
+            if stale_pending_keys:
+                terminal.warning(
+                    f"Skipping {len(stale_pending_keys)} stale protection intent key(s) not present in current target intent"
+                )
+                for key in sorted(list(stale_pending_keys)[:5]):
+                    terminal.warning(f"  stale: {key}")
+                if len(stale_pending_keys) > 5:
+                    terminal.warning(f"  ... and {len(stale_pending_keys) - 5} more")
+                all_pending = {k: v for k, v in all_pending.items() if k in valid_intent_keys}
             
             if all_pending:
                 terminal.info("")
@@ -2583,6 +2625,14 @@ async def _run_terraform_plan(
     terminal.clear()
     terminal.info(f"Running terraform plan in {tf_dir}...")
     terminal.info("")
+    # region agent log
+    _dbg_db419a(
+        "H7",
+        "deploy.py:_run_terraform_plan",
+        "plan operation started",
+        {"tf_dir": tf_dir},
+    )
+    # endregion
 
     deploy_state["plan_running"] = True
 
@@ -2626,6 +2676,18 @@ async def _run_terraform_plan(
 
         stdout_lines = result.stdout.split("\n")
         stderr_lines = result.stderr.split("\n")
+        # region agent log
+        _dbg_db419a(
+            "H7",
+            "deploy.py:_run_terraform_plan",
+            "plan subprocess completed",
+            {
+                "returncode": result.returncode,
+                "stdout_lines": len(stdout_lines),
+                "stderr_lines": len(stderr_lines),
+            },
+        )
+        # endregion
 
         # Output stdout (cap rendered lines to avoid websocket overload)
         max_render_lines = 700
@@ -2641,6 +2703,18 @@ async def _run_terraform_plan(
             )
         else:
             render_lines = stdout_lines
+        # region agent log
+        _dbg_db419a(
+            "H8",
+            "deploy.py:_run_terraform_plan",
+            "plan UI render sizing decided",
+            {
+                "max_render_lines": max_render_lines,
+                "rendered_stdout_lines": len(render_lines),
+                "truncated": len(stdout_lines) > max_render_lines,
+            },
+        )
+        # endregion
         for line in render_lines:
             if line.strip():
                 # Color-code plan output
@@ -2998,6 +3072,14 @@ async def _run_terraform_apply(
     terminal.info("")
     terminal.info("⚠️ This will create/modify resources in the target account!")
     terminal.info("")
+    # region agent log
+    _dbg_db419a(
+        "H9",
+        "deploy.py:_run_terraform_apply",
+        "apply operation started",
+        {"tf_dir": tf_dir},
+    )
+    # endregion
 
     deploy_state["apply_running"] = True
 
@@ -3013,9 +3095,23 @@ async def _run_terraform_apply(
             text=True,
             env=env,
         )
+        stdout_lines = result.stdout.split("\n")
+        stderr_lines = result.stderr.split("\n")
+        # region agent log
+        _dbg_db419a(
+            "H9",
+            "deploy.py:_run_terraform_apply",
+            "apply subprocess completed",
+            {
+                "returncode": result.returncode,
+                "stdout_lines": len(stdout_lines),
+                "stderr_lines": len(stderr_lines),
+            },
+        )
+        # endregion
 
         # Output stdout
-        for line in result.stdout.split("\n"):
+        for line in stdout_lines:
             if line.strip():
                 if "Apply complete" in line:
                     terminal.success(line)
@@ -3027,7 +3123,7 @@ async def _run_terraform_apply(
                     terminal.info_auto(line)
 
         # Output stderr
-        for line in result.stderr.split("\n"):
+        for line in stderr_lines:
             if line.strip():
                 terminal.warning(line)
 
@@ -3131,6 +3227,14 @@ async def _run_terraform_destroy(
     terminal.info("")
     terminal.info(f"Running terraform destroy in {tf_dir}...")
     terminal.info("")
+    # region agent log
+    _dbg_db419a(
+        "H10",
+        "deploy.py:_run_terraform_destroy",
+        "destroy operation started",
+        {"tf_dir": tf_dir},
+    )
+    # endregion
 
     deploy_state["destroy_running"] = True
 
@@ -3146,9 +3250,23 @@ async def _run_terraform_destroy(
             text=True,
             env=env,
         )
+        stdout_lines = result.stdout.split("\n")
+        stderr_lines = result.stderr.split("\n")
+        # region agent log
+        _dbg_db419a(
+            "H10",
+            "deploy.py:_run_terraform_destroy",
+            "destroy subprocess completed",
+            {
+                "returncode": result.returncode,
+                "stdout_lines": len(stdout_lines),
+                "stderr_lines": len(stderr_lines),
+            },
+        )
+        # endregion
 
         # Output stdout
-        for line in result.stdout.split("\n"):
+        for line in stdout_lines:
             if line.strip():
                 if "destroyed" in line.lower():
                     terminal.warning(line)
@@ -3158,7 +3276,7 @@ async def _run_terraform_destroy(
                     terminal.info_auto(line)
 
         # Output stderr
-        for line in result.stderr.split("\n"):
+        for line in stderr_lines:
             if line.strip():
                 terminal.warning(line)
 

@@ -177,7 +177,7 @@ class TestImportBlockAddress:
 
         with patch("importer.web.utils.generate_pipeline.resolve_deployment_paths") as mp:
             mp.return_value = (tmp_deployment, tmp_deployment / "dbt-cloud-config.yml", None)
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 run_generate_pipeline(
                     mock_state,
                     include_adopt=True,
@@ -213,7 +213,7 @@ class TestImportBlockAddress:
 
         with patch("importer.web.utils.generate_pipeline.resolve_deployment_paths") as mp:
             mp.return_value = (tmp_deployment, tmp_deployment / "dbt-cloud-config.yml", None)
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 run_generate_pipeline(
                     mock_state,
                     include_adopt=True,
@@ -267,7 +267,7 @@ class TestMovedBlockDirection:
 
         with patch("importer.web.utils.generate_pipeline.resolve_deployment_paths") as mp:
             mp.return_value = (tmp_deployment, yaml_file, None)
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 run_generate_pipeline(
                     mock_state,
                     merge_baseline=False,
@@ -297,7 +297,7 @@ class TestMovedBlockDirection:
 
         with patch("importer.web.utils.generate_pipeline.resolve_deployment_paths") as mp:
             mp.return_value = (tmp_deployment, yaml_file, None)
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 run_generate_pipeline(
                     mock_state,
                     merge_baseline=False,
