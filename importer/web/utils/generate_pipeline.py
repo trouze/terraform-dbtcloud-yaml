@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional
@@ -41,6 +42,27 @@ logger = logging.getLogger(__name__)
 def _dbg_673991(hypothesis_id: str, location: str, message: str, data: dict) -> None:
     """Temporary debug hook (disabled)."""
     _ = (hypothesis_id, location, message, data)
+
+
+def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    payload = {
+        "sessionId": "db419a",
+        "runId": "pre-fix",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(
+            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    except Exception:
+        return
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +147,24 @@ async def run_generate_pipeline(
     # ------------------------------------------------------------------
     _progress(on_progress, "Resolving deployment paths...")
     tf_path, yaml_file, baseline_yaml_path = resolve_deployment_paths(state)
+    # region agent log
+    _dbg_db419a(
+        "H66",
+        "generate_pipeline.py:run_generate_pipeline:path_snapshot",
+        "pipeline path snapshot after resolve_deployment_paths",
+        {
+            "active_project": getattr(state, "active_project", "") or "",
+            "project_path": str(getattr(state, "project_path", "") or ""),
+            "terraform_dir_state": str(getattr(state.deploy, "terraform_dir", "") or ""),
+            "map_last_yaml_file": str(getattr(state.map, "last_yaml_file", "") or ""),
+            "resolved_tf_path": str(tf_path),
+            "resolved_yaml_file": str(yaml_file),
+            "baseline_yaml_path": str(baseline_yaml_path) if baseline_yaml_path else "",
+            "tf_path_exists": bool(tf_path.exists()),
+            "yaml_exists_initial": bool(yaml_file.exists()),
+        },
+    )
+    # endregion
 
     if not tf_path.exists():
         result.errors.append(f"Terraform directory does not exist: {tf_path}")
@@ -149,6 +189,64 @@ async def run_generate_pipeline(
         on_progress,
         f"  Found {len(pending_yaml)} YAML-pending, {len(pending_tf)} TF-pending intents",
     )
+    # region agent log
+    _dbg_db419a(
+        "H62",
+        "generate_pipeline.py:run_generate_pipeline:pending_intents",
+        "pending intent breakdown before generation",
+        {
+            "include_adopt": bool(include_adopt),
+            "include_protection_moves": bool(include_protection_moves),
+            "pending_keys": sorted(list(pending.keys()))[:50],
+            "pending_rep_keys": sorted([k for k in pending.keys() if str(k).startswith("REP:")])[:30],
+            "pending_prep_keys": sorted([k for k in pending.keys() if str(k).startswith("PREP:")])[:30],
+            "pending_protected_true": sorted([k for k, v in pending.items() if bool(getattr(v, "protected", False))])[:30],
+            "pending_protected_false": sorted([k for k, v in pending.items() if not bool(getattr(v, "protected", False))])[:30],
+        },
+    )
+    # endregion
+    # region agent log
+    try:
+        yaml_snapshot = {}
+        if yaml_file.exists():
+            yaml_snapshot = yaml.safe_load(yaml_file.read_text(encoding="utf-8")) or {}
+        globals_block = yaml_snapshot.get("globals", {}) if isinstance(yaml_snapshot, dict) else {}
+        projects_block = yaml_snapshot.get("projects", []) if isinstance(yaml_snapshot, dict) else []
+        global_repo_keys = []
+        for repo in globals_block.get("repositories", []) if isinstance(globals_block, dict) else []:
+            if isinstance(repo, dict) and repo.get("key"):
+                global_repo_keys.append(str(repo.get("key")))
+        project_repo_refs = []
+        project_nested_repo_keys = []
+        for project in projects_block if isinstance(projects_block, list) else []:
+            if not isinstance(project, dict):
+                continue
+            if project.get("repository"):
+                project_repo_refs.append(str(project.get("repository")))
+            for repo in project.get("repositories", []) if isinstance(project.get("repositories"), list) else []:
+                if isinstance(repo, dict) and repo.get("key"):
+                    project_nested_repo_keys.append(str(repo.get("key")))
+        _dbg_db419a(
+            "H61",
+            "generate_pipeline.py:run_generate_pipeline:yaml_repo_shape",
+            "deployment YAML repository structure snapshot",
+            {
+                "global_repo_count": len(global_repo_keys),
+                "global_repo_keys": sorted(global_repo_keys)[:30],
+                "project_repo_ref_count": len(project_repo_refs),
+                "project_repo_refs": sorted(project_repo_refs)[:30],
+                "project_nested_repo_count": len(project_nested_repo_keys),
+                "project_nested_repo_keys": sorted(project_nested_repo_keys)[:30],
+            },
+        )
+    except Exception as e:
+        _dbg_db419a(
+            "H61",
+            "generate_pipeline.py:run_generate_pipeline:yaml_repo_shape",
+            "failed to inspect YAML repository structure",
+            {"error": str(e)},
+        )
+    # endregion
 
     if _is_cancelled(is_cancelled_fn):
         return result
@@ -231,6 +329,89 @@ async def run_generate_pipeline(
             on_progress,
             "Skipping protection+HCL updates (adopt-only non-project import)",
         )
+        # In adopt-only repo/link flows, still persist repository-level protection
+        # intent so projects_v2 can materialize the correct repositories collection.
+        try:
+            repo_intents = {
+                k: v
+                for k, v in pending.items()
+                if isinstance(k, str) and ":" in k and k.split(":", 1)[0] in {"REP", "PREP", "REPO"}
+            }
+            repo_overrides: list[dict] = []
+            if repo_intents and yaml_file.exists():
+                config = yaml.safe_load(yaml_file.read_text(encoding="utf-8")) or {}
+                projects = config.get("projects", []) if isinstance(config, dict) else []
+                changed = False
+                for intent_key, intent in repo_intents.items():
+                    rtype, rkey = intent_key.split(":", 1)
+                    normalized_key = rkey
+                    if rtype in {"REP", "PREP"} and normalized_key.startswith("dbt_ep_"):
+                        candidate = normalized_key[len("dbt_ep_"):]
+                        if candidate:
+                            normalized_key = candidate
+                    matched = False
+                    for project in projects if isinstance(projects, list) else []:
+                        if not isinstance(project, dict):
+                            continue
+                        if str(project.get("key", "")) != normalized_key:
+                            continue
+                        project["repository_protected"] = bool(intent.protected)
+                        matched = True
+                        changed = True
+                        repo_overrides.append(
+                            {
+                                "intent_key": intent_key,
+                                "project_key": normalized_key,
+                                "repository_protected": bool(intent.protected),
+                            }
+                        )
+                        break
+                    if not matched:
+                        repo_overrides.append(
+                            {
+                                "intent_key": intent_key,
+                                "project_key": normalized_key,
+                                "repository_protected": bool(intent.protected),
+                                "matched_project": False,
+                            }
+                        )
+                if changed:
+                    yaml_file.write_text(
+                        yaml.dump(
+                            config,
+                            default_flow_style=False,
+                            sort_keys=False,
+                            allow_unicode=True,
+                        ),
+                        encoding="utf-8",
+                    )
+                    result.yaml_updated = True
+                    _progress(
+                        on_progress,
+                        f"  Applied repository_protected overrides for {len(repo_intents)} repo intent(s)",
+                    )
+            # region agent log
+            _dbg_db419a(
+                "H63",
+                "generate_pipeline.py:run_generate_pipeline:repo_only_protection_overrides",
+                "applied repo-level repository_protected overrides in adopt-only flow",
+                {
+                    "repo_intent_count": len(repo_intents),
+                    "repo_overrides": repo_overrides[:30],
+                    "yaml_exists": yaml_file.exists(),
+                },
+            )
+            # endregion
+        except Exception as e:
+            _progress(on_progress, f"  Repo protection override skipped: {e}")
+            # region agent log
+            _dbg_db419a(
+                "H63",
+                "generate_pipeline.py:run_generate_pipeline:repo_only_protection_overrides",
+                "failed to apply repo-level repository_protected overrides in adopt-only flow",
+                {"error": str(e)},
+            )
+            # endregion
     elif yaml_file.exists():
         _progress(on_progress, "Applying protection flags to YAML...")
 
@@ -264,6 +445,24 @@ async def run_generate_pipeline(
         result.yaml_updated = bool(keys_to_protect or keys_to_unprotect)
     else:
         _progress(on_progress, f"  YAML file not found: {yaml_file}")
+        # region agent log
+        _dbg_db419a(
+            "H67",
+            "generate_pipeline.py:run_generate_pipeline:yaml_missing",
+            "YAML missing at protection-application step",
+            {
+                "active_project": getattr(state, "active_project", "") or "",
+                "project_path": str(getattr(state, "project_path", "") or ""),
+                "terraform_dir_state": str(getattr(state.deploy, "terraform_dir", "") or ""),
+                "map_last_yaml_file": str(getattr(state.map, "last_yaml_file", "") or ""),
+                "resolved_tf_path": str(tf_path),
+                "resolved_yaml_file": str(yaml_file),
+                "baseline_yaml_path": str(baseline_yaml_path) if baseline_yaml_path else "",
+                "tf_path_exists": bool(tf_path.exists()),
+                "yaml_exists_now": bool(yaml_file.exists()),
+            },
+        )
+        # endregion
         result.errors.append(f"YAML file not found: {yaml_file}")
 
     if _is_cancelled(is_cancelled_fn):
@@ -412,6 +611,25 @@ async def run_generate_pipeline(
             from importer.web.utils.terraform_import import write_adopt_imports_file
 
             rows_to_import = [r for r in adopt_rows if r.get("action") == "adopt"]
+            # region agent log
+            _dbg_db419a(
+                "H1",
+                "generate_pipeline.py:run_generate_pipeline:rows_to_import",
+                "rows selected for adopt imports",
+                {
+                    "row_count": len(rows_to_import),
+                    "rows": [
+                        {
+                            "source_key": str(r.get("source_key") or ""),
+                            "source_type": str(r.get("source_type") or ""),
+                            "target_id": str(r.get("target_id") or ""),
+                            "protected": bool(r.get("protected", False)),
+                        }
+                        for r in rows_to_import[:10]
+                    ],
+                },
+            )
+            # endregion
 
             if rows_to_import:
                 output_path, error = write_adopt_imports_file(
@@ -440,6 +658,27 @@ async def run_generate_pipeline(
 
     # Also update existing adopt_imports.tf addresses if protection changed
     _update_adopt_imports_addresses(tf_path, pending, on_progress)
+    if include_adopt:
+        imports_file_dbg = tf_path / "adopt_imports.tf"
+        imports_targets_dbg: list[str] = []
+        if imports_file_dbg.exists():
+            imports_content_dbg = imports_file_dbg.read_text(encoding="utf-8")
+            imports_targets_dbg = [
+                m.group(1) for m in re.finditer(r"to\s*=\s*(module\.\S+)", imports_content_dbg)
+            ]
+        # region agent log
+        _dbg_db419a(
+            "H2",
+            "generate_pipeline.py:run_generate_pipeline:post_address_update",
+            "import targets after address update",
+            {
+                "pending_intent_keys": sorted(list(pending.keys()))[:30],
+                "imports_exists": imports_file_dbg.exists(),
+                "imports_target_count": len(imports_targets_dbg),
+                "imports_targets": imports_targets_dbg[:20],
+            },
+        )
+        # endregion
 
     if _is_cancelled(is_cancelled_fn):
         return result
@@ -478,6 +717,58 @@ async def run_generate_pipeline(
         for i in range(0, len(result.target_flags) - 1, 2)
         if result.target_flags[i] == "-target"
     ]
+    if include_adopt:
+        tf_non_import_files = [p for p in tf_path.glob("*.tf") if p.name != "adopt_imports.tf"]
+        tf_non_import_text = "\n".join(
+            p.read_text(encoding="utf-8", errors="ignore") for p in tf_non_import_files
+        )
+        yaml_repo_keys: list[str] = []
+        try:
+            if yaml_file.exists():
+                _cfg = yaml.safe_load(yaml_file.read_text(encoding="utf-8")) or {}
+                _globals = _cfg.get("globals", {}) if isinstance(_cfg, dict) else {}
+                for _repo in _globals.get("repositories", []) if isinstance(_globals, dict) else []:
+                    if isinstance(_repo, dict) and _repo.get("key"):
+                        yaml_repo_keys.append(str(_repo.get("key")))
+        except Exception:
+            pass
+        address_diagnostics: list[dict] = []
+        for addr in result.target_addresses[:20]:
+            m = re.search(
+                r'module\.\S+\.(?P<tf_type>[^.]+)\.(?P<collection>[^\[]+)\["(?P<key>[^"]+)"\]',
+                addr,
+            )
+            if not m:
+                address_diagnostics.append({"address": addr, "parsed": False})
+                continue
+            tf_type = m.group("tf_type")
+            collection = m.group("collection")
+            key = m.group("key")
+            address_diagnostics.append(
+                {
+                    "address": addr,
+                    "parsed": True,
+                    "tf_type": tf_type,
+                    "collection": collection,
+                    "key": key,
+                    "has_resource_block": f'"{tf_type}" "{collection}"' in tf_non_import_text,
+                    "has_key_literal": key in tf_non_import_text,
+                    "key_in_yaml_globals_repositories": key in set(yaml_repo_keys),
+                }
+            )
+        # region agent log
+        _dbg_db419a(
+            "H3",
+            "generate_pipeline.py:run_generate_pipeline:target_diagnostics",
+            "target addresses vs generated tf config",
+            {
+                "target_count": len(result.target_addresses),
+                "non_import_tf_files": [p.name for p in tf_non_import_files],
+                "yaml_globals_repository_keys": sorted(yaml_repo_keys)[:30],
+                "address_diagnostics": address_diagnostics,
+            },
+        )
+        # endregion
     _progress(
         on_progress,
         f"  {len(result.target_addresses)} target address(es) for plan/apply",
@@ -508,7 +799,6 @@ def _update_adopt_imports_addresses(
     try:
         content = imports_file.read_text(encoding="utf-8")
         updated = False
-
         for key, intent in pending.items():
             if ":" not in key:
                 continue
@@ -516,13 +806,42 @@ def _update_adopt_imports_addresses(
             if rtype not in RESOURCE_TYPE_MAP:
                 continue
 
+            normalized_key = rkey
+            if rtype in {"REP", "PREP"} and rkey.startswith("dbt_ep_"):
+                candidate = rkey[len("dbt_ep_"):]
+                if candidate:
+                    normalized_key = candidate
+
+            # Use explicit pending intent as source-of-truth for protection.
+            # Do not infer repository protection from project-level YAML fallback.
+            effective_protected = bool(intent.protected)
+
             tf_type, unprotected_name, protected_name = RESOURCE_TYPE_MAP[rtype]
-            if intent.protected:
-                old_addr = f'{MODULE_PREFIX}.{tf_type}.{unprotected_name}["{rkey}"]'
-                new_addr = f'{MODULE_PREFIX}.{tf_type}.{protected_name}["{rkey}"]'
+            if effective_protected:
+                old_addr = f'{MODULE_PREFIX}.{tf_type}.{unprotected_name}["{normalized_key}"]'
+                new_addr = f'{MODULE_PREFIX}.{tf_type}.{protected_name}["{normalized_key}"]'
             else:
-                old_addr = f'{MODULE_PREFIX}.{tf_type}.{protected_name}["{rkey}"]'
-                new_addr = f'{MODULE_PREFIX}.{tf_type}.{unprotected_name}["{rkey}"]'
+                old_addr = f'{MODULE_PREFIX}.{tf_type}.{protected_name}["{normalized_key}"]'
+                new_addr = f'{MODULE_PREFIX}.{tf_type}.{unprotected_name}["{normalized_key}"]'
+
+            # region agent log
+            _dbg_db419a(
+                "H57",
+                "generate_pipeline.py:_update_adopt_imports_addresses",
+                "computed adopt import protection address rewrite",
+                {
+                    "intent_key": key,
+                    "resource_type": rtype,
+                    "original_key": rkey,
+                    "normalized_key": normalized_key,
+                    "intent_protected": bool(intent.protected),
+                    "effective_protected": effective_protected,
+                    "old_addr": old_addr,
+                    "new_addr": new_addr,
+                    "old_addr_found": old_addr in content,
+                },
+            )
+            # endregion
 
             if old_addr in content:
                 content = content.replace(old_addr, new_addr)

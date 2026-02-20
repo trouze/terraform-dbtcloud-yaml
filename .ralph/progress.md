@@ -180,3 +180,16 @@ count reconciliation review:
 - Added regression coverage in `importer/web/tests/test_match_grid.py` for
   state-id auto-match behavior when different resource types share the same
   numeric `dbt_id`, ensuring type-scoped lookup preference is preserved.
+
+### 2026-02-20 (continued 6)
+**Target-intent/adopt pipeline diagnostics and scoping micro-commit**
+
+- Updated `importer/web/pages/adopt.py` adopt-action resolution to rely on
+  explicit confirmed mappings and improved project-id lookup for REP rows
+  missing direct project context.
+- Added/expanded diagnostics and repo/protection handling in
+  `importer/web/utils/generate_pipeline.py` and
+  `importer/web/utils/target_intent.py` to improve visibility into merged
+  globals/project scoping during adopt/protection generation.
+- Validation:
+  - `python3 -m pytest importer/web/tests/test_generate_pipeline.py importer/web/tests/test_target_intent.py importer/web/tests/test_target_intent_integration.py -q` (85 passed)

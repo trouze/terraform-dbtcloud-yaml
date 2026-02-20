@@ -498,6 +498,18 @@ def build_included_globals(state: Any) -> set[str]:
                 )
                 result.add(section)
 
+    # region agent log
+    _dbg_db419a(
+        "H70",
+        "target_intent.py:build_included_globals",
+        "resolved included global sections for target intent",
+        {
+            "included_globals": sorted(list(result)),
+            "include_groups_flag": bool(getattr(state.map, "include_groups", False)),
+            "include_service_tokens_flag": bool(getattr(state.map, "include_service_tokens", False)),
+        },
+    )
+    # endregion
     return result
 
 
@@ -569,6 +581,55 @@ def _project_keys_in_target_fetch(target_report_items: Optional[list[dict]]) -> 
         if key:
             keys.add(str(key))
     return keys
+
+
+def _prune_globals_to_project_references(config: dict[str, Any]) -> tuple[int, int, int, int]:
+    """Prune global sections to only resources referenced by kept projects.
+
+    Returns a tuple of:
+    (connections_before, connections_after, repositories_before, repositories_after)
+    """
+    if not isinstance(config, dict):
+        return (0, 0, 0, 0)
+    globals_obj = config.get("globals")
+    projects = config.get("projects") or []
+    if not isinstance(globals_obj, dict) or not isinstance(projects, list):
+        return (0, 0, 0, 0)
+
+    referenced_connections: set[str] = set()
+    referenced_repositories: set[str] = set()
+    for project in projects:
+        if not isinstance(project, dict):
+            continue
+        repo_key = project.get("repository")
+        if repo_key:
+            referenced_repositories.add(str(repo_key))
+        for env in project.get("environments", []) or []:
+            if not isinstance(env, dict):
+                continue
+            conn_key = env.get("connection")
+            if conn_key:
+                referenced_connections.add(str(conn_key))
+
+    connections = globals_obj.get("connections") or []
+    repositories = globals_obj.get("repositories") or []
+    conn_before = len(connections) if isinstance(connections, list) else 0
+    repo_before = len(repositories) if isinstance(repositories, list) else 0
+
+    if isinstance(connections, list):
+        globals_obj["connections"] = [
+            c for c in connections
+            if isinstance(c, dict) and str(c.get("key", "")) in referenced_connections
+        ]
+    if isinstance(repositories, list):
+        globals_obj["repositories"] = [
+            r for r in repositories
+            if isinstance(r, dict) and str(r.get("key", "")) in referenced_repositories
+        ]
+
+    conn_after = len(globals_obj.get("connections") or []) if isinstance(globals_obj.get("connections"), list) else 0
+    repo_after = len(globals_obj.get("repositories") or []) if isinstance(globals_obj.get("repositories"), list) else 0
+    return (conn_before, conn_after, repo_before, repo_after)
 
 
 def compute_target_intent(
@@ -648,6 +709,33 @@ def compute_target_intent(
                 baseline_config = yaml.safe_load(f) or {}
         except Exception as e:
             logger.warning(f"Failed to load baseline YAML: {e}")
+
+    # region agent log
+    _dbg_db419a(
+        "H71",
+        "target_intent.py:compute_target_intent",
+        "loaded source and baseline config shape",
+        {
+            "source_projects_count": len(source_config.get("projects", []) if isinstance(source_config, dict) else []),
+            "source_globals_connections_count": len(
+                (((source_config.get("globals") or {}).get("connections")) or [])
+                if isinstance(source_config, dict)
+                else []
+            ),
+            "baseline_projects_count": len(baseline_config.get("projects", []) if isinstance(baseline_config, dict) else []),
+            "baseline_globals_connections_count": len(
+                (((baseline_config.get("globals") or {}).get("connections")) or [])
+                if isinstance(baseline_config, dict)
+                else []
+            ),
+            "baseline_globals_jobs_count": len(
+                (((baseline_config.get("globals") or {}).get("jobs")) or [])
+                if isinstance(baseline_config, dict)
+                else []
+            ),
+        },
+    )
+    # endregion
 
     source_focus_project_keys = {p.get("key") for p in source_config.get("projects", []) if p.get("key")}
     adopted_project_keys: set[str] = set()
@@ -812,6 +900,46 @@ def compute_target_intent(
             logger.info("Stripping globals.%s (%d item(s)) from output_config — not in included_globals", k, count)
             del merged["globals"][k]
 
+    _conn_before_prune, _conn_after_prune, _repo_before_prune, _repo_after_prune = _prune_globals_to_project_references(merged)
+
+    # region agent log
+    _merged_connections = (
+        (((merged.get("globals") or {}).get("connections")) or [])
+        if isinstance(merged, dict)
+        else []
+    )
+    _merged_conn_keys = [
+        str(c.get("key", ""))
+        for c in _merged_connections
+        if isinstance(c, dict)
+    ]
+    _merged_jobs = (
+        (((merged.get("globals") or {}).get("jobs")) or [])
+        if isinstance(merged, dict)
+        else []
+    )
+    _dbg_db419a(
+        "H72",
+        "target_intent.py:compute_target_intent",
+        "post-filter merged globals footprint",
+        {
+            "allowed_globals": sorted(list(_allowed_globals)),
+            "merged_globals_connections_count": len(_merged_connections),
+            "merged_globals_jobs_count": len(_merged_jobs),
+            "project_ref_prune": {
+                "connections_before": _conn_before_prune,
+                "connections_after": _conn_after_prune,
+                "repositories_before": _repo_before_prune,
+                "repositories_after": _repo_after_prune,
+            },
+            "merged_connection_keys_sample": sorted(_merged_conn_keys)[:40],
+            "merged_non_conn_prefix_sample": sorted(
+                [k for k in _merged_conn_keys if not k.startswith("conn_sse")]
+            )[:40],
+        },
+    )
+    # endregion
+
     coverage_warnings: list[str] = []
     for key in tf_state_keys:
         if key in removal_keys:
@@ -949,6 +1077,22 @@ class TargetIntentManager:
 
     def save(self, intent: TargetIntentResult) -> None:
         """Persist target intent to target-intent.json (self-contained: includes output_config)."""
+        _conn_before = _conn_after = _repo_before = _repo_after = 0
+        if isinstance(intent.output_config, dict):
+            _conn_before, _conn_after, _repo_before, _repo_after = _prune_globals_to_project_references(intent.output_config)
+            # region agent log
+            _dbg_db419a(
+                "H73",
+                "target_intent.py:TargetIntentManager.save",
+                "pruned globals to project references before save",
+                {
+                    "connections_before": _conn_before,
+                    "connections_after": _conn_after,
+                    "repositories_before": _repo_before,
+                    "repositories_after": _repo_after,
+                },
+            )
+            # endregion
         data = intent.to_dict()
         # Include output_config for self-contained state file
         if intent.output_config:

@@ -369,17 +369,45 @@ def _compute_adopt_summary(
         adopt_rows: ALL adoptable rows (including ignored ones for display)
         state_rm_commands: List of terraform state rm command strings
     """
+    def _normalize_project_key(value: str) -> str:
+        key = (value or "").strip().lstrip("↳").strip()
+        if not key:
+            return ""
+        if key.startswith("target__"):
+            key = key[len("target__"):]
+        if key.startswith("PRJ:"):
+            key = key.split(":", 1)[1]
+        if key.startswith("dbt_ep_"):
+            key = key[len("dbt_ep_"):]
+        return key
+
     # Build a lookup from confirmed_mappings keyed by source_key
     cm_by_key: dict[str, str] = {}
+    project_id_by_project_key: dict[str, str] = {}
     if confirmed_mappings:
         for m in confirmed_mappings:
             sk = m.get("source_key", "")
             cm_by_key[sk] = m.get("action", "match")
+            m_type = str(m.get("resource_type") or m.get("source_type") or "")
+            if m_type != "PRJ":
+                continue
+            m_pid = m.get("target_id") or m.get("project_id")
+            if not m_pid:
+                continue
+            for raw in (
+                m.get("project_name"),
+                m.get("source_name"),
+                m.get("source_key"),
+                m.get("target_name"),
+            ):
+                normalized = _normalize_project_key(str(raw or ""))
+                if normalized:
+                    project_id_by_project_key[normalized] = str(m_pid)
 
     # Filter by drift status — these resources need to be imported into TF.
-    # Priority for action source:
-    # 1) confirmed_mappings explicit action (source of truth when present)
-    # 2) row action from build_grid_data (for auto-adopt rows when no explicit mapping exists)
+    # Action source is confirmed_mappings only (explicit user intent).
+    # This avoids stale/default grid actions accidentally adopting resources
+    # (e.g. target-only groups) that were not explicitly selected.
     adopt_rows = []
     rows_without_confirmed_action = 0
     rows_using_row_action = 0
@@ -397,13 +425,25 @@ def _compute_adopt_summary(
                 cm_action = cm_by_key.get(f"target__{source_key}")
 
             # Only adopt if explicitly "adopt" in confirmed_mappings.
-            # If there's no confirmed mapping yet, preserve row action from match grid.
             if cm_action == "adopt":
                 r["action"] = "adopt"
-            elif cm_action is None and r.get("action") == "adopt":
-                rows_without_confirmed_action += 1
-                rows_using_row_action += 1
-                r["action"] = "adopt"
+                if (
+                    r.get("source_type") == "REP"
+                    and not r.get("project_id")
+                ):
+                    for raw in (
+                        r.get("project_name"),
+                        r.get("source_name"),
+                        r.get("source_key"),
+                        r.get("target_name"),
+                    ):
+                        normalized = _normalize_project_key(str(raw or ""))
+                        if not normalized:
+                            continue
+                        candidate_project_id = project_id_by_project_key.get(normalized)
+                        if candidate_project_id:
+                            r["project_id"] = candidate_project_id
+                            break
             else:
                 if cm_action is None:
                     rows_without_confirmed_action += 1
@@ -414,7 +454,7 @@ def _compute_adopt_summary(
     _dbg_db419a(
         "H55",
         "adopt.py:_compute_adopt_summary",
-        "resolved adopt actions from confirmed mappings and row fallbacks",
+        "resolved adopt actions from confirmed mappings only",
         {
             "grid_rows_count": len(grid_rows),
             "adopt_rows_count": len(adopt_rows),
@@ -427,6 +467,14 @@ def _compute_adopt_summary(
                     str(r.get("source_type", "")) for r in adopt_rows if r.get("action") == "adopt"
                 ).items()
             },
+            "project_id_lookup_keys": sorted(project_id_by_project_key.keys())[:30],
+            "rep_adopt_missing_project_id_count": sum(
+                1
+                for r in adopt_rows
+                if r.get("action") == "adopt"
+                and r.get("source_type") == "REP"
+                and not r.get("project_id")
+            ),
         },
     )
     # endregion
@@ -775,6 +823,50 @@ async def _run_adopt_plan(
 
         # Build -target flags from pipeline artifacts.
         target_flags: list[str] = pipeline_result.target_flags
+        target_addresses_dbg = [
+            target_flags[i + 1]
+            for i in range(0, len(target_flags) - 1, 2)
+            if target_flags[i] == "-target"
+        ]
+        tf_non_import_files_dbg = [p for p in tf_path.glob("*.tf") if p.name != "adopt_imports.tf"]
+        tf_non_import_text_dbg = "\n".join(
+            p.read_text(encoding="utf-8", errors="ignore") for p in tf_non_import_files_dbg
+        )
+        target_presence_dbg: list[dict] = []
+        for addr in target_addresses_dbg[:20]:
+            m = re.search(
+                r'module\.\S+\.(?P<tf_type>[^.]+)\.(?P<collection>[^\[]+)\["(?P<key>[^"]+)"\]',
+                addr,
+            )
+            if not m:
+                target_presence_dbg.append({"address": addr, "parsed": False})
+                continue
+            tf_type = m.group("tf_type")
+            collection = m.group("collection")
+            key = m.group("key")
+            target_presence_dbg.append(
+                {
+                    "address": addr,
+                    "parsed": True,
+                    "tf_type": tf_type,
+                    "collection": collection,
+                    "key": key,
+                    "has_resource_block": f'"{tf_type}" "{collection}"' in tf_non_import_text_dbg,
+                    "has_key_literal": key in tf_non_import_text_dbg,
+                }
+            )
+        # region agent log
+        _dbg_db419a(
+            "H4",
+            "adopt.py:_run_adopt_plan:pre_plan_target_presence",
+            "pre-plan target/config presence check",
+            {
+                "target_addresses": target_addresses_dbg,
+                "tf_non_import_files": [p.name for p in tf_non_import_files_dbg],
+                "target_presence": target_presence_dbg,
+            },
+        )
+        # endregion
         tf_non_import_files = [p for p in tf_path.glob("*.tf") if p.name != "adopt_imports.tf"]
         regen_fallback_generated_config = False
         if not tf_non_import_files:
@@ -1168,6 +1260,21 @@ def create_adopt_page(
     # Do this before any UI rendering so the "Already complete" card shows correctly.
     if not state.deploy.adopt_step_complete:
         _restore_adopt_workflow_state(state)
+    # region agent log
+    _dbg_db419a(
+        "H5",
+        "adopt.py:create_adopt_page:post_restore",
+        "adopt workflow state after restore",
+        {
+            "adopt_step_complete": bool(state.deploy.adopt_step_complete),
+            "adopt_step_skipped": bool(state.deploy.adopt_step_skipped),
+            "adopt_step_status": str(state.deploy.adopt_step_status or ""),
+            "adopt_step_imported_count": int(state.deploy.adopt_step_imported_count or 0),
+            "tfplan_exists": (tf_path / "adopt.tfplan").exists(),
+            "imports_exists": (tf_path / "adopt_imports.tf").exists(),
+        },
+    )
+    # endregion
 
     # Only load confirmed_mappings from target intent if they haven't been
     # populated by the Match page yet.  The in-memory state.map.confirmed_mappings
@@ -1332,6 +1439,20 @@ def create_adopt_page(
 
         # ── Already complete ─────────────────────────────────────────────
         if state.deploy.adopt_step_complete:
+            # region agent log
+            _dbg_db419a(
+                "H5",
+                "adopt.py:create_adopt_page:complete_card",
+                "rendering adoption complete mode",
+                {
+                    "adopt_count_summary": int(summary.get("adopt_count", 0)),
+                    "adopt_rows_count": len(summary.get("adopt_rows", [])),
+                    "adopt_step_status": str(state.deploy.adopt_step_status or ""),
+                    "tfplan_exists": (tf_path / "adopt.tfplan").exists(),
+                    "imports_exists": (tf_path / "adopt_imports.tf").exists(),
+                },
+            )
+            # endregion
             _imported = state.deploy.adopt_step_imported_count or summary['adopt_count']
             with ui.card().classes("w-full p-6"):
                 with ui.row().classes("items-center gap-3"):
