@@ -50,6 +50,17 @@ STATUS_WARNING = "#EAB308"  # yellow-500
 STATUS_ERROR = "#EF4444"    # red-500
 
 
+def _resolve_tf_dir_for_project(state: AppState, tf_dir: Optional[str]) -> Path:
+    """Resolve terraform dir relative to active project path when needed."""
+    raw = (tf_dir or "deployments/migration").strip() or "deployments/migration"
+    candidate = Path(raw)
+    if candidate.is_absolute():
+        return candidate
+    if state.project_path:
+        return Path(state.project_path).resolve() / candidate
+    return candidate.resolve()
+
+
 def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> None:
     """Write one NDJSON debug record for deploy runtime analysis."""
     payload = {
@@ -423,13 +434,15 @@ def _create_adoption_summary_panel(state: AppState) -> None:
 def _create_output_directories_section(state: AppState, deploy_state: dict) -> None:
     """Create the output directories configuration section above tiles."""
     # Initialize default paths
-    default_tf_dir = state.deploy.terraform_dir or "deployments/migration"
+    default_tf_dir = str(_resolve_tf_dir_for_project(state, state.deploy.terraform_dir))
     
     # Helper to update state path display when directory changes
     def update_state_path(new_dir: str):
         if new_dir and "state_path_display" in deploy_state:
-            deploy_state["terraform_dir"] = new_dir
-            deploy_state["state_path_display"].value = f"{new_dir}/terraform.tfstate"
+            resolved = str(_resolve_tf_dir_for_project(state, new_dir))
+            deploy_state["terraform_dir"] = resolved
+            state.deploy.terraform_dir = resolved
+            deploy_state["state_path_display"].value = f"{resolved}/terraform.tfstate"
     
     with ui.card().classes("w-full p-4"):
         with ui.row().classes("w-full items-end gap-4"):
@@ -677,7 +690,10 @@ async def _run_imports(
     deploy_state: dict,
 ) -> None:
     """Run the import operation for confirmed mappings."""
-    tf_dir = deploy_state.get("terraform_dir") or state.deploy.terraform_dir or "deployments/migration"
+    tf_dir = str(_resolve_tf_dir_for_project(
+        state,
+        deploy_state.get("terraform_dir") or state.deploy.terraform_dir,
+    ))
     
     terminal.set_title("Output — IMPORT")
     terminal.clear()
@@ -792,7 +808,10 @@ def _generate_import_file(
     deploy_state: dict,
 ) -> None:
     """Generate import blocks file without running imports."""
-    tf_dir = deploy_state.get("terraform_dir") or state.deploy.terraform_dir or "deployments/migration"
+    tf_dir = str(_resolve_tf_dir_for_project(
+        state,
+        deploy_state.get("terraform_dir") or state.deploy.terraform_dir,
+    ))
     
     terminal.info("Generating import blocks file...")
     
@@ -825,8 +844,11 @@ def _create_generate_section(
     # Get output directory from shared state
     def get_output_dir():
         if "tf_dir_input" in deploy_state:
-            return deploy_state["tf_dir_input"].value
-        return deploy_state.get("terraform_dir") or state.deploy.terraform_dir or "deployments/migration"
+            selected = deploy_state["tf_dir_input"].value
+        else:
+            selected = deploy_state.get("terraform_dir") or state.deploy.terraform_dir or "deployments/migration"
+        resolved = str(_resolve_tf_dir_for_project(state, str(selected or "")))
+        return resolved
     
     with ui.card().classes("w-full h-full").style("display: flex; flex-direction: column;"):
         with ui.row().classes("items-center gap-2 mb-2"):
@@ -1194,11 +1216,10 @@ def _create_apply_section(
 
 def _get_state_file_path(state: AppState, deploy_state: dict) -> Optional[str]:
     """Get the current terraform state file path if it exists."""
-    tf_dir = (
-        deploy_state.get("terraform_dir")
-        or state.deploy.terraform_dir
-        or "deployments/migration"
-    )
+    tf_dir = str(_resolve_tf_dir_for_project(
+        state,
+        deploy_state.get("terraform_dir") or state.deploy.terraform_dir,
+    ))
     state_path = Path(tf_dir) / "terraform.tfstate"
     if state_path.exists():
         return str(state_path)
@@ -1207,11 +1228,10 @@ def _get_state_file_path(state: AppState, deploy_state: dict) -> Optional[str]:
 
 def _show_no_state_dialog(state: AppState, deploy_state: dict) -> None:
     """Show a dialog indicating no state file exists yet."""
-    tf_dir = (
-        deploy_state.get("terraform_dir")
-        or state.deploy.terraform_dir
-        or "deployments/migration"
-    )
+    tf_dir = str(_resolve_tf_dir_for_project(
+        state,
+        deploy_state.get("terraform_dir") or state.deploy.terraform_dir,
+    ))
     expected_path = Path(tf_dir) / "terraform.tfstate"
     
     with ui.dialog() as dialog:
@@ -1463,6 +1483,7 @@ async def _run_generate(
     output_dir: str,
 ) -> None:
     """Generate Terraform files from YAML configuration."""
+    output_dir = str(_resolve_tf_dir_for_project(state, output_dir))
     if state.target_fetch.is_stale:
         terminal.set_title("Output — GENERATE (BLOCKED)")
         terminal.clear()
@@ -2365,7 +2386,10 @@ async def _run_terraform_init(
         ui.notify("Terraform not installed", type="negative")
         return
 
-    tf_dir = deploy_state.get("terraform_dir") or state.deploy.terraform_dir or "deployments/migration"
+    tf_dir = str(_resolve_tf_dir_for_project(
+        state,
+        deploy_state.get("terraform_dir") or state.deploy.terraform_dir,
+    ))
     if not Path(tf_dir).exists():
         terminal.error(f"Terraform directory not found: {tf_dir}")
         terminal.warning("Generate Terraform files first")
@@ -2493,7 +2517,10 @@ async def _run_terraform_validate(
         ui.notify("Terraform not installed", type="negative")
         return
 
-    tf_dir = deploy_state.get("terraform_dir") or state.deploy.terraform_dir or "deployments/migration"
+    tf_dir = str(_resolve_tf_dir_for_project(
+        state,
+        deploy_state.get("terraform_dir") or state.deploy.terraform_dir,
+    ))
     if not Path(tf_dir).exists():
         terminal.error(f"Terraform directory not found: {tf_dir}")
         terminal.warning("Generate Terraform files first")
@@ -2619,7 +2646,10 @@ async def _run_terraform_plan(
         ui.notify("Run init first", type="warning")
         return
 
-    tf_dir = deploy_state.get("terraform_dir") or state.deploy.terraform_dir or "deployments/migration"
+    tf_dir = str(_resolve_tf_dir_for_project(
+        state,
+        deploy_state.get("terraform_dir") or state.deploy.terraform_dir,
+    ))
     
     terminal.set_title("Output — PLAN")
     terminal.clear()
@@ -3064,7 +3094,10 @@ async def _run_terraform_apply(
         return
 
     # Use deploy_state value, or persisted state, or fall back to default directory
-    tf_dir = deploy_state.get("terraform_dir") or state.deploy.terraform_dir or "deployments/migration"
+    tf_dir = str(_resolve_tf_dir_for_project(
+        state,
+        deploy_state.get("terraform_dir") or state.deploy.terraform_dir,
+    ))
     
     terminal.set_title("Output — APPLY")
     terminal.clear()
@@ -3217,7 +3250,10 @@ async def _run_terraform_destroy(
         ui.notify("Initialize terraform first", type="warning")
         return
 
-    tf_dir = deploy_state.get("terraform_dir") or state.deploy.terraform_dir or "deployments/migration"
+    tf_dir = str(_resolve_tf_dir_for_project(
+        state,
+        deploy_state.get("terraform_dir") or state.deploy.terraform_dir,
+    ))
     
     terminal.set_title("Output — DESTROY")
     terminal.clear()

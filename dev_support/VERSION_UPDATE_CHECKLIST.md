@@ -85,6 +85,14 @@
   - `importer/web/tests/test_contract_enforcement.py`
   - `importer/web/tests/test_adopt_summary.py` (when Adopt row-shaping logic changes)
 
+### 10. Deploy output directory and state-path scope
+**Check if:**
+- Deploy UI and Terraform operations resolve `terraform_dir` against the active project path (not repo-root fallback) for:
+  - `Terraform Output Directory`
+  - `State File Location`
+  - Generate/Init/Plan/Apply execution directories
+- `target-intent.json` is written under the project deployment directory (for example, `projects/<project>/deployments/migration/target-intent.json`)
+
 ---
 
 ## Version Numbering Guidelines
@@ -124,9 +132,10 @@ Follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html):
 7. **Review reference documents** (README, test fixtures)
 8. **Update guardrails/docs** if release includes compatibility or performance hardening
 9. **Update AG Grid standards/regression docs** for any UI table rendering fix
-10. **Run tests** to verify version is correctly reported and key path behavior is stable
-11. **Commit with message**: `chore: release vX.Y.Z`
-12. **Tag release** (if applicable): `git tag vX.Y.Z`
+10. **Verify deploy path scoping** if release touches Deploy directory/state behavior
+11. **Run tests** to verify version is correctly reported and key path behavior is stable
+12. **Commit with message**: `chore: release vX.Y.Z`
+13. **Tag release** (if applicable): `git tag vX.Y.Z`
 
 ---
 
@@ -180,7 +189,7 @@ head -30 CHANGELOG.md
 
 ---
 
-**Last Updated:** 2026-02-19  
-**Document Version:** 1.2
+**Last Updated:** 2026-02-20  
+**Document Version:** 1.3
 
 
