@@ -224,17 +224,17 @@ def _create_fetch_options(
             with ui.expansion("Advanced", icon="settings", value=False).classes("w-auto"):
                 with ui.column().classes("gap-2 p-2"):
                     def _update_threads(e):
-                        val = e.args if e.args is not None else 50
-                        state.fetch.threads = int(val) if val else 50
+                        val = e.args if e.args is not None else 100
+                        state.fetch.threads = int(val) if val else 100
                         save_state()
                     
                     ui.number(
                         label="Threads",
-                        value=getattr(state.fetch, 'threads', 25) or 25,
+                        value=getattr(state.fetch, 'threads', 100) or 100,
                         min=1,
-                        max=50,
+                        max=100,
                     ).props('outlined dense').tooltip(
-                        "Number of parallel threads for fetching data (1-50)"
+                        "Number of parallel threads for fetching data (1-100)"
                     ).on("update:model-value", _update_threads)
                     
                     ui.number(
@@ -680,7 +680,7 @@ async def _run_fetch(
 
         # Run fetch in thread pool
         terminal.info("Connecting to dbt Platform API...")
-        threads = getattr(fetch_state, 'threads', 50) or 50
+        threads = getattr(fetch_state, 'threads', 100) or 100
         terminal.info(f"Using {threads} threads for parallel fetching")
         event = cancel_event["event"]
         event.clear()  # Ensure no stale set() from a previous run or shared reference

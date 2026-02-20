@@ -152,3 +152,50 @@ count reconciliation review:
 - Added regression coverage in `importer/web/tests/test_terminal_output_performance.py`
   for pending-queue overflow throttling and long-line truncation behavior.
 - Marked `.cursor/plans/localhost-websocket-recovery_f7ac3216.plan.md` todos as completed based on implemented streaming/timer/runtime and browser validation work.
+
+### 2026-02-20 (continued 3)
+**Client rate-limit resilience micro-commit**
+
+- Added shared adaptive 429 cooldown coordination in `importer/client.py` to
+  reduce concurrent retry herd behavior across worker threads.
+- Added targeted regression tests in `test/test_client_rate_limit.py` for
+  bounded retry-after handling and invalid Retry-After fallback recovery.
+- Updated fetch-source UI/runtime default thread count to `100` in
+  `importer/web/pages/fetch_source.py`.
+
+### 2026-02-20 (continued 4)
+**Adopt import robustness micro-commit**
+
+- Hardened `run_terraform_import()` stream handling in
+  `importer/web/utils/terraform_import.py` by safely closing async stdout streams.
+- Improved repository adopt import ID resolution when REP rows are missing
+  direct project context by deriving project IDs from PRJ rows.
+- Added regression coverage in:
+  - `importer/web/tests/test_adoption_imports.py`
+  - `importer/web/tests/test_terraform_import_cleanup.py`
+
+### 2026-02-20 (continued 5)
+**Match-grid collision regression micro-commit**
+
+- Added regression coverage in `importer/web/tests/test_match_grid.py` for
+  state-id auto-match behavior when different resource types share the same
+  numeric `dbt_id`, ensuring type-scoped lookup preference is preserved.
+
+### 2026-02-20 (continued 6)
+**Target-intent/adopt pipeline diagnostics and scoping micro-commit**
+
+- Updated `importer/web/pages/adopt.py` adopt-action resolution to rely on
+  explicit confirmed mappings and improved project-id lookup for REP rows
+  missing direct project context.
+- Added/expanded diagnostics and repo/protection handling in
+  `importer/web/utils/generate_pipeline.py` and
+  `importer/web/utils/target_intent.py` to improve visibility into merged
+  globals/project scoping during adopt/protection generation.
+- Validation:
+  - `python3 -m pytest importer/web/tests/test_generate_pipeline.py importer/web/tests/test_target_intent.py importer/web/tests/test_target_intent_integration.py -q` (85 passed)
+
+### 2026-02-20 (continued 7)
+**State defaults consistency micro-commit**
+
+- Updated fetch thread defaults in `importer/web/state.py` to `100` for both
+  source and target fetch state, matching fetch-page runtime/UI defaults.
