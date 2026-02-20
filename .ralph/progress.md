@@ -142,3 +142,13 @@ count reconciliation review:
 - Post-soak debug-log scan shows detached-notify suppression events handled via `_safe_notify(...)` (expected), with no reconnect-loop indicators.
 - Validation:
   - `python3 -m pytest importer/web/tests/test_match_grid.py importer/web/tests/test_match_pagination_lifecycle.py importer/web/tests/test_terminal_output_performance.py -q` (37 passed)
+
+### 2026-02-20 (continued 2)
+**Localhost websocket recovery plan — terminal/runtime tranche completed**
+
+- Completed terminal hot-path hardening in `importer/web/components/terminal_output.py`:
+  env-gated debug logging, bounded line payloads, bounded pending queue with
+  throttle notices, timer idle deactivation, and stale-client shutdown guards.
+- Added regression coverage in `importer/web/tests/test_terminal_output_performance.py`
+  for pending-queue overflow throttling and long-line truncation behavior.
+- Marked `.cursor/plans/localhost-websocket-recovery_f7ac3216.plan.md` todos as completed based on implemented streaming/timer/runtime and browser validation work.

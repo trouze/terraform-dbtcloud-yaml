@@ -1,6 +1,8 @@
 """Terminal output component for displaying log messages and progress."""
 
 import json
+import os
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -15,8 +17,17 @@ from importer.web.utils.log_export import (
     generate_log_filename,
 )
 
+_WS_DEBUG_ENABLED = os.getenv("IMPORTER_WS_DEBUG", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
 def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> None:
     """Write one NDJSON debug record for websocket investigation."""
+    if not _WS_DEBUG_ENABLED:
+        return
     payload = {
         "sessionId": "db419a",
         "runId": "pre-fix",
@@ -76,8 +87,12 @@ class TerminalOutput:
         auto_scroll: bool = True,
         show_timestamps: bool = True,
         default_level: LogLevel = LogLevel.INFO,
-        flush_interval_seconds: float = 0.075,
-        max_flush_batch: int = 40,
+        flush_interval_seconds: float = 0.12,
+        max_flush_batch: int = 25,
+        max_pending_messages: int = 2000,
+        max_line_length: int = 4000,
+        stale_client_seconds: float = 30.0,
+        idle_shutdown_seconds: float = 10.0,
     ):
         """Initialize terminal output component.
 
@@ -102,7 +117,15 @@ class TerminalOutput:
         self._pending_messages: list[LogMessage] = []
         self._flush_interval_seconds = flush_interval_seconds
         self._max_flush_batch = max_flush_batch
+        self._max_pending_messages = max_pending_messages
+        self._max_line_length = max_line_length
+        self._stale_client_seconds = stale_client_seconds
+        self._idle_shutdown_seconds = idle_shutdown_seconds
         self._flush_timer: Optional[Any] = None
+        self._flush_timer_active = False
+        self._dropped_pending_messages = 0
+        self._last_ui_success_at = time.monotonic()
+        self._last_activity_at = time.monotonic()
         self._dbg_last_pending_bucket = -1
         self._dbg_trim_counter = 0
 
@@ -206,6 +229,7 @@ class TerminalOutput:
                 self._flush_interval_seconds,
                 self._flush_pending_messages,
             )
+            self._set_flush_timer_active(False)
             # region agent log
             _dbg_db419a(
                 "H1",
@@ -224,6 +248,32 @@ class TerminalOutput:
                 },
             )
             # endregion
+
+    def _set_flush_timer_active(self, active: bool) -> None:
+        """Best-effort timer activation toggle across NiceGUI versions."""
+        self._flush_timer_active = active
+        if self._flush_timer is None:
+            return
+        try:
+            if hasattr(self._flush_timer, "active"):
+                self._flush_timer.active = active
+                return
+            if active and hasattr(self._flush_timer, "activate"):
+                self._flush_timer.activate()
+                return
+            if not active and hasattr(self._flush_timer, "deactivate"):
+                self._flush_timer.deactivate()
+                return
+        except Exception:
+            return
+
+    def _normalize_message_text(self, text: str) -> str:
+        """Sanitize and bound payload size before websocket/UI emission."""
+        clean = text.replace("\x00", "").replace("\r", "")
+        if len(clean) <= self._max_line_length:
+            return clean
+        omitted = len(clean) - self._max_line_length
+        return f"{clean[: self._max_line_length]} ... [truncated {omitted} chars]"
 
     def _on_level_change(self, e) -> None:
         """Handle log level filter change."""
@@ -252,8 +302,9 @@ class TerminalOutput:
             text: Message text
             level: Log level for styling
         """
-        msg = LogMessage(text=text, level=level)
+        msg = LogMessage(text=self._normalize_message_text(text), level=level)
         self.messages.append(msg)
+        self._last_activity_at = time.monotonic()
 
         # Trim old messages
         trimmed = False
@@ -278,6 +329,9 @@ class TerminalOutput:
 
         # Queue UI updates and flush in bounded batches to avoid websocket bursts.
         if self._container is not None and self._should_display(level) and not self._ui_detached:
+            if len(self._pending_messages) >= self._max_pending_messages:
+                self._pending_messages.pop(0)
+                self._dropped_pending_messages += 1
             if trimmed:
                 self._trim_since_rerender += 1
                 if self._trim_since_rerender >= self._trim_rerender_threshold:
@@ -296,6 +350,8 @@ class TerminalOutput:
                     )
                     # endregion
             self._pending_messages.append(msg)
+            if not self._flush_timer_active:
+                self._set_flush_timer_active(True)
             pending_bucket = len(self._pending_messages) // 100
             if pending_bucket > self._dbg_last_pending_bucket:
                 self._dbg_last_pending_bucket = pending_bucket
@@ -317,6 +373,8 @@ class TerminalOutput:
     def _mark_ui_detached(self, error: RuntimeError) -> None:
         """Disable UI writes after client/slot invalidation."""
         self._ui_detached = True
+        self._pending_messages.clear()
+        self._set_flush_timer_active(False)
         if not self._detach_notice_added:
             self._detach_notice_added = True
             self.messages.append(
@@ -343,13 +401,23 @@ class TerminalOutput:
         """Flush queued messages to UI in bounded batches."""
         if self._ui_detached:
             self._pending_messages.clear()
+            self._set_flush_timer_active(False)
             return
         if self._container is None:
+            self._set_flush_timer_active(False)
             return
         if not self._pending_messages and not self._needs_rerender:
+            if (time.monotonic() - self._last_activity_at) >= self._idle_shutdown_seconds:
+                self._set_flush_timer_active(False)
             return
 
         try:
+            if self._pending_messages and (
+                time.monotonic() - self._last_ui_success_at
+            ) >= self._stale_client_seconds:
+                self._mark_ui_detached(RuntimeError("stale client while pending terminal output"))
+                return
+
             if self._needs_rerender:
                 # region agent log
                 _dbg_db419a(
@@ -365,7 +433,23 @@ class TerminalOutput:
                 self._rerender_messages()
                 self._pending_messages.clear()
                 self._needs_rerender = False
+                self._last_ui_success_at = time.monotonic()
                 return
+
+            if self._dropped_pending_messages > 0:
+                dropped_count = self._dropped_pending_messages
+                self._dropped_pending_messages = 0
+                dropped_msg = LogMessage(
+                    text=(
+                        f"Terminal stream throttled: dropped {dropped_count} buffered lines "
+                        "to keep websocket responsive."
+                    ),
+                    level=LogLevel.WARNING,
+                )
+                self.messages.append(dropped_msg)
+                if len(self.messages) > self.max_lines:
+                    self.messages = self.messages[-self.max_lines:]
+                self._add_message_to_ui(dropped_msg)
 
             batch = self._pending_messages[: self._max_flush_batch]
             del self._pending_messages[: self._max_flush_batch]
@@ -386,6 +470,10 @@ class TerminalOutput:
                 self._add_message_to_ui(msg)
             if batch and self.auto_scroll and self._scroll_area is not None:
                 self._scroll_area.scroll_to(percent=1.0)
+            if batch:
+                self._last_ui_success_at = time.monotonic()
+            if not self._pending_messages and not self._needs_rerender:
+                self._set_flush_timer_active(False)
         except RuntimeError as e:
             if "client this element belongs to has been deleted" in str(e).lower():
                 self._mark_ui_detached(e)
@@ -448,6 +536,8 @@ class TerminalOutput:
         self.messages.clear()
         self._pending_messages.clear()
         self._needs_rerender = False
+        self._dropped_pending_messages = 0
+        self._set_flush_timer_active(False)
         if self._container is not None:
             self._container.clear()
 
@@ -609,7 +699,7 @@ class TerminalOutput:
             self._search_next_btn.classes("hidden", remove=False)
         
         # Highlight matches using JavaScript
-        escaped_term = search_term.replace("'", "\\'").replace('"', '\\"').replace("\\", "\\\\")
+        escaped_term = re.escape(search_term).replace("'", "\\'").replace('"', '\\"')
         await ui.run_javascript(f'''
             const container = document.querySelector('.terminal-messages');
             if (container) {{

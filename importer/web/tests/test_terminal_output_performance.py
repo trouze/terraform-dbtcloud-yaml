@@ -97,3 +97,34 @@ def test_terminal_output_detach_is_marked_once() -> None:
         1 for msg in terminal.messages if "logging continues in memory" in msg.text.lower()
     )
     assert notices_after == notices_before
+
+
+def test_terminal_output_throttles_when_pending_queue_overflows() -> None:
+    rendered: list[str] = []
+    terminal = TerminalOutput(
+        max_lines=100,
+        auto_scroll=False,
+        max_flush_batch=10,
+        max_pending_messages=3,
+    )
+    terminal._container = cast(Any, object())  # Simulate mounted UI.
+    def _capture_message(msg: Any) -> None:
+        rendered.append(msg.text)
+
+    terminal._add_message_to_ui = _capture_message  # type: ignore[method-assign]
+
+    for i in range(8):
+        terminal.log(f"line-{i}", LogLevel.INFO)
+
+    terminal._flush_pending_messages()
+
+    assert any("stream throttled" in line.lower() for line in rendered)
+    # Only the newest buffered payloads should survive overflow.
+    assert rendered[-3:] == ["line-5", "line-6", "line-7"]
+
+
+def test_terminal_output_truncates_large_line_payloads() -> None:
+    terminal = TerminalOutput(max_lines=20, auto_scroll=False, max_line_length=24)
+    terminal.log("x" * 48, LogLevel.INFO)
+    assert "truncated" in terminal.messages[-1].text
+    assert len(terminal.messages[-1].text) > 24
