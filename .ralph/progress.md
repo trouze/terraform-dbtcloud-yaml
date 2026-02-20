@@ -152,3 +152,13 @@ count reconciliation review:
 - Added regression coverage in `importer/web/tests/test_terminal_output_performance.py`
   for pending-queue overflow throttling and long-line truncation behavior.
 - Marked `.cursor/plans/localhost-websocket-recovery_f7ac3216.plan.md` todos as completed based on implemented streaming/timer/runtime and browser validation work.
+
+### 2026-02-20 (continued 3)
+**Client rate-limit resilience micro-commit**
+
+- Added shared adaptive 429 cooldown coordination in `importer/client.py` to
+  reduce concurrent retry herd behavior across worker threads.
+- Added targeted regression tests in `test/test_client_rate_limit.py` for
+  bounded retry-after handling and invalid Retry-After fallback recovery.
+- Updated fetch-source UI/runtime default thread count to `100` in
+  `importer/web/pages/fetch_source.py`.

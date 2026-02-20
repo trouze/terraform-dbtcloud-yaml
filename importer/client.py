@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Any, Dict, Iterator, Literal, Optional
 
@@ -13,6 +14,47 @@ from . import get_version
 from .config import Settings
 
 log = logging.getLogger(__name__)
+
+
+class _AdaptiveRateLimiter:
+    """Coordinate 429 backoff across concurrent worker threads."""
+
+    def __init__(self, max_sleep_seconds: float = 30.0) -> None:
+        self._condition = threading.Condition()
+        self._cooldown_until = 0.0
+        self._recent_429_count = 0
+        self._max_sleep_seconds = max_sleep_seconds
+
+    def wait_for_window(self) -> None:
+        """Block until the shared rate-limit cooldown window has elapsed."""
+        with self._condition:
+            while True:
+                now = time.monotonic()
+                remaining = self._cooldown_until - now
+                if remaining <= 0:
+                    return
+                self._condition.wait(timeout=remaining)
+
+    def register_429(self, retry_after: Optional[float], fallback_backoff: float) -> float:
+        """Expand the cooldown window after a 429 and return sleep duration."""
+        with self._condition:
+            self._recent_429_count += 1
+            base_delay = retry_after if retry_after and retry_after > 0 else fallback_backoff
+            # Escalate modestly for repeated 429s to prevent thread herding.
+            penalty = min(1.0 + (self._recent_429_count - 1) * 0.25, 3.0)
+            sleep_time = min(base_delay * penalty, self._max_sleep_seconds)
+            self._cooldown_until = max(self._cooldown_until, time.monotonic() + sleep_time)
+            self._condition.notify_all()
+            return sleep_time
+
+    def register_success(self) -> None:
+        """Decay 429 pressure after successful requests."""
+        with self._condition:
+            if self._recent_429_count > 0:
+                self._recent_429_count -= 1
+
+
+_RATE_LIMITER = _AdaptiveRateLimiter()
 
 
 class ApiError(RuntimeError):
@@ -72,8 +114,10 @@ class DbtCloudClient:
         attempt = 0
 
         while True:
+            _RATE_LIMITER.wait_for_window()
             resp = client.get(path, params=params)
             if resp.status_code < 400:
+                _RATE_LIMITER.register_success()
                 return resp.json()
 
             # Don't retry on 404 - resource doesn't exist
@@ -84,8 +128,25 @@ class DbtCloudClient:
             retry_after = resp.headers.get("Retry-After")
 
             if resp.status_code == 429 and retry_after and self.settings.rate_limit_retry_after:
-                sleep_time = float(retry_after)
-                log.warning("Rate limit hit (429) on %s %s. Sleeping %ss", version, path, sleep_time)
+                if attempt > self.settings.max_retries:
+                    raise ApiError(resp)
+                try:
+                    sleep_time = float(retry_after)
+                except ValueError:
+                    sleep_time = self.settings.backoff_factor * (2 ** (attempt - 1))
+                sleep_time = _RATE_LIMITER.register_429(
+                    retry_after=sleep_time,
+                    fallback_backoff=self.settings.backoff_factor * (2 ** (attempt - 1)),
+                )
+                log.warning(
+                    "Rate limit hit (429) on %s %s (attempt %s/%s). "
+                    "Sleeping %.2fs with shared backoff",
+                    version,
+                    path,
+                    attempt,
+                    self.settings.max_retries,
+                    sleep_time,
+                )
                 time.sleep(sleep_time)
                 continue
 
