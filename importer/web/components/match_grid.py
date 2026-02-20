@@ -363,6 +363,7 @@ def build_grid_data(
     # Note: Source IDs are from a different account and should NEVER be used for lookups
     target_by_type_name: dict[tuple[str, str], dict] = {}
     target_by_id: dict[int, dict] = {}
+    target_by_type_id: dict[tuple[str, int], dict] = {}
     # For repositories, also build lookup by remote_url and github_repo
     # This allows matching repos that point to same Git repo but have different names
     target_repo_by_remote_url: dict[str, dict] = {}
@@ -389,21 +390,27 @@ def build_grid_data(
         dbt_id = item.get("dbt_id")
         if dbt_id:
             target_by_id[dbt_id] = item
+            normalized_ids: set[int] = set()
             # For composite IDs like "605:556", also index by the numeric part
             # This allows matching when state extracts just the resource ID (556)
             if isinstance(dbt_id, str) and ":" in dbt_id:
                 parts = dbt_id.split(":")
                 try:
-                    numeric_id = int(parts[-1])
-                    target_by_id[numeric_id] = item
+                    normalized_ids.add(int(parts[-1]))
                 except ValueError:
                     pass
             # Also try to index by int conversion of the full ID
             elif isinstance(dbt_id, str):
                 try:
-                    target_by_id[int(dbt_id)] = item
+                    normalized_ids.add(int(dbt_id))
                 except ValueError:
                     pass
+            elif isinstance(dbt_id, int):
+                normalized_ids.add(dbt_id)
+
+            for nid in normalized_ids:
+                target_by_id[nid] = item
+                target_by_type_id[(element_type, nid)] = item
         
         # For repositories, also index by remote_url and github_repo
         if element_type == "REP":
@@ -656,6 +663,10 @@ def build_grid_data(
             lookup_key = (source_type, normalized_source_name)
         clone_config = clone_by_key.get(source_key)
         target = target_by_type_name.get(lookup_key)
+        _prj_state_resource = None
+        _prj_state_dbt_id = None
+        _prj_state_typed_hit = False
+        _prj_state_untyped_hit = False
         match_confidence = "exact_match" if target else "none"
         # Special handling for CRD (credentials) - match by parent environment instead of name
         # since credential names are generic like "Credential (snowflake)" and often don't match exactly
@@ -673,6 +684,20 @@ def build_grid_data(
         # where source name differs from target name but the resource was already imported.
         if not target and state_result:
             state_resource = None
+            # region agent log
+            if source_type == "PRJ":
+                _dbg_db419a(
+                    "H59",
+                    "match_grid.py:build_grid_data:prj_state_match_entry",
+                    "entered PRJ state-aware auto-match",
+                    {
+                        "source_key": source_key,
+                        "source_name": source_name,
+                        "lookup_key": str(lookup_key),
+                        "has_name_match": False,
+                    },
+                )
+            # endregion
             # For repositories, check by project_name first (handles project-linked repos)
             if source_type == "REP" and project_name:
                 state_resource = state_repo_by_project.get(project_name)
@@ -688,6 +713,7 @@ def build_grid_data(
             # If we have a state resource with a valid ID, look up in targets
             if state_resource and state_resource.get("dbt_id"):
                 state_dbt_id = state_resource.get("dbt_id")
+                _prj_state_resource = state_resource
                 # Normalize to int for lookup (handles potential type mismatch from state storage)
                 if isinstance(state_dbt_id, str):
                     try:
@@ -695,10 +721,34 @@ def build_grid_data(
                     except ValueError:
                         pass
                 # Try lookup with normalized ID
-                target_from_state = target_by_id.get(state_dbt_id)
+                target_from_state = target_by_type_id.get((source_type, state_dbt_id))
+                if not target_from_state:
+                    target_from_state = target_by_id.get(state_dbt_id)
+                _prj_state_dbt_id = state_dbt_id
+                _prj_state_typed_hit = bool(target_by_type_id.get((source_type, state_dbt_id)))
+                _prj_state_untyped_hit = bool(target_by_id.get(state_dbt_id))
                 # Fallback: try with original value if int conversion didn't help
                 if not target_from_state and state_resource.get("dbt_id") != state_dbt_id:
-                    target_from_state = target_by_id.get(state_resource.get("dbt_id"))
+                    _raw_id = state_resource.get("dbt_id")
+                    target_from_state = target_by_type_id.get((source_type, _raw_id)) or target_by_id.get(_raw_id)
+                # region agent log
+                if source_type == "PRJ" and not target_from_state:
+                    _collision = target_by_id.get(state_dbt_id)
+                    _dbg_db419a(
+                        "H58",
+                        "match_grid.py:build_grid_data:state_id_match_miss",
+                        "PRJ state-id match missed target lookup",
+                        {
+                            "source_key": source_key,
+                            "source_name": source_name,
+                            "state_dbt_id": state_dbt_id,
+                            "state_resource_name": state_resource.get("name"),
+                            "typed_lookup_hit": bool(target_by_type_id.get((source_type, state_dbt_id))),
+                            "untyped_lookup_hit": bool(_collision),
+                            "untyped_lookup_type": (_collision or {}).get("element_type_code", ""),
+                        },
+                    )
+                # endregion
                 if target_from_state and target_from_state.get("element_type_code") == source_type:
                     target = target_from_state
                     match_confidence = "state_id_match"  # Found via Terraform state ID lookup
@@ -787,6 +837,25 @@ def build_grid_data(
         else:
             # No match found - check for clone config
             # Compute drift status (no target for create_new)
+            # region agent log
+            if source_type == "PRJ":
+                _dbg_db419a(
+                    "H60",
+                    "match_grid.py:build_grid_data:prj_no_target",
+                    "PRJ ended with no target match",
+                    {
+                        "source_key": source_key,
+                        "source_name": source_name,
+                        "lookup_key": str(lookup_key),
+                        "state_resource_found": _prj_state_resource is not None,
+                        "state_resource_name": (_prj_state_resource or {}).get("name", ""),
+                        "state_dbt_id": _prj_state_dbt_id,
+                        "typed_id_hit": _prj_state_typed_hit,
+                        "untyped_id_hit": _prj_state_untyped_hit,
+                        "has_loaded_state": has_loaded_state,
+                    },
+                )
+            # endregion
             state_id, drift_status, state_address = _compute_drift_status(
                 source_type, source_name, None, state_by_name, has_loaded_state,
                 state_by_id=state_by_id,
@@ -954,7 +1023,9 @@ def build_grid_data(
                                     except ValueError:
                                         pass
                                 # Look up target by state ID
-                                target_from_state = target_by_id.get(state_dbt_id)
+                                target_from_state = target_by_type_id.get(("REP", state_dbt_id))
+                                if not target_from_state:
+                                    target_from_state = target_by_id.get(state_dbt_id)
                                 if target_from_state and target_from_state.get("element_type_code") == "REP":
                                     target_repo = target_from_state
                                     match_confidence = "state_id_match"
@@ -1952,6 +2023,8 @@ def create_match_grid(
 
 # Allowed values for the Action column (match grid)
 ACTION_VALUES = ["match", "create_new", "skip", "adopt", "unadopt", "ignore"]
+MATCH_PAGE_SIZE_OPTIONS = (100, 200, 300)
+MATCH_DEFAULT_PAGE_SIZE = 200
 
 # Type labels for match grid filter dropdown (same codes as source_type column)
 MATCH_GRID_TYPE_LABELS = {
@@ -1973,6 +2046,44 @@ MATCH_GRID_TYPE_LABELS = {
 }
 
 
+def apply_match_query(
+    rows: list[dict],
+    *,
+    type_filter: str = "all",
+    page: int = 1,
+    page_size: int = MATCH_DEFAULT_PAGE_SIZE,
+) -> dict:
+    """Apply lightweight server-side query semantics for Match rows.
+
+    Returns:
+        Dict with filtered rows, current page rows, and pagination metadata.
+    """
+    if page_size <= 0:
+        page_size = MATCH_DEFAULT_PAGE_SIZE
+
+    if type_filter and type_filter != "all":
+        filtered = [r for r in rows if r.get("source_type") == type_filter]
+    else:
+        filtered = list(rows)
+
+    total_filtered = len(filtered)
+    total_pages = max(1, (total_filtered + page_size - 1) // page_size) if total_filtered > 0 else 1
+    safe_page = max(1, min(page, total_pages))
+    start = (safe_page - 1) * page_size
+    end = start + page_size
+    page_rows = filtered[start:end]
+    return {
+        "filtered_rows": filtered,
+        "page_rows": page_rows,
+        "page": safe_page,
+        "page_size": page_size,
+        "total_filtered": total_filtered,
+        "total_pages": total_pages,
+        "start_index": start + 1 if total_filtered > 0 else 0,
+        "end_index": min(end, total_filtered),
+    }
+
+
 def create_grid_toolbar(
     row_data: list[dict],
     on_accept_all: Callable[[], None],
@@ -1991,6 +2102,13 @@ def create_grid_toolbar(
     show_scope_only: bool = False,
     hidden_by_scope: int = 0,
     on_select_project: Optional[Callable[[str], None]] = None,
+    page_size: int = MATCH_DEFAULT_PAGE_SIZE,
+    current_page: int = 1,
+    total_pages: int = 1,
+    total_filtered: Optional[int] = None,
+    on_page_size_change: Optional[Callable[[int], None]] = None,
+    on_prev_page: Optional[Callable[[], None]] = None,
+    on_next_page: Optional[Callable[[], None]] = None,
 ) -> None:
     """Create the toolbar above the grid with bulk actions and type filter.
     
@@ -2011,6 +2129,10 @@ def create_grid_toolbar(
         on_toggle_scope_only: Optional callback when "Show Source Selected Only" toggle changes
         show_scope_only: Current state of scope visibility filter
         hidden_by_scope: Number of rows hidden by scope filter (for display)
+        page_size: Current page size for paginated rendering
+        current_page: Current page number
+        total_pages: Total page count
+        total_filtered: Count of rows after filters and before pagination
     """
     # Count stats
     pending = sum(1 for r in row_data if r.get("status") == "pending" and r.get("action") == "match")
@@ -2055,6 +2177,28 @@ def create_grid_toolbar(
             value="all",
             on_change=lambda e: on_type_filter_change(e.value) if on_type_filter_change else None,
         ).props("outlined dense").classes("min-w-[200px]")
+
+        # Pagination controls
+        if on_page_size_change is not None:
+            page_size_options = {
+                str(size): f"{size} rows/page" for size in MATCH_PAGE_SIZE_OPTIONS
+            }
+            ui.select(
+                options=page_size_options,
+                value=str(page_size),
+                on_change=lambda e: on_page_size_change(int(e.value)),
+            ).props("outlined dense").classes("min-w-[150px] text-sm")
+        filtered_count = total_filtered if total_filtered is not None else len(row_data)
+        ui.label(f"Page {current_page}/{max(1, total_pages)} • {filtered_count} rows").classes(
+            "text-xs text-slate-500"
+        )
+        with ui.row().classes("items-center gap-1"):
+            ui.button("Prev", on_click=on_prev_page).props("flat dense size=sm").set_enabled(
+                on_prev_page is not None and current_page > 1
+            )
+            ui.button("Next", on_click=on_next_page).props("flat dense size=sm").set_enabled(
+                on_next_page is not None and current_page < max(1, total_pages)
+            )
         
         # Target-only filter (3-way dropdown when target-only rows exist in unfiltered data)
         _to_total = target_only_total if target_only_total > 0 else target_only_count

@@ -1,5 +1,7 @@
 """Main NiceGUI application setup and routing."""
 
+import os
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -52,6 +54,36 @@ _app_state: Optional[AppState] = None
 # Project management (PRD 21.02)
 _project_manager: Optional[ProjectManager] = None
 _state_saver: Optional[StateSaver] = None
+_WS_DEBUG_ENABLED = os.getenv("IMPORTER_WS_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+_WS_DEBUG_LOG_PATH = Path(
+    "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log"
+)
+_WS_ROUTE_METRICS = {
+    "route_transition_count": 0,
+    "fetch_target_render_count": 0,
+    "match_render_count": 0,
+}
+
+
+def _dbg_ws_metric(location: str, message: str, data: dict) -> None:
+    if not _WS_DEBUG_ENABLED:
+        return
+    payload = {
+        "sessionId": "db419a",
+        "runId": "post-fix",
+        "hypothesisId": "H71",
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        _WS_DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with _WS_DEBUG_LOG_PATH.open("a", encoding="utf-8") as f:
+            import json
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    except Exception:
+        return
 
 
 def get_project_manager() -> ProjectManager:
@@ -93,39 +125,6 @@ def load_project(slug: str) -> None:
             _app_state.fetch.output_dir = source_dir
         if target_dir:
             _app_state.target_fetch.output_dir = target_dir
-        # region agent log
-        try:
-            import json as _json_dbg
-            import time as _time_dbg
-
-            with open(
-                "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
-                "a",
-                encoding="utf-8",
-            ) as _f_dbg:
-                _f_dbg.write(
-                    _json_dbg.dumps(
-                        {
-                            "sessionId": "db419a",
-                            "runId": "post-fix",
-                            "hypothesisId": "H29",
-                            "location": "app.py:load_project",
-                            "message": "project load applied fixed fetch output directories",
-                            "data": {
-                                "slug": slug,
-                                "project_path": _app_state.project_path,
-                                "source_output_dir": _app_state.fetch.output_dir,
-                                "target_output_dir": _app_state.target_fetch.output_dir,
-                            },
-                            "timestamp": int(_time_dbg.time() * 1000),
-                        },
-                        ensure_ascii=True,
-                    )
-                    + "\n"
-                )
-        except Exception:
-            pass
-        # endregion
         save_state()
         ui.notify(f"Loaded project: {config.name}", type="positive")
         ui.navigate.to("/")
@@ -141,40 +140,6 @@ def get_state() -> AppState:
         stored = app.storage.user.get("app_state")
         if stored:
             _app_state = AppState.from_dict(stored)
-            # region agent log
-            try:
-                import json as _json_dbg_s
-                import time as _time_dbg_s
-
-                with open(
-                    "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
-                    "a",
-                    encoding="utf-8",
-                ) as _f_dbg_s:
-                    _f_dbg_s.write(
-                        _json_dbg_s.dumps(
-                            {
-                                "sessionId": "db419a",
-                                "runId": "pre-fix",
-                                "hypothesisId": "H35",
-                                "location": "app.py:get_state",
-                                "message": "rehydrated state from storage",
-                                "data": {
-                                    "active_project": _app_state.active_project,
-                                    "project_path": _app_state.project_path,
-                                    "terraform_dir_state": _app_state.deploy.terraform_dir,
-                                    "fetch_output_dir": _app_state.fetch.output_dir,
-                                    "target_fetch_output_dir": _app_state.target_fetch.output_dir,
-                                },
-                                "timestamp": int(_time_dbg_s.time() * 1000),
-                            },
-                            ensure_ascii=True,
-                        )
-                        + "\n"
-                    )
-            except Exception:
-                pass
-            # endregion
         else:
             _app_state = AppState()
         
@@ -310,8 +275,19 @@ def save_state() -> None:
 def navigate_to_step(step: WorkflowStep) -> None:
     """Navigate to a workflow step."""
     state = get_state()
+    prev_step = state.current_step
     state.current_step = step
     save_state()
+    _WS_ROUTE_METRICS["route_transition_count"] += 1
+    _dbg_ws_metric(
+        "app.py:navigate_to_step",
+        "workflow route transition requested",
+        {
+            "from_step": prev_step.name if isinstance(prev_step, WorkflowStep) else str(prev_step),
+            "to_step": step.name,
+            "route_transition_count": _WS_ROUTE_METRICS["route_transition_count"],
+        },
+    )
     # Map step to URL - handle special cases
     if step == WorkflowStep.HOME:
         url = "/"
@@ -656,9 +632,20 @@ def fetch_target_page() -> None:
     save_state()
     setup_page(state)
 
+    _render_started = time.time()
     with ui.column().classes("w-full"):
         create_progress_header(state)
         create_page_content(state)
+    _WS_ROUTE_METRICS["fetch_target_render_count"] += 1
+    _dbg_ws_metric(
+        "app.py:fetch_target_page",
+        "fetch_target page rendered",
+        {
+            "render_ms": int((time.time() - _render_started) * 1000),
+            "fetch_target_render_count": _WS_ROUTE_METRICS["fetch_target_render_count"],
+            "route_transition_count": _WS_ROUTE_METRICS["route_transition_count"],
+        },
+    )
 
 
 @ui.page("/explore_target")
@@ -686,9 +673,20 @@ def match_page() -> None:
     save_state()
     setup_page(state)
 
+    _render_started = time.time()
     with ui.column().classes("w-full"):
         create_progress_header(state)
         create_page_content(state)
+    _WS_ROUTE_METRICS["match_render_count"] += 1
+    _dbg_ws_metric(
+        "app.py:match_page",
+        "match page rendered",
+        {
+            "render_ms": int((time.time() - _render_started) * 1000),
+            "match_render_count": _WS_ROUTE_METRICS["match_render_count"],
+            "route_transition_count": _WS_ROUTE_METRICS["route_transition_count"],
+        },
+    )
 
 
 @ui.page("/adopt")
@@ -900,6 +898,9 @@ def run_app(
 
     # Favicon needs absolute path
     favicon_path = STATIC_DIR / "favicon.svg"
+    # Keep client sockets alive longer during large page transitions (match <-> fetch_target)
+    # so navigation does not trigger premature timeout-based reconnect loops on localhost.
+    reconnect_timeout = float(os.getenv("IMPORTER_WS_RECONNECT_TIMEOUT", "20.0"))
 
     ui.run(
         host=host,
@@ -909,4 +910,5 @@ def run_app(
         title="dbt Magellan: Exploration & Migration Tool",
         favicon=str(favicon_path),
         storage_secret="dbt-cloud-importer-secret",  # For user storage
+        reconnect_timeout=reconnect_timeout,
     )

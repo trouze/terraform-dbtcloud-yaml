@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -40,10 +41,16 @@ NATIVE_INTEGRATION_STRATEGIES = {"github_app", "deploy_token", "azure_active_dir
 DBT_ORANGE = "#FF694A"
 DBT_TEAL = "#047377"  # Primary color for target pages
 _DEFAULT_TARGET_OUTPUT_DIR = "dev_support/samples/target"
+_WS_DEBUG_ENABLED = os.getenv("IMPORTER_WS_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+_WS_DEBUG_LOG_PATH = Path(
+    "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log"
+)
 
 
 def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> None:
     """Write one NDJSON debug record for fetch-target runtime analysis."""
+    if not _WS_DEBUG_ENABLED:
+        return
     payload = {
         "sessionId": "db419a",
         "runId": "post-fix",
@@ -54,11 +61,8 @@ def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> 
         "timestamp": int(time.time() * 1000),
     }
     try:
-        with open(
-            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
-            "a",
-            encoding="utf-8",
-        ) as f:
+        _WS_DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with _WS_DEBUG_LOG_PATH.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=True) + "\n")
     except Exception:
         return
@@ -329,17 +333,17 @@ def _create_fetch_options(
             with ui.expansion("Advanced", icon="settings", value=False).classes("w-auto"):
                 with ui.column().classes("gap-2 p-2"):
                     def _update_threads(e):
-                        val = e.args if e.args is not None else 50
-                        state.target_fetch.threads = int(val) if val else 50
+                        val = e.args if e.args is not None else 100
+                        state.target_fetch.threads = int(val) if val else 100
                         save_state()
                     
                     ui.number(
                         label="Threads",
-                        value=getattr(state.target_fetch, 'threads', 25) or 25,
+                        value=getattr(state.target_fetch, 'threads', 100) or 100,
                         min=1,
-                        max=50,
+                        max=100,
                     ).props('outlined dense').tooltip(
-                        "Number of parallel threads for fetching data (1-50)"
+                        "Number of parallel threads for fetching data (1-100)"
                     ).on("update:model-value", _update_threads)
                     
                     ui.number(
@@ -441,7 +445,7 @@ def _do_load_env_credentials(
         
         if not creds.get("account_id") and not creds.get("api_token"):
             terminal.warning("No target credentials found in .env file")
-            ui.notify("No target credentials found in .env", type="warning")
+            _safe_notify("No target credentials found in .env", notify_type="warning")
             return
 
         # Update state
@@ -463,14 +467,14 @@ def _do_load_env_credentials(
         save_state()
         
         terminal.success("Target credentials loaded from .env")
-        ui.notify("Target credentials loaded", type="positive")
+        _safe_notify("Target credentials loaded", notify_type="positive")
         
         # Reload page to show new values
         ui.navigate.reload()
 
     except Exception as e:
         terminal.error(f"Failed to load target credentials: {e}")
-        ui.notify(f"Failed to load: {e}", type="negative")
+        _safe_notify(f"Failed to load: {e}", notify_type="negative")
 
 
 def _show_load_credentials_dialog(
@@ -574,7 +578,7 @@ def _do_load_env_from_upload(
         
         if not creds.get("account_id") and not creds.get("api_token"):
             terminal.warning(f"No target credentials found in {filename}")
-            ui.notify("No target credentials found in uploaded file", type="warning")
+            _safe_notify("No target credentials found in uploaded file", notify_type="warning")
             return
 
         # Update state
@@ -607,14 +611,14 @@ def _do_load_env_from_upload(
         save_state()
         
         terminal.success(f"Target credentials loaded from {filename}")
-        ui.notify(f"Target credentials loaded from {filename}", type="positive")
+        _safe_notify(f"Target credentials loaded from {filename}", notify_type="positive")
         
         # Reload page to show new values
         ui.navigate.reload()
 
     except Exception as e:
         terminal.error(f"Failed to load target credentials from {filename}: {e}")
-        ui.notify(f"Failed to load: {e}", type="negative")
+        _safe_notify(f"Failed to load: {e}", notify_type="negative")
 
 
 def _save_env_credentials(state: AppState, terminal: TerminalOutput) -> None:
@@ -623,7 +627,7 @@ def _save_env_credentials(state: AppState, terminal: TerminalOutput) -> None:
     
     if not creds.account_id or not creds.api_token:
         terminal.warning("Cannot save: Account ID and API Token are required")
-        ui.notify("Fill in credentials first", type="warning")
+        _safe_notify("Fill in credentials first", notify_type="warning")
         return
 
     terminal.info("Saving target credentials to .env file...")
@@ -638,11 +642,11 @@ def _save_env_credentials(state: AppState, terminal: TerminalOutput) -> None:
             env_path=env_path,
         )
         terminal.success(f"Target credentials saved to {path}")
-        ui.notify("Target credentials saved", type="positive")
+        _safe_notify("Target credentials saved", notify_type="positive")
 
     except Exception as e:
         terminal.error(f"Failed to save target credentials: {e}")
-        ui.notify(f"Failed to save: {e}", type="negative")
+        _safe_notify(f"Failed to save: {e}", notify_type="negative")
 
 
 async def _test_connection(
@@ -657,7 +661,7 @@ async def _test_connection(
     if not is_valid:
         for err in errors:
             terminal.error(err)
-        ui.notify("Invalid credentials", type="negative")
+        _safe_notify("Invalid credentials", notify_type="negative")
         return
 
     terminal.info(f"Testing target connection to {creds.host_url}...")
@@ -674,14 +678,14 @@ async def _test_connection(
         
         if success:
             terminal.success(f"✓ Connection successful! Account: {result}")
-            ui.notify(f"Connected to: {result}", type="positive")
+            _safe_notify(f"Connected to: {result}", notify_type="positive")
         else:
             terminal.error(f"Connection failed: {result}")
-            ui.notify(f"Connection failed: {result}", type="negative")
+            _safe_notify(f"Connection failed: {result}", notify_type="negative")
 
     except Exception as e:
         terminal.error(f"Connection error: {e}")
-        ui.notify(f"Error: {e}", type="negative")
+        _safe_notify(f"Error: {e}", notify_type="negative")
 
 
 def _cancel_fetch(cancel_event: dict, terminal: TerminalOutput) -> None:
@@ -689,7 +693,7 @@ def _cancel_fetch(cancel_event: dict, terminal: TerminalOutput) -> None:
     if cancel_event["event"] is not None:
         cancel_event["event"].set()
         terminal.warning("Cancellation requested... Please wait.")
-        ui.notify("Cancellation requested", type="warning")
+        _safe_notify("Cancellation requested", notify_type="warning")
 
 
 async def _run_fetch(
@@ -714,7 +718,7 @@ async def _run_fetch(
     if not is_valid:
         for err in errors:
             terminal.error(err)
-        ui.notify("Please fix credential errors", type="negative")
+        _safe_notify("Please fix credential errors", notify_type="negative")
         return
     
     # Check for native integration repos and warn if using service token
@@ -739,16 +743,16 @@ async def _run_fetch(
         terminal.warning("  2. Enter a Personal Access Token (starts with 'dbtu_')")
         terminal.warning("")
         
-        ui.notify(
+        _safe_notify(
             "Service token detected with native integrations - repositories will use deploy key. "
             "Switch to User Token (PAT) for native integration support.",
-            type="warning",
+            notify_type="warning",
             timeout=10000,
         )
 
     # Prevent double-fetch
     if fetch_in_progress["value"]:
-        ui.notify("Fetch already in progress", type="warning")
+        _safe_notify("Fetch already in progress", notify_type="warning")
         return
 
     fetch_in_progress["value"] = True
@@ -810,7 +814,7 @@ async def _run_fetch(
 
         # Run fetch in thread pool
         terminal.info("Connecting to dbt Platform API...")
-        threads = getattr(fetch_state, 'threads', 50) or 50
+        threads = getattr(fetch_state, 'threads', 100) or 100
         terminal.info(f"Using {threads} threads for parallel fetching")
         event = cancel_event["event"]
         

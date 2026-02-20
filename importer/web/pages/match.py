@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Callable, Optional, TYPE_CHECKING
@@ -46,10 +47,16 @@ if TYPE_CHECKING:
 # dbt brand colors
 DBT_ORANGE = "#FF694A"
 DBT_TEAL = "#047377"
+_WS_DEBUG_ENABLED = os.getenv("IMPORTER_WS_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+_WS_DEBUG_LOG_PATH = Path(
+    "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log"
+)
 
 
 def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> None:
     """Write one NDJSON debug record for target-intent page analysis."""
+    if not _WS_DEBUG_ENABLED:
+        return
     payload = {
         "sessionId": "db419a",
         "runId": "pre-fix",
@@ -60,11 +67,8 @@ def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> 
         "timestamp": int(time.time() * 1000),
     }
     try:
-        with open(
-            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
-            "a",
-            encoding="utf-8",
-        ) as f:
+        _WS_DEBUG_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with _WS_DEBUG_LOG_PATH.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload, ensure_ascii=True) + "\n")
     except Exception:
         return
@@ -473,6 +477,8 @@ def _create_matching_content(
 ) -> None:
     """Create the main matching interface with editable grid."""
     from importer.web.components.match_grid import (
+        MATCH_DEFAULT_PAGE_SIZE,
+        apply_match_query,
         build_grid_data,
         create_match_grid,
         create_grid_toolbar,
@@ -664,6 +670,18 @@ def _create_matching_content(
     )
     # endregion
     
+    # Match page query model (server-side pagination + lightweight type filter)
+    type_filter_state = {"value": "all"}
+    pagination_state = {"page": 1, "page_size": MATCH_DEFAULT_PAGE_SIZE}
+    query_result_initial = apply_match_query(
+        grid_row_data,
+        type_filter=type_filter_state["value"],
+        page=pagination_state["page"],
+        page_size=pagination_state["page_size"],
+    )
+    grid_row_data = query_result_initial["filtered_rows"]
+    grid_row_data_page = query_result_initial["page_rows"]
+
     # First-run dialog: show once when target-only rows are detected
     if adoption_prefs.should_show_first_run_dialog(target_only_in_all > 0):
         def _on_first_run_yes(remember: bool = False):
@@ -796,25 +814,235 @@ def _create_matching_content(
                     on_click=lambda: on_step_change(WorkflowStep.SCOPE),
                 ).props("flat dense size=xs")
     
-    # Store grid row data in a mutable container for callbacks
-    # "data" = visible rows (after filtering), "all" = all rows (before filtering)
-    grid_data_ref = {"data": grid_row_data, "all": grid_row_data_all}
+    # Store grid row data in mutable containers for callbacks
+    # data=rendered page rows, filtered=all rows after query filters, all=raw rows
+    grid_data_ref = {
+        "data": grid_row_data_page,
+        "filtered": grid_row_data,
+        "all": grid_row_data_all,
+    }
+    grid_query_ref = {"query": query_result_initial}
     row_change_counter = {"count": 0}
+    ws_update_metrics = {
+        "in_place_refresh_count": 0,
+        "hard_reload_count": 0,
+        "rows_rendered_total": 0,
+        "detached_suppressed_count": 0,
+    }
+    page_runtime = {"active": True}
+    pending_ui_tasks: set[asyncio.Task] = set()
+
+    def _is_detached_ui_error(exc: Exception) -> bool:
+        text = str(exc).lower()
+        return (
+            "slot belongs to has been deleted" in text
+            or "client this element belongs to has been deleted" in text
+            or "websocket is not open" in text
+        )
+
+    def _deactivate_page_runtime(reason: str) -> None:
+        if not page_runtime["active"]:
+            return
+        ws_update_metrics["detached_suppressed_count"] += 1
+        page_runtime["active"] = False
+        for task in list(pending_ui_tasks):
+            if not task.done():
+                task.cancel()
+        pending_ui_tasks.clear()
+        _dbg_db419a(
+            "H70",
+            "match.py:_deactivate_page_runtime",
+            "deactivated match page runtime after ui detach",
+            {
+                "reason": reason,
+                "detached_suppressed_count": ws_update_metrics["detached_suppressed_count"],
+            },
+        )
+
+    def _schedule_ui_task(coro: asyncio.coroutines, label: str) -> None:
+        if not page_runtime["active"]:
+            return
+        try:
+            task = asyncio.create_task(coro)
+        except RuntimeError:
+            # No running loop, fallback to full reload behavior on caller side.
+            return
+        pending_ui_tasks.add(task)
+
+        def _finalize(done_task: asyncio.Task) -> None:
+            pending_ui_tasks.discard(done_task)
+            if done_task.cancelled():
+                return
+            try:
+                done_task.result()
+            except RuntimeError as e:
+                if _is_detached_ui_error(e):
+                    _deactivate_page_runtime(str(e))
+                else:
+                    raise
+
+        task.add_done_callback(_finalize)
+
+    def _compute_grid_rows_for_current_filters() -> tuple[list[dict], list[dict], list[dict], dict]:
+        """Recompute all/filter/page rows from current state without reconnecting page."""
+        rejected_keys_local = (
+            state.map.rejected_suggestions
+            if isinstance(state.map.rejected_suggestions, set)
+            else set(state.map.rejected_suggestions)
+        )
+        all_rows = build_grid_data(
+            source_items,
+            target_items,
+            state.map.confirmed_mappings,
+            rejected_keys_local,
+            clone_configs,
+            state_result=state_ref["state_result"],
+            state_loaded=state_ref["state_loaded"],
+            protected_resources=state.map.protected_resources,
+            protection_intent_manager=protection_intent_manager,
+        )
+        show_target_only_local = getattr(state.map, "show_target_only", adoption_prefs.show_target_only)
+        target_only_exclusive_local = getattr(state.map, "target_only_exclusive", False)
+        if target_only_exclusive_local:
+            visible_rows_local = [r for r in all_rows if r.get("is_target_only")]
+        elif not show_target_only_local:
+            visible_rows_local = [r for r in all_rows if not r.get("is_target_only")]
+        else:
+            visible_rows_local = all_rows
+
+        if getattr(state.map, "show_scope_only", False):
+            visible_rows_local = [
+                r for r in visible_rows_local if not (r.get("is_target_only") or r.get("is_state_only"))
+            ]
+        query_result = apply_match_query(
+            visible_rows_local,
+            type_filter=type_filter_state["value"],
+            page=pagination_state["page"],
+            page_size=pagination_state["page_size"],
+        )
+        pagination_state["page"] = query_result["page"]
+        return all_rows, query_result["filtered_rows"], query_result["page_rows"], query_result
+
+    async def _refresh_grid_without_reload(reason: str) -> bool:
+        """Push recomputed row data into AG Grid to avoid websocket reconnect churn."""
+        if not page_runtime["active"]:
+            return False
+        grid_obj = grid_ref.get("grid")
+        if grid_obj is None:
+            return False
+        all_rows, filtered_rows, page_rows, query_result = _compute_grid_rows_for_current_filters()
+        try:
+            await grid_obj.run_grid_method("setGridOption", "rowData", page_rows)
+        except RuntimeError as e:
+            if _is_detached_ui_error(e):
+                _deactivate_page_runtime(str(e))
+                return False
+            raise
+        grid_data_ref["all"] = all_rows
+        grid_data_ref["filtered"] = filtered_rows
+        grid_data_ref["data"] = page_rows
+        grid_query_ref["query"] = query_result
+        ws_update_metrics["in_place_refresh_count"] += 1
+        ws_update_metrics["rows_rendered_total"] += len(page_rows)
+        _dbg_db419a(
+            "H70",
+            "match.py:_refresh_grid_without_reload",
+            "completed in-place rowData refresh",
+            {
+                "reason": reason,
+                "rows_rendered": len(page_rows),
+                "rows_filtered": len(filtered_rows),
+                "all_rows": len(all_rows),
+                "page": query_result.get("page"),
+                "page_size": query_result.get("page_size"),
+                "in_place_refresh_count": ws_update_metrics["in_place_refresh_count"],
+                "rows_rendered_total": ws_update_metrics["rows_rendered_total"],
+            },
+        )
+        return True
+
+    def _clear_adopt_completion_status(reason: str, **extra: object) -> None:
+        """Invalidate stale Adopt completion status after Match edits."""
+        should_clear = bool(
+            state.deploy.adopt_step_complete
+            or state.deploy.adopt_step_skipped
+            or (state.deploy.adopt_step_status in {"complete", "plan_ready"})
+        )
+        if not should_clear:
+            return
+        # region agent log
+        _dbg_db419a(
+            "H6",
+            "match.py:_clear_adopt_completion_status",
+            "clearing stale adopt completion state from match edit",
+            {
+                "reason": reason,
+                "adopt_step_complete_before": bool(state.deploy.adopt_step_complete),
+                "adopt_step_skipped_before": bool(state.deploy.adopt_step_skipped),
+                "adopt_step_status_before": str(state.deploy.adopt_step_status or ""),
+                **extra,
+            },
+        )
+        # endregion
+        state.deploy.adopt_step_complete = False
+        state.deploy.adopt_step_skipped = False
+        state.deploy.adopt_step_status = ""
+        state.deploy.adopt_step_error = ""
+        state.deploy.adopt_step_imported_count = 0
+        state.deploy.adopt_step_running = False
+        state.deploy.adopt_step_last_output = ""
+        try:
+            _mgr = state.get_target_intent_manager()
+            _intent = _mgr.load()
+            if _intent is not None:
+                _intent.clear_adopt_state()
+                _mgr.save(_intent)
+        except Exception as _e:
+            logging.warning(f"Failed to clear adopt state from target intent: {_e}")
 
     def _reload_with_debug(reason: str, **extra: object) -> None:
         # region agent log
         _dbg_db419a(
             "H16",
             "match.py:_create_matching_content",
-            "issuing full page reload from target intent workflow",
+            "issuing target intent refresh decision",
             {"reason": reason, **extra},
         )
         # endregion
-        ui.navigate.reload()
+        hard_reload_only_reasons = {
+            "manual_reload",
+            "hard_recovery_reload",
+        }
+        if reason in hard_reload_only_reasons:
+            ws_update_metrics["hard_reload_count"] += 1
+            ui.navigate.reload()
+            return
+        async def _apply_in_place_refresh() -> None:
+            refreshed = await _refresh_grid_without_reload(reason)
+            if not refreshed and page_runtime["active"]:
+                ui.navigate.reload()
+        _schedule_ui_task(_apply_in_place_refresh(), f"in_place_refresh:{reason}")
     
     # Reset all mappings function
     def reset_all_mappings():
         """Reset all mappings and re-generate suggestions."""
+        # region agent log
+        if _WS_DEBUG_ENABLED:
+            import traceback as _traceback_dbg
+
+            _dbg_db419a(
+                "H68",
+                "match.py:reset_all_mappings",
+                "reset all mappings invoked",
+                {
+                    "confirmed_mappings_before": len(state.map.confirmed_mappings or []),
+                    "visible_rows": len(grid_data_ref.get("data", [])),
+                    "all_rows": len(grid_data_ref.get("all", [])),
+                    "stack_tail": [s.strip() for s in _traceback_dbg.format_stack(limit=6)][-4:],
+                },
+            )
+        # endregion
+        _clear_adopt_completion_status("reset_all_mappings")
         # Clear confirmed mappings
         state.map.confirmed_mappings = []
         # Clear suggested matches
@@ -838,9 +1066,25 @@ def _create_matching_content(
         _persist_target_intent_from_match(state)
         ui.notify("All mappings reset. Suggestions will be regenerated.", type="info")
         _reload_with_debug("reset_all_mappings")
+
+    def _trigger_reset_all_mappings(trigger_source: str) -> None:
+        """Instrument reset triggers so we can identify accidental invocations."""
+        # region agent log
+        _dbg_db419a(
+            "H68",
+            "match.py:_trigger_reset_all_mappings",
+            "reset button callback fired",
+            {
+                "trigger_source": trigger_source,
+                "confirmed_mappings_before": len(state.map.confirmed_mappings or []),
+            },
+        )
+        # endregion
+        reset_all_mappings()
     
     def accept_all_pending():
         """Accept all pending matches."""
+        _clear_adopt_completion_status("accept_all_pending")
         # Confidence types that represent automatic matching (not manual selection)
         auto_match_types = {
             "exact_match", "state_id_match", "url_match", "github_match", "env_match"
@@ -885,6 +1129,7 @@ def _create_matching_content(
         """
         if not hasattr(state.map, "confirmed_mappings"):
             state.map.confirmed_mappings = []
+        _clear_adopt_completion_status("adopt_all_matched")
         
         adopted_count = 0
         existing_keys = {m.get("source_key") for m in state.map.confirmed_mappings}
@@ -907,6 +1152,9 @@ def _create_matching_content(
                 # Add adopt mapping
                 state.map.confirmed_mappings.append({
                     "source_key": source_key,
+                    "resource_type": row.get("source_type", ""),
+                    "source_type": row.get("source_type", ""),
+                    "source_name": row.get("source_name", ""),
                     "target_id": target_id,
                     "target_name": row.get("target_name", ""),
                     "match_type": "bulk_adopt",
@@ -954,6 +1202,7 @@ def _create_matching_content(
         """
         if not hasattr(state.map, "confirmed_mappings"):
             state.map.confirmed_mappings = []
+        _clear_adopt_completion_status("adopt_all_target_only")
         
         adopted_count = 0
         for row in grid_data_ref.get("all", grid_data_ref["data"]):
@@ -971,6 +1220,9 @@ def _create_matching_content(
                 # Add adopt mapping
                 state.map.confirmed_mappings.append({
                     "source_key": source_key,
+                    "resource_type": row.get("source_type", ""),
+                    "source_type": row.get("source_type", ""),
+                    "source_name": row.get("source_name", ""),
                     "target_id": row.get("target_id"),
                     "target_name": row.get("target_name", ""),
                     "match_type": "bulk_adopt_target_only",
@@ -1492,7 +1744,7 @@ def _create_matching_content(
         
         save_state()
         ui.notify(f"Protected {len(keys_to_protect)} resource(s)", type="positive")
-        ui.navigate.reload()
+        _reload_with_debug("bulk_protect")
     
     def remove_protection(keys_to_unprotect: list[str]) -> None:
         """Remove protection from multiple resources.
@@ -1571,7 +1823,7 @@ def _create_matching_content(
         
         save_state()
         ui.notify(f"Unprotected {len(keys_to_unprotect)} resource(s)", type="info")
-        ui.navigate.reload()
+        _reload_with_debug("bulk_unprotect")
     
     def on_row_change(row_data: dict):
         """Handle row data changes from the grid."""
@@ -1631,9 +1883,6 @@ def _create_matching_content(
             old_protected = protection_intent_manager.get_effective_protection(
                 _intent_key, yaml_protected=False
             )
-        # #region agent log
-        import json as _json_dbg_orc, time as _time_dbg_orc; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(_json_dbg_orc.dumps({"timestamp": int(_time_dbg_orc.time()*1000), "location": "match.py:on_row_change:entry", "message": "on_row_change called", "hypothesisId": "D", "data": {"source_key": source_key, "action": action, "new_protected": new_protected, "old_protected": old_protected, "_action_changed": _action_changed, "_old_action_for_row": _old_action_for_row, "protected_resources_has_key": source_key in state.map.protected_resources, "bare_key": _bare_key, "intent_checked": protection_intent_manager is not None}}) + "\n")
-        # #endregion
         # If the OLD action was a non-management action (ignore/skip/unadopt/create_new),
         # the grid suppresses protection display — so from the user's perspective the
         # resource was NOT protected, regardless of stale protected_resources entries.
@@ -1690,6 +1939,8 @@ def _create_matching_content(
                             "source_key": sk,
                             "action": "adopt",
                             "resource_type": st,
+                            "source_type": st,
+                            "source_name": row_data.get("source_name", ""),
                             "target_id": str(row_data.get("target_id", "")),
                             "target_name": row_data.get("target_name", ""),
                             "match_type": "manual",
@@ -1733,12 +1984,6 @@ def _create_matching_content(
                     protection_intent.save()
                     bare_key = sk.removeprefix("target__")
                     state.map.protected_resources.add(bare_key)
-                    # #region agent log
-                    import json as _json_dbg3, time as _time_dbg3
-                    _dbg_entry3 = {"timestamp": int(_time_dbg3.time()*1000), "location": "match.py:_adopt_and_protect_from_match", "message": "adopt-and-protect persist", "hypothesisId": "E", "data": {"sk": sk, "bare_key": bare_key, "intent_key": intent_key, "protected_resources_after": sorted(state.map.protected_resources), "source_type": st}}
-                    with open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a") as _f3:
-                        _f3.write(_json_dbg3.dumps(_dbg_entry3) + "\n")
-                    # #endregion
                     save_state()
                     ui.notify(f"Adopted & protected: {display_name}", type="positive")
                     _reload_with_debug(
@@ -1844,9 +2089,6 @@ def _create_matching_content(
                 # For sub-project resources (ENV, JOB, EXTATTR), use the TF state key
                 intent_key = _get_intent_key_for_row(row_data)
                 prefixed_key = _make_prefixed_intent_key(source_type, intent_key)
-                # #region agent log
-                import json as _json_dbg_up, time as _time_dbg_up; open("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug.log", "a").write(_json_dbg_up.dumps({"timestamp": int(_time_dbg_up.time()*1000), "location": "match.py:on_row_change:unprotect", "message": "Unprotecting resource", "hypothesisId": "F", "data": {"source_key": source_key, "intent_key": intent_key, "prefixed_key": prefixed_key, "source_type": source_type, "state_address": row_data.get("state_address", ""), "protected_resources_before": sorted(list(state.map.protected_resources))[:20]}}) + "\n")
-                # #endregion
                 protection_intent.set_intent(
                     key=prefixed_key,
                     protected=False,
@@ -1912,6 +2154,25 @@ def _create_matching_content(
         
         
         # Persist adopt/match actions to confirmed_mappings so they survive page reloads
+        _clear_adopt_completion_status(
+            "on_row_change",
+            source_key=source_key,
+            action=action,
+        )
+        # region agent log
+        _dbg_db419a(
+            "H69",
+            "match.py:on_row_change",
+            "persist path selected for row action",
+            {
+                "source_key": source_key,
+                "old_action": _old_action_for_row,
+                "new_action": action,
+                "target_id_present": bool(row_data.get("target_id")),
+                "confirmed_mappings_before": len(state.map.confirmed_mappings or []),
+            },
+        )
+        # endregion
         if action in ("adopt", "match") and row_data.get("target_id"):
             # Remove existing mapping for this key first
             state.map.confirmed_mappings = [
@@ -1921,6 +2182,9 @@ def _create_matching_content(
             # Add the confirmed mapping with the action
             state.map.confirmed_mappings.append({
                 "source_key": source_key,
+                "resource_type": row_data.get("source_type", ""),
+                "source_type": row_data.get("source_type", ""),
+                "source_name": row_data.get("source_name", ""),
                 "target_id": row_data.get("target_id"),
                 "target_name": row_data.get("target_name", ""),
                 "match_type": "manual",
@@ -1935,6 +2199,19 @@ def _create_matching_content(
                 m for m in state.map.confirmed_mappings
                 if m.get("source_key") != source_key
             ]
+            # region agent log
+            _dbg_db419a(
+                "H69",
+                "match.py:on_row_change",
+                "non-managed action removed confirmed mapping",
+                {
+                    "source_key": source_key,
+                    "new_action": action,
+                    "confirmed_mappings_after_remove": len(state.map.confirmed_mappings or []),
+                    "target_id": str(row_data.get("target_id") or ""),
+                },
+            )
+            # endregion
             # ── Clear protection when action becomes non-adopt ──
             # Normalize: protected_resources stores bare keys, but source_key
             # for target-only resources has a "target__" prefix. Check both.
@@ -2490,6 +2767,12 @@ def _create_matching_content(
                 # Add to confirmed mappings
                 if not hasattr(state.map, "confirmed_mappings"):
                     state.map.confirmed_mappings = []
+                _clear_adopt_completion_status(
+                    "handle_target_selected",
+                    source_key=source_key,
+                    selected_target_id=target_id,
+                    selected_action=action,
+                )
                 
                 # Remove any existing mapping for this source
                 state.map.confirmed_mappings = [
@@ -2500,6 +2783,9 @@ def _create_matching_content(
                 # Add new mapping with action
                 state.map.confirmed_mappings.append({
                     "source_key": source_key,
+                    "resource_type": source_type,
+                    "source_type": source_type,
+                    "source_name": source_item.get("name", ""),
                     "target_id": target_id,
                     "target_name": target_name,
                     "match_type": "manual",
@@ -2528,7 +2814,7 @@ def _create_matching_content(
                 save_state()
                 _persist_target_intent_from_match(state)
                 ui.notify(f"Matched to {target_name} (ID: {target_id}) with action '{action}'", type="positive")
-                ui.navigate.reload()  # Reload to update the grid
+                _reload_with_debug("details_dialog_target_selected")
             
             # Callback to handle "Set to Adopt" button click
             def handle_adopt(protected: bool = True):
@@ -2545,6 +2831,11 @@ def _create_matching_content(
                 # Add/update confirmed mapping with adopt action
                 if not hasattr(state.map, "confirmed_mappings"):
                     state.map.confirmed_mappings = []
+                _clear_adopt_completion_status(
+                    "handle_adopt",
+                    source_key=source_key,
+                    protected=protected,
+                )
                 
                 # Remove any existing mapping for this source
                 state.map.confirmed_mappings = [
@@ -2555,6 +2846,9 @@ def _create_matching_content(
                 # Add new mapping with adopt action and protection flag
                 state.map.confirmed_mappings.append({
                     "source_key": source_key,
+                    "resource_type": source_type,
+                    "source_type": source_type,
+                    "source_name": source_item.get("name", ""),
                     "target_id": target_id,
                     "target_name": target_name,
                     "match_type": "manual",
@@ -2566,7 +2860,7 @@ def _create_matching_content(
                 _persist_target_intent_from_match(state)
                 protection_msg = " (protected)" if protected else ""
                 ui.notify(f"Set {source_item.get('name', source_key)} to adopt{protection_msg}", type="positive")
-                ui.navigate.reload()
+                _reload_with_debug("details_dialog_adopt")
             
             show_match_detail_dialog(
                 source_data=source_item,
@@ -2612,7 +2906,7 @@ def _create_matching_content(
             # Add new config
             state.map.cloned_resources.append(config)
             save_state()
-            ui.navigate.reload()
+            _reload_with_debug("clone_config_saved")
         
         show_clone_dialog(
             source_item=source_item,
@@ -2715,7 +3009,7 @@ def _create_matching_content(
         _persist_target_intent_from_match(state, state_to_target=state_to_target_list)
 
         ui.notify(f"Loaded {len(result.resources)} resources from Terraform state", type="positive")
-        ui.navigate.reload()
+        _reload_with_debug("terraform_state_loaded")
     
     # Auto-load TF state if terraform.tfstate exists on disk and hasn't been loaded yet
     if not state.deploy.reconcile_state_loaded:
@@ -2768,7 +3062,7 @@ def _create_matching_content(
                 ui.button(
                     "Reset All Mappings",
                     icon="refresh",
-                    on_click=reset_all_mappings,
+                    on_click=lambda: _trigger_reset_all_mappings("header_reset_button"),
                 ).props("flat text-color=orange-6 size=sm").tooltip(
                     "Clear all mappings and regenerate suggestions"
                 )
@@ -2777,27 +3071,31 @@ def _create_matching_content(
     grid_ref: dict = {}
     
     def on_type_filter_change(type_value: str) -> None:
-        """Apply type filter to the match grid via AG Grid setFilterModel."""
-        g = grid_ref.get("grid")
-        if g is None:
-            return
-        import asyncio
-        async def apply() -> None:
-            if type_value == "all":
-                await g.run_grid_method("setFilterModel", {})
-            else:
-                await g.run_grid_method(
-                    "setFilterModel",
-                    {"source_type": {"filterType": "text", "type": "equals", "filter": type_value}},
-                )
-        asyncio.get_event_loop().create_task(apply())
+        """Apply type filter through server-side query + in-place refresh."""
+        type_filter_state["value"] = type_value or "all"
+        pagination_state["page"] = 1
+        _reload_with_debug("type_filter_change")
+
+    def on_page_size_change(page_size_value: int) -> None:
+        pagination_state["page_size"] = int(page_size_value)
+        pagination_state["page"] = 1
+        _reload_with_debug("page_size_change")
+
+    def on_prev_page() -> None:
+        pagination_state["page"] = max(1, int(pagination_state["page"]) - 1)
+        _reload_with_debug("pagination_prev")
+
+    def on_next_page() -> None:
+        current_total_pages = int(grid_query_ref["query"].get("total_pages", 1))
+        pagination_state["page"] = min(current_total_pages, int(pagination_state["page"]) + 1)
+        _reload_with_debug("pagination_next")
     
     # Grid toolbar
     create_grid_toolbar(
         grid_row_data,
         on_accept_all=accept_all_pending,
         on_reject_all=reject_all_pending,
-        on_reset_all=reset_all_mappings,
+        on_reset_all=lambda: _trigger_reset_all_mappings("toolbar_reset_button"),
         on_export_csv=export_csv,
         on_type_filter_change=on_type_filter_change,
         on_adopt_all_matched=adopt_all_matched,
@@ -2811,6 +3109,13 @@ def _create_matching_content(
         show_scope_only=show_scope_only,
         hidden_by_scope=hidden_by_scope,
         on_select_project=select_project,
+        page_size=int(pagination_state["page_size"]),
+        current_page=int(grid_query_ref["query"]["page"]),
+        total_pages=int(grid_query_ref["query"]["total_pages"]),
+        total_filtered=int(grid_query_ref["query"]["total_filtered"]),
+        on_page_size_change=on_page_size_change,
+        on_prev_page=on_prev_page,
+        on_next_page=on_next_page,
     )
     
     # Main grid in a card - flex container that grows to fill available space
@@ -2840,7 +3145,7 @@ def _create_matching_content(
             removal_keys=removal_keys_set,
             protected_resources=state.map.protected_resources,
             protection_intent_manager=protection_intent,
-            row_data_override=grid_row_data,
+            row_data_override=grid_row_data_page,
         )
         grid_ref["grid"] = grid
 
@@ -3149,7 +3454,7 @@ def _create_matching_content(
                                                     del protection_intent_manager._intent[rkey]
                                                     protection_intent_manager.save()
                                                     ui.notify(f"Removed orphan intent: {rkey}", type="info")
-                                                    ui.navigate.reload()
+                                                    _reload_with_debug("remove_orphan_intent")
                                             return handler
                                         
                                         ui.button(
@@ -3241,7 +3546,7 @@ def _create_matching_content(
                                                 
                                                 protection_intent_manager.save()
                                                 ui.notify(f"Intent set: PROTECT {rkey}" + (" (+REP, +PREP)" if rtype == "PRJ" else ""), type="positive")
-                                                ui.navigate.reload()
+                                                _reload_with_debug("clarification_protect")
                                             return handler
                                         
                                         def make_unprotect_handler(rkey=resource_key, rtype=source_type):
@@ -3268,7 +3573,7 @@ def _create_matching_content(
                                                 
                                                 protection_intent_manager.save()
                                                 ui.notify(f"Intent set: UNPROTECT {rkey}" + (" (+REP, +PREP)" if rtype == "PRJ" else ""), type="info")
-                                                ui.navigate.reload()
+                                                _reload_with_debug("clarification_unprotect")
                                             return handler
                                         
                                         ui.button(
@@ -3318,7 +3623,7 @@ def _create_matching_content(
                                 
                                 protection_intent_manager.save()
                                 ui.notify(f"Set intent to PROTECT for {count} resources (including cascaded)", type="positive")
-                                ui.navigate.reload()
+                                _reload_with_debug("clarification_bulk_protect")
                             
                             def unprotect_all_mismatches():
                                 count = 0
@@ -3349,7 +3654,7 @@ def _create_matching_content(
                                 
                                 protection_intent_manager.save()
                                 ui.notify(f"Set intent to UNPROTECT for {count} resources (including cascaded)", type="info")
-                                ui.navigate.reload()
+                                _reload_with_debug("clarification_bulk_unprotect")
                             
                             ui.button(
                                 f"Protect All ({len(_mismatches_needing_intent)})",
@@ -3407,7 +3712,7 @@ def _create_matching_content(
                                                 protection_intent_manager.save()
                                                 save_state()
                                                 ui.notify(f"Removed intent for {key_to_undo}", type="info")
-                                                ui.navigate.reload()
+                                                _reload_with_debug("undo_single_pending_intent")
                                         return handler
                                     
                                     ui.button(
@@ -3435,7 +3740,7 @@ def _create_matching_content(
                             protection_intent_manager.save()
                             save_state()
                             ui.notify(f"Cleared {len(_all_pending)} pending intents", type="info")
-                            ui.navigate.reload()
+                            _reload_with_debug("clear_all_pending_intents")
                         
                         ui.button(
                             f"Clear All Pending ({len(_all_pending)})",
@@ -3575,7 +3880,7 @@ def _create_matching_content(
                             def close_and_reload():
                                 """Close dialog and reload page to show Terraform buttons."""
                                 dialog.close()
-                                ui.navigate.reload()
+                                _reload_with_debug("manual_reload")
                             
                             close_btn = ui.button("Close & Continue", on_click=close_and_reload).props("color=primary").classes("mt-4")
                             close_btn.set_visibility(False)  # Show when done
@@ -4611,7 +4916,7 @@ def _create_matching_content(
                             
                             # Reload to refresh the mismatch detection
                             await asyncio.sleep(0.5)
-                            ui.navigate.reload()
+                            _reload_with_debug("sync_protection_from_tf_state")
                             
                         except Exception as e:
                             ui.notify(f"Sync failed: {e}", type="negative")
@@ -6191,8 +6496,7 @@ moved {{
                             save_state()
                             _persist_target_intent_from_match(state)
                             ui.notify(f"Mapping saved to {output_path}", type="positive")
-                            # Reload to update navigation button state
-                            ui.navigate.reload()
+                            _reload_with_debug("save_target_intent_mapping")
                             
                     except Exception as e:
                         ui.notify(f"Error: {e}", type="negative")
