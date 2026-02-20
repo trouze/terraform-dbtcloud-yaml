@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
-**Last Updated:** 2026-02-19  
-**Current Importer Version:** 0.23.3  
+**Last Updated:** 2026-02-20  
+**Current Importer Version:** 0.23.4  
 **Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix + Match Diagnostics Improvements + AG Grid Standardization + Dialog Width Fix + Protection Mismatch Fix + Adoption Override Data Flow Fix + Debug Logging Standards + View Output Plan Dialog Fix + Independent Protection Architecture + Comprehensive Protection Unit Tests + Repository Key Prefix Matching Fix + Extended Attributes (EXTATTR) Support + Target Intent State File + Protection as Disposition Property + Explicit Global Intent Filtering + Drift Detection + TF State Repo Identity Fixup + Global Resources Configuration + Protection Intent Key Fix + EnvVar Protection + State-Only Resource Fixes + TF Plan Stability + Plan Targeting Fix + Deploy Page State-Based Protection
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -420,9 +420,9 @@ Before starting end-to-end testing with a real account, verify:
 ## Version Tracking
 
 ### Importer Version
-- **Current:** 0.23.3
+- **Current:** 0.23.4
 - **File:** `importer/VERSION`
-- **Last Updated:** 2026-02-19
+- **Last Updated:** 2026-02-20
 
 ### Terraform Module Version
 - **Current:** Supports v1 and v2 schemas
@@ -666,6 +666,12 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2026-02-20 (v0.23.4)
+- **Version:** Incremented to 0.23.4 (patch release - startup navigation latency hardening)
+- Removed blocking account-name API verification from startup state refresh so initial page transitions no longer incur intermittent ~1.6s delays.
+- Added `verify_account_name` control to account-info loading, preserving explicit verification behavior in credential/test flows while keeping route startup lightweight.
+- Verified improved route responsiveness across repeated `fetch_source ↔ fetch_target` navigation cycles.
 
 ### 2026-02-19 (v0.23.3)
 - **Version:** Incremented to 0.23.3 (patch release - Adopt/Match stability + AG Grid regression hardening + repo hygiene)

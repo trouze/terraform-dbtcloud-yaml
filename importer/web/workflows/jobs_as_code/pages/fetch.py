@@ -1,6 +1,6 @@
 """Fetch jobs page for Jobs as Code Generator."""
 
-from typing import Callable
+from typing import Any, Callable
 
 from nicegui import ui
 
@@ -36,7 +36,7 @@ def create_jac_fetch_page(
     jac = state.jobs_as_code
     
     # Containers for dynamic content
-    fetch_status_container = {"element": None}
+    fetch_status_container: dict[str, Any] = {"element": None}
     
     with ui.column().classes("w-full max-w-4xl mx-auto p-8 gap-6"):
         # Header

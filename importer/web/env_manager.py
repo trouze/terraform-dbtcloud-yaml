@@ -846,6 +846,7 @@ def clear_env_credential_config(
 def load_account_info_from_env(
     account_type: str = "source",
     env_path: Optional[str] = None,
+    verify_account_name: bool = True,
 ) -> AccountInfo:
     """Load account info from .env file credentials.
 
@@ -854,6 +855,7 @@ def load_account_info_from_env(
     Args:
         account_type: "source" or "target"
         env_path: Path to .env file
+        verify_account_name: Whether to call dbt Cloud API to resolve account name
 
     Returns:
         AccountInfo populated from .env (and API if possible)
@@ -873,14 +875,15 @@ def load_account_info_from_env(
         info.is_configured = True
 
         # Try to fetch account name
-        success, result = fetch_account_name(
-            creds["host_url"],
-            creds["account_id"],
-            creds["api_token"],
-        )
-        if success:
-            info.account_name = result
-            info.is_verified = True
+        if verify_account_name:
+            success, result = fetch_account_name(
+                creds["host_url"],
+                creds["account_id"],
+                creds["api_token"],
+            )
+            if success:
+                info.account_name = result
+                info.is_verified = True
 
     return info
 

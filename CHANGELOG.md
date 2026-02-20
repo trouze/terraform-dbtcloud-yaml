@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.4] - 2026-02-20
+
+### Fixed
+- **Startup navigation latency spike**: removed blocking dbt Cloud account-name verification from initial app state refresh to prevent first-route stalls during `fetch_source`/`fetch_target` transitions.
+- **Route responsiveness consistency**: startup account metadata now loads from local credentials first, while explicit credential validation flows continue to perform API verification when needed.
+
 ## [0.23.3] - 2026-02-19
 
 ### Fixed

@@ -154,8 +154,17 @@ def _refresh_account_info(state: AppState) -> None:
     try:
         source_env = resolve_project_env_path(state.project_path, "source")
         target_env = resolve_project_env_path(state.project_path, "target")
-        state.source_account = load_account_info_from_env("source", env_path=source_env)
-        state.target_account = load_account_info_from_env("target", env_path=target_env)
+        # Skip blocking account-name API lookups on startup route load.
+        state.source_account = load_account_info_from_env(
+            "source",
+            env_path=source_env,
+            verify_account_name=False,
+        )
+        state.target_account = load_account_info_from_env(
+            "target",
+            env_path=target_env,
+            verify_account_name=False,
+        )
     except Exception:
         pass
 
@@ -184,63 +193,6 @@ def save_state() -> None:
     global _app_state
     if _app_state:
         try:
-            # region agent log
-            import json as _json_dbg, time as _time_dbg, traceback as _tb_dbg, yaml as _yaml_dbg
-            _DBG_LOG = Path("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-0c67c5.log")
-            def _dbg(hid, loc, msg, data, rid="run1"):
-                try:
-                    with _DBG_LOG.open("a") as _f:
-                        _f.write(_json_dbg.dumps({"sessionId":"0c67c5","runId":rid,"hypothesisId":hid,"location":loc,"message":msg,"data":data,"timestamp":int(_time_dbg.time()*1000)}, default=str)+"\n")
-                except Exception:
-                    pass
-            def _max_depth(obj, seen=None, depth=0):
-                if depth > 200:
-                    return depth
-                if seen is None:
-                    seen = set()
-                oid = id(obj)
-                if oid in seen:
-                    return -1  # circular
-                seen.add(oid)
-                if isinstance(obj, dict):
-                    if not obj:
-                        return depth
-                    return max(_max_depth(v, seen, depth+1) for v in obj.values())
-                elif isinstance(obj, (list, tuple)):
-                    if not obj:
-                        return depth
-                    return max(_max_depth(v, seen, depth+1) for v in obj)
-                return depth
-            try:
-                state_dict = _app_state.to_dict()
-                _dbg("A","app.py:save_state","to_dict produced",{"keys":list(state_dict.keys()),"top_level_count":len(state_dict)})
-                for k, v in state_dict.items():
-                    d = _max_depth(v)
-                    sz = len(_json_dbg.dumps(v, default=str)) if v is not None else 0
-                    _dbg("A","app.py:save_state:field",f"field={k}",{"depth":d,"json_size":sz,"type":type(v).__name__})
-                    if d == -1:
-                        _dbg("A","app.py:save_state:CIRCULAR",f"CIRCULAR REF in {k}",{"field":k})
-                    if d > 50:
-                        _dbg("A","app.py:save_state:DEEP",f"DEEP nesting in {k}",{"field":k,"depth":d})
-                    try:
-                        _yaml_dbg.dump({k: v})
-                    except Exception as _ye:
-                        _dbg("B","app.py:save_state:yaml_fail",f"YAML fail on {k}",{"field":k,"error":str(_ye)[:500]})
-                for extra_k in list(app.storage.user.keys()):
-                    if extra_k == "app_state":
-                        continue
-                    ev = app.storage.user[extra_k]
-                    ed = _max_depth(ev)
-                    _dbg("E","app.py:save_state:extra_key",f"extra storage key={extra_k}",{"depth":ed,"type":type(ev).__name__})
-                    try:
-                        _yaml_dbg.dump({extra_k: ev})
-                    except Exception as _ye2:
-                        _dbg("E","app.py:save_state:extra_yaml_fail",f"YAML fail on extra key {extra_k}",{"key":extra_k,"error":str(_ye2)[:500]})
-            except RecursionError as _re:
-                _dbg("X","app.py:save_state:RECURSION","RecursionError during debug check",{"traceback":_tb_dbg.format_exc()[-1000:]})
-            except Exception as _e:
-                _dbg("X","app.py:save_state:ERROR","Error during debug check",{"error":str(_e)[:500]})
-            # endregion
             app.storage.user["app_state"] = _app_state.to_dict()
             # Also save protection intent file if it was accessed
             _app_state.save_protection_intent()
@@ -249,16 +201,8 @@ def save_state() -> None:
             # This is recoverable - state will be saved on next interaction
             import logging
             logging.getLogger(__name__).debug(f"Could not save state (session not ready): {e}")
-        except RecursionError as _re_outer:
-            # region agent log
-            try:
-                import json as _json_re, time as _time_re, traceback as _tb_re
-                _DBG_LOG_RE = Path("/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-0c67c5.log")
-                with _DBG_LOG_RE.open("a") as _fre:
-                    _fre.write(_json_re.dumps({"sessionId":"0c67c5","runId":"run1","hypothesisId":"X","location":"app.py:save_state:outer_recursion","message":"OUTER RecursionError caught","data":{"traceback":_tb_re.format_exc()[-2000:]},"timestamp":int(_time_re.time()*1000)}, default=str)+"\n")
-            except Exception:
-                pass
-            # endregion
+        except RecursionError:
+            _dbg_ws_metric("app.py:save_state", "RecursionError while saving state", {})
 
         # Auto-save to project if one is active (US-099)
         if _app_state.active_project:
@@ -463,7 +407,6 @@ def setup_page(state: AppState) -> None:
         }
         
     """)
-
     # Create navigation drawer with callbacks
     create_nav_drawer(
         state,
