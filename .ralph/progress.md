@@ -173,3 +173,10 @@ count reconciliation review:
 - Added regression coverage in:
   - `importer/web/tests/test_adoption_imports.py`
   - `importer/web/tests/test_terraform_import_cleanup.py`
+
+### 2026-02-20 (continued 5)
+**Match-grid collision regression micro-commit**
+
+- Added regression coverage in `importer/web/tests/test_match_grid.py` for
+  state-id auto-match behavior when different resource types share the same
+  numeric `dbt_id`, ensuring type-scoped lookup preference is preserved.

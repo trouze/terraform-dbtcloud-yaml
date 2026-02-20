@@ -1,6 +1,7 @@
 """Unit tests for match grid: action values, removal_keys (unadopt), type labels."""
 
 import pytest
+from types import SimpleNamespace
 
 from importer.web.components.match_grid import (
     ACTION_VALUES,
@@ -703,3 +704,62 @@ class TestBuildGridDataStateLoadedFlag:
         assert row["source_type"] == "GRP"
         assert row["drift_status"] == "no_state"
         assert row["action"] == "match"
+
+    def test_state_id_match_prefers_type_scoped_lookup_on_id_collision(self):
+        """State-id auto-match should not fail when another type shares the same dbt_id."""
+        source_items = [
+            {
+                "key": "sse_dm_fin_fido",
+                "name": "sse_dm_fin_fido",
+                "element_type_code": "PRJ",
+                "dbt_id": 554,
+                "project_name": "",
+            }
+        ]
+        # PRJ and JOB intentionally share dbt_id=601 to simulate cross-type collision.
+        target_items = [
+            {
+                "key": "job_with_same_id",
+                "name": "job_with_same_id",
+                "element_type_code": "JOB",
+                "dbt_id": 601,
+                "project_name": "other_project",
+            },
+            {
+                "key": "sse_dm_fin_fido_target",
+                "name": "renamed_project",
+                "element_type_code": "PRJ",
+                "dbt_id": 601,
+                "project_name": "",
+            },
+        ]
+        state_result = SimpleNamespace(
+            resources=[
+                SimpleNamespace(
+                    element_code="PRJ",
+                    dbt_id=601,
+                    name="sse_dm_fin_fido",
+                    tf_name="protected_projects",
+                    project_id=None,
+                    resource_index="sse_dm_fin_fido",
+                    address='module.dbt_cloud.module.projects_v2[0].dbtcloud_project.protected_projects["sse_dm_fin_fido"]',
+                )
+            ]
+        )
+
+        rows = build_grid_data(
+            source_items=source_items,
+            target_items=target_items,
+            confirmed_mappings=[],
+            rejected_keys=set(),
+            state_result=state_result,
+            state_loaded=True,
+        )
+
+        assert len(rows) >= 1
+        row = rows[0]
+        assert row["source_type"] == "PRJ"
+        assert row["target_id"] == "601"
+        assert row["target_name"] == "renamed_project"
+        assert row["confidence"] == "state_id_match"
+        assert row["drift_status"] == "in_sync"
