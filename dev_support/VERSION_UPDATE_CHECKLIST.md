@@ -93,6 +93,11 @@
   - Generate/Init/Plan/Apply execution directories
 - `target-intent.json` is written under the project deployment directory (for example, `projects/<project>/deployments/migration/target-intent.json`)
 
+### 11. Match drift-marker recompute behavior
+**Check if:**
+- Match key actions (row action edits, adopt-cascade skip, adopt/protect guard cancel) trigger `_reload_with_debug(...)` so grid drift markers are recomputed without requiring manual browser reload.
+- Regression coverage remains in `importer/web/tests/test_match_no_terraform_execution.py` for these recompute hooks.
+
 ---
 
 ## Version Numbering Guidelines
@@ -133,9 +138,10 @@ Follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html):
 8. **Update guardrails/docs** if release includes compatibility or performance hardening
 9. **Update AG Grid standards/regression docs** for any UI table rendering fix
 10. **Verify deploy path scoping** if release touches Deploy directory/state behavior
-11. **Run tests** to verify version is correctly reported and key path behavior is stable
-12. **Commit with message**: `chore: release vX.Y.Z`
-13. **Tag release** (if applicable): `git tag vX.Y.Z`
+11. **Verify Match recompute hooks** for key action/drift refresh behavior
+12. **Run tests** to verify version is correctly reported and key path behavior is stable
+13. **Commit with message**: `chore: release vX.Y.Z`
+14. **Tag release** (if applicable): `git tag vX.Y.Z`
 
 ---
 
@@ -189,7 +195,7 @@ head -30 CHANGELOG.md
 
 ---
 
-**Last Updated:** 2026-02-20  
-**Document Version:** 1.3
+**Last Updated:** 2026-02-25  
+**Document Version:** 1.4
 
 

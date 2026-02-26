@@ -94,6 +94,101 @@ def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> 
         return
 
 
+def _dbg_25ac29(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    payload = {
+        "sessionId": "25ac29",
+        "runId": "match-post-fix",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(
+            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-25ac29.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    except Exception:
+        return
+
+
+def _select_confirmed_mapping(
+    source_key: str,
+    source_type: str,
+    source_name: str,
+    project_name: str,
+    confirmed_by_source_key: dict[str, list[dict]],
+) -> Optional[dict]:
+    """Select the best confirmed mapping when source_key collides.
+
+    Historically, source_key can collide across projects (e.g., ENV key "prod").
+    Prefer mappings that also match type/name/project metadata when available.
+    """
+    candidates = list(confirmed_by_source_key.get(source_key, []))
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+
+    type_candidates = [
+        m for m in candidates
+        if (m.get("resource_type") or m.get("source_type") or "") == source_type
+    ]
+    if len(type_candidates) == 1:
+        return type_candidates[0]
+    if type_candidates:
+        candidates = type_candidates
+
+    source_name_norm = _normalize_name_for_lookup(source_name)
+    exact_name_candidates = [m for m in candidates if m.get("source_name", "") == source_name]
+    if len(exact_name_candidates) == 1:
+        return exact_name_candidates[0]
+    if exact_name_candidates:
+        candidates = exact_name_candidates
+    else:
+        normalized_name_candidates = [
+            m
+            for m in candidates
+            if _normalize_name_for_lookup(m.get("source_name", "")) == source_name_norm
+        ]
+        if len(normalized_name_candidates) == 1:
+            return normalized_name_candidates[0]
+        if normalized_name_candidates:
+            candidates = normalized_name_candidates
+
+    project_candidates = [m for m in candidates if m.get("project_name", "") == project_name]
+    if len(project_candidates) == 1:
+        return project_candidates[0]
+    if project_candidates:
+        candidates = project_candidates
+
+    return candidates[0]
+
+
+def _normalize_state_dbt_id(raw_id: object) -> Optional[int]:
+    """Normalize dbt IDs from state entries to integer IDs or None."""
+    if raw_id is None:
+        return None
+    if isinstance(raw_id, int):
+        return raw_id
+    if isinstance(raw_id, str):
+        trimmed = raw_id.strip()
+        if trimmed == "" or trimmed.lower() in {"none", "null"}:
+            return None
+        if ":" in trimmed:
+            candidate = trimmed.split(":")[-1].strip()
+            if candidate.isdigit():
+                return int(candidate)
+            return None
+        if trimmed.isdigit():
+            return int(trimmed)
+        return None
+    return None
+
+
 def _compute_drift_status(
     source_type: str,
     source_name: str,
@@ -284,15 +379,12 @@ def build_grid_data(
     # Also build name-based lookup as fallback for "create new" scenarios
     state_by_name: dict[tuple, dict] = {}  # Keys: (type, name) or (type, project, name) for NAME_KEYED
     state_by_id: dict[tuple[str, int], dict] = {}
+    state_by_index: dict[tuple[str, str], dict] = {}  # Keys: (type, resource_index)
     if state_result and state_result.resources:
         for res in state_result.resources:
             # Normalize dbt_id to int to ensure consistent lookups
             dbt_id_normalized = res.dbt_id
-            if isinstance(dbt_id_normalized, str):
-                try:
-                    dbt_id_normalized = int(dbt_id_normalized)
-                except ValueError:
-                    pass
+            dbt_id_normalized = _normalize_state_dbt_id(dbt_id_normalized)
             state_info = {
                 "address": res.address,
                 "dbt_id": dbt_id_normalized,
@@ -320,6 +412,8 @@ def build_grid_data(
                 key = (res.element_code, res.tf_name)
                 if key not in state_by_name:
                     state_by_name[key] = state_info
+            if res.resource_index:
+                state_by_index[(res.element_code, str(res.resource_index))] = state_info
             # Index by dbt_id - this is the PRIMARY lookup for drift detection
             if dbt_id_normalized is not None:
                 state_by_id[(res.element_code, dbt_id_normalized)] = state_info
@@ -386,6 +480,21 @@ def build_grid_data(
             key = (element_type, name)
         if key not in target_by_type_name:
             target_by_type_name[key] = item
+        elif element_type == "ENV":
+            # region agent log
+            _dbg_25ac29(
+                "H10",
+                "match_grid.py:build_grid_data:target_lookup_collision",
+                "project-scoped ENV lookup key collision",
+                {
+                    "lookup_key": str(key),
+                    "existing_target_id": target_by_type_name[key].get("dbt_id"),
+                    "existing_project_name": target_by_type_name[key].get("project_name", ""),
+                    "discarded_target_id": item.get("dbt_id"),
+                    "discarded_project_name": item.get("project_name", ""),
+                },
+            )
+            # endregion
         
         dbt_id = item.get("dbt_id")
         if dbt_id:
@@ -430,10 +539,13 @@ def build_grid_data(
                 if crd_key not in target_crd_by_env:
                     target_crd_by_env[crd_key] = item
     
-    # Build confirmed mapping lookup
-    confirmed_by_source_key = {
-        m.get("source_key"): m for m in confirmed_mappings
-    }
+    # Build confirmed mapping lookup (preserve all entries for collision resolution)
+    confirmed_by_source_key: dict[str, list[dict]] = {}
+    for m in confirmed_mappings:
+        m_key = m.get("source_key")
+        if m_key is None:
+            continue
+        confirmed_by_source_key.setdefault(m_key, []).append(m)
     # region agent log
     _dbg_db419a(
         "H47",
@@ -494,13 +606,25 @@ def build_grid_data(
             continue
         
         # Check if this source is already confirmed
-        confirmed = confirmed_by_source_key.get(source_key)
+        confirmed = _select_confirmed_mapping(
+            source_key,
+            source_type,
+            source_name,
+            project_name,
+            confirmed_by_source_key,
+        )
         # Fallback for NAME_KEYED_TYPES: old confirmed mappings may store the bare
         # element_mapping_id before the project-scoped key was introduced.
         if not confirmed and source_type in NAME_KEYED_TYPES:
             bare_key = source.get("element_mapping_id", "")
             if bare_key and bare_key != source_key:
-                confirmed = confirmed_by_source_key.get(bare_key)
+                confirmed = _select_confirmed_mapping(
+                    bare_key,
+                    source_type,
+                    source_name,
+                    project_name,
+                    confirmed_by_source_key,
+                )
         if confirmed:
             target_id_val = confirmed.get("target_id", "")
             target_name = confirmed.get("target_name", "")
@@ -521,6 +645,92 @@ def build_grid_data(
                 project_name=project_name,
                 state_repo_by_project=state_repo_by_project,
             )
+            if source_type == "CON":
+                raw_state_resource = state_by_name.get((source_type, source_name))
+                # region agent log
+                _dbg_25ac29(
+                    "H14",
+                    "match_grid.py:build_grid_data:confirmed_con_drift",
+                    "computed drift for confirmed CON row",
+                    {
+                        "source_key": source_key,
+                        "source_name": source_name,
+                        "target_id": target_id_int,
+                        "state_id": state_id,
+                        "drift_status": drift_status,
+                        "raw_state_dbt_id": (raw_state_resource or {}).get("dbt_id"),
+                        "raw_state_dbt_id_type": type((raw_state_resource or {}).get("dbt_id")).__name__ if raw_state_resource else "missing",
+                    },
+                )
+                # endregion
+            if source_type == "ENV" and drift_status == DRIFT_ID_MISMATCH and state_id is not None:
+                env_candidates = [
+                    item
+                    for item in target_items
+                    if item.get("element_type_code") == "ENV"
+                    and _normalize_name_for_lookup(item.get("name", "")) == _normalize_name_for_lookup(source_name)
+                    and item.get("project_name", "") == project_name
+                ]
+                if len(env_candidates) == 1 and int(env_candidates[0].get("dbt_id") or 0) == int(state_id):
+                    corrected = env_candidates[0]
+                    target_id_int = int(corrected.get("dbt_id"))
+                    target_id_val = str(target_id_int)
+                    target_name = corrected.get("name", target_name)
+                    state_id, drift_status, state_address = _compute_drift_status(
+                        source_type, source_name, target_id_int, state_by_name, has_loaded_state,
+                        state_by_id=state_by_id,
+                        project_name=project_name,
+                        state_repo_by_project=state_repo_by_project,
+                    )
+                    # region agent log
+                    _dbg_25ac29(
+                        "H13",
+                        "match_grid.py:build_grid_data:confirmed_env_self_heal",
+                        "auto-corrected stale confirmed ENV target_id from unique state-matching candidate",
+                        {
+                            "source_key": source_key,
+                            "source_name": source_name,
+                            "project_name": project_name,
+                            "corrected_target_id": target_id_int,
+                            "corrected_target_name": target_name,
+                        },
+                    )
+                    # endregion
+            if source_type == "ENV" and drift_status == DRIFT_ID_MISMATCH:
+                candidate_targets = [
+                    {
+                        "dbt_id": item.get("dbt_id"),
+                        "name": item.get("name", ""),
+                        "project_name": item.get("project_name", ""),
+                    }
+                    for item in target_items
+                    if item.get("element_type_code") == "ENV"
+                    and item.get("name", "") == source_name
+                ]
+                state_for_target_id = (
+                    state_by_id.get((source_type, target_id_int))
+                    if target_id_int is not None
+                    else None
+                )
+                # region agent log
+                _dbg_25ac29(
+                    "H11_H12_H13",
+                    "match_grid.py:build_grid_data:confirmed_env_id_mismatch",
+                    "confirmed ENV row drifted to id_mismatch",
+                    {
+                        "source_key": source_key,
+                        "source_name": source_name,
+                        "project_name": project_name,
+                        "confirmed_target_id": target_id_int,
+                        "state_id": state_id,
+                        "state_address": state_address,
+                        "state_hit_for_confirmed_target": state_for_target_id is not None,
+                        "state_hit_address": (state_for_target_id or {}).get("address", ""),
+                        "candidate_target_count_same_name": len(candidate_targets),
+                        "candidate_targets_same_name": candidate_targets[:12],
+                    },
+                )
+                # endregion
             
             # Determine action: use stored action, or default to "match"
             # Adoption requires explicit user opt-in (bulk "Adopt All" or per-row dropdown)
@@ -684,6 +894,52 @@ def build_grid_data(
         # where source name differs from target name but the resource was already imported.
         if not target and state_result:
             state_resource = None
+            source_project_key = source.get("project_key") or (source.get("metadata") or {}).get("project_key")
+            expected_extattr_state_index = (
+                f"{source_project_key}_{source_key}"
+                if source_type == "EXTATTR" and source_project_key and source_key
+                else None
+            )
+            if source_type == "EXTATTR":
+                state_index_match = None
+                if expected_extattr_state_index:
+                    for _res in state_result.resources:
+                        if _res.element_code == "EXTATTR" and _res.resource_index == expected_extattr_state_index:
+                            state_index_match = _res
+                            break
+                # region agent log
+                _dbg_25ac29(
+                    "H15",
+                    "match_grid.py:build_grid_data:extattr_state_lookup_entry",
+                    "entered EXTATTR state-aware auto-match",
+                    {
+                        "source_key": source_key,
+                        "source_name": source_name,
+                        "project_name": project_name,
+                        "project_key": source_project_key or "",
+                        "expected_state_index": expected_extattr_state_index or "",
+                        "state_index_match_found": state_index_match is not None,
+                        "state_index_match_id": (state_index_match.dbt_id if state_index_match else None),
+                        "state_index_match_address": (state_index_match.address if state_index_match else ""),
+                    },
+                )
+                # endregion
+                if expected_extattr_state_index:
+                    state_resource = state_by_index.get((source_type, expected_extattr_state_index))
+                    if state_resource:
+                        # region agent log
+                        _dbg_25ac29(
+                            "H15",
+                            "match_grid.py:build_grid_data:extattr_state_lookup_hit",
+                            "resolved EXTATTR state resource by resource_index key",
+                            {
+                                "source_key": source_key,
+                                "expected_state_index": expected_extattr_state_index,
+                                "state_dbt_id": state_resource.get("dbt_id"),
+                                "state_address": state_resource.get("address", ""),
+                            },
+                        )
+                        # endregion
             # region agent log
             if source_type == "PRJ":
                 _dbg_db419a(
@@ -959,8 +1215,15 @@ def build_grid_data(
                     repo_name = repo.get("name", "")
                     repo_id = repo.get("dbt_id")
                     
-                    # Check if repository is confirmed
-                    repo_confirmed = confirmed_by_source_key.get(repo_source_key)
+                    # Check if repository is confirmed. confirmed_by_source_key stores
+                    # lists (to support source_key collisions), so select best match.
+                    repo_confirmed = _select_confirmed_mapping(
+                        repo_source_key,
+                        "REP",
+                        repo_name,
+                        source_name,
+                        confirmed_by_source_key,
+                    )
                     if repo_confirmed:
                         repo_target_id = repo_confirmed.get("target_id")
                         repo_target_id_int = int(repo_target_id) if repo_target_id else None
@@ -1173,6 +1436,21 @@ def build_grid_data(
             if (res.element_code, dbt_id) in covered_state_ids:
                 continue
 
+            if res.element_code == "EXTATTR":
+                # region agent log
+                _dbg_25ac29(
+                    "H16",
+                    "match_grid.py:build_grid_data:extattr_state_only_append",
+                    "appending EXTATTR state-only row",
+                    {
+                        "state_address": res.address,
+                        "state_resource_index": res.resource_index or "",
+                        "state_id": dbt_id,
+                        "state_name": res.name or "",
+                    },
+                )
+                # endregion
+
             # Look up the matching target to get a proper name
             target_item = target_by_id.get(dbt_id)
             target_name = ""
@@ -1247,7 +1525,13 @@ def build_grid_data(
             target_source_key = f"target__{item_key}"
             
             # Check if this target-only resource has a confirmed mapping (e.g., adopt)
-            confirmed = confirmed_by_source_key.get(target_source_key)
+            confirmed = _select_confirmed_mapping(
+                target_source_key,
+                element_type,
+                item_name,
+                project_name,
+                confirmed_by_source_key,
+            )
             confirmed_action = confirmed.get("action", "ignore") if confirmed else "ignore"
             target_only_row = {
                 "source_key": target_source_key,

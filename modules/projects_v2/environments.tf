@@ -424,7 +424,7 @@ resource "dbtcloud_environment" "protected_environments" {
     for item in local.protected_environments :
     "${item.project_key}_${item.env_key}" => item
   }
-  
+
   project_id    = each.value.project_id
   name          = each.value.env_data.name
   type          = each.value.env_data.type

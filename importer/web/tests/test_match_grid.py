@@ -763,3 +763,186 @@ class TestBuildGridDataStateLoadedFlag:
         assert row["target_name"] == "renamed_project"
         assert row["confidence"] == "state_id_match"
         assert row["drift_status"] == "in_sync"
+
+
+class TestMatchGridRegressionCases:
+    """Regression tests for match-grid reconciliation edge cases."""
+
+    def test_connection_state_none_id_does_not_report_id_mismatch(self):
+        """CON state entries with null/None IDs should not produce id_mismatch."""
+        source_items = [
+            {
+                "key": "snowflake",
+                "name": "snowflake",
+                "element_type_code": "CON",
+                "dbt_id": 10,
+                "project_name": "",
+            }
+        ]
+        target_items = [
+            {
+                "key": "snowflake",
+                "name": "snowflake",
+                "element_type_code": "CON",
+                "dbt_id": 1636,
+                "project_name": "",
+            }
+        ]
+        state_result = SimpleNamespace(
+            resources=[
+                SimpleNamespace(
+                    element_code="CON",
+                    dbt_id="None",
+                    name="snowflake",
+                    tf_name="snowflake",
+                    project_id=None,
+                    resource_index="snowflake",
+                    address='module.dbt_cloud.dbtcloud_global_connection.connections["snowflake"]',
+                )
+            ]
+        )
+
+        rows = build_grid_data(
+            source_items=source_items,
+            target_items=target_items,
+            confirmed_mappings=[],
+            rejected_keys=set(),
+            state_result=state_result,
+            state_loaded=True,
+        )
+
+        assert len(rows) >= 1
+        row = rows[0]
+        assert row["source_type"] == "CON"
+        assert row["target_id"] == "1636"
+        assert row["drift_status"] == "not_in_state"
+        assert row["drift_status"] != "id_mismatch"
+
+    def test_extattr_state_index_auto_match_uses_state_id_and_avoids_state_only_duplicate(self):
+        """EXTATTR rows should resolve by resource_index and suppress duplicate state-only rows."""
+        source_items = [
+            {
+                "key": "ext_attrs_1",
+                "name": "Extended Attributes",
+                "element_type_code": "EXTATTR",
+                "dbt_id": 33,
+                "project_name": "analytics",
+                "project_key": "analytics_3",
+            }
+        ]
+        target_items = [
+            {
+                "key": "analytics_extattrs",
+                "name": "Renamed Ext Attrs",
+                "element_type_code": "EXTATTR",
+                "dbt_id": 556,
+                "project_name": "analytics",
+            }
+        ]
+        state_result = SimpleNamespace(
+            resources=[
+                SimpleNamespace(
+                    element_code="EXTATTR",
+                    dbt_id=556,
+                    name="legacy_extattr_name",
+                    tf_name="extended_attributes",
+                    project_id=3,
+                    resource_index="analytics_3_ext_attrs_1",
+                    address='module.dbt_cloud.module.projects_v2[0].dbtcloud_extended_attributes.extended_attributes["analytics_3_ext_attrs_1"]',
+                )
+            ]
+        )
+
+        rows = build_grid_data(
+            source_items=source_items,
+            target_items=target_items,
+            confirmed_mappings=[],
+            rejected_keys=set(),
+            state_result=state_result,
+            state_loaded=True,
+        )
+
+        assert len(rows) >= 1
+        extattr_rows = [r for r in rows if r.get("source_type") == "EXTATTR"]
+        assert len(extattr_rows) == 1
+        row = extattr_rows[0]
+        assert row["target_id"] == "556"
+        assert row["confidence"] == "state_id_match"
+        assert row["drift_status"] == "in_sync"
+
+        duplicate_state_only = [
+            r
+            for r in rows
+            if r.get("is_state_only")
+            and r.get("source_type") == "EXTATTR"
+            and r.get("state_id") == 556
+        ]
+        assert duplicate_state_only == []
+
+    def test_confirmed_mapping_collision_disambiguates_by_project_name(self):
+        """When source_key collides, confirmed mapping should select by project_name."""
+        source_items = [
+            {
+                "key": "prod",
+                "name": "PROD_CI",
+                "element_type_code": "ENV",
+                "dbt_id": 101,
+                "project_name": "analytics_a",
+            },
+            {
+                "key": "prod",
+                "name": "PROD_CI",
+                "element_type_code": "ENV",
+                "dbt_id": 202,
+                "project_name": "analytics_b",
+            },
+        ]
+        target_items = [
+            {
+                "key": "analytics_a_prod",
+                "name": "PROD_CI",
+                "element_type_code": "ENV",
+                "dbt_id": 6101,
+                "project_name": "analytics_a",
+            },
+            {
+                "key": "analytics_b_prod",
+                "name": "PROD_CI",
+                "element_type_code": "ENV",
+                "dbt_id": 6202,
+                "project_name": "analytics_b",
+            },
+        ]
+        confirmed_mappings = [
+            {
+                "source_key": "prod",
+                "source_name": "PROD_CI",
+                "source_type": "ENV",
+                "project_name": "analytics_a",
+                "target_id": 6101,
+                "target_name": "PROD_CI",
+                "action": "match",
+                "match_type": "manual",
+            },
+            {
+                "source_key": "prod",
+                "source_name": "PROD_CI",
+                "source_type": "ENV",
+                "project_name": "analytics_b",
+                "target_id": 6202,
+                "target_name": "PROD_CI",
+                "action": "match",
+                "match_type": "manual",
+            },
+        ]
+
+        rows = build_grid_data(
+            source_items=source_items,
+            target_items=target_items,
+            confirmed_mappings=confirmed_mappings,
+            rejected_keys=set(),
+        )
+
+        row_by_project = {r["project_name"]: r for r in rows if r.get("source_type") == "ENV"}
+        assert row_by_project["analytics_a"]["target_id"] == "6101"
+        assert row_by_project["analytics_b"]["target_id"] == "6202"

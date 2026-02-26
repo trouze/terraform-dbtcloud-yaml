@@ -1097,6 +1097,7 @@ def _create_matching_content(
                     "resource_type": row.get("source_type"),
                     "source_name": row.get("source_name"),
                     "source_key": row.get("source_key"),
+                    "project_name": row.get("project_name", ""),
                     "target_id": row.get("target_id"),
                     "target_name": row.get("target_name"),
                     # Store the action for deploy.py to filter on
@@ -1155,6 +1156,7 @@ def _create_matching_content(
                     "resource_type": row.get("source_type", ""),
                     "source_type": row.get("source_type", ""),
                     "source_name": row.get("source_name", ""),
+                    "project_name": row.get("project_name", ""),
                     "target_id": target_id,
                     "target_name": row.get("target_name", ""),
                     "match_type": "bulk_adopt",
@@ -1361,6 +1363,11 @@ def _create_matching_content(
             save_state()
             cascade_dlg.close()
             ui.notify(f"Adopted {child_name} (parents skipped)", type="warning")
+            _reload_with_debug(
+                "adopt_cascade_skip",
+                child_name=child_name,
+                parent_count=len(unadopted_parents),
+            )
         
         with ui.dialog() as cascade_dlg, ui.card().classes("p-6").style("min-width: 450px;"):
             with ui.row().classes("items-center gap-3 mb-4"):
@@ -2007,6 +2014,10 @@ def _create_matching_content(
                         def _on_guard_no():
                             _revert_protection_in_grid()
                             guard_dlg.close()
+                            _reload_with_debug(
+                                "adopt_and_protect_guard_no",
+                                source_key=source_key,
+                            )
 
                         def _on_guard_yes():
                             guard_dlg.close()
@@ -2266,6 +2277,12 @@ def _create_matching_content(
         if _protection_was_cleared:
             _reload_with_debug("action_change_cleared_protection", source_key=source_key)
             return
+        _reload_with_debug(
+            "row_action_recompute",
+            source_key=source_key,
+            action=action,
+            action_changed=_action_changed,
+        )
     
     def on_accept(source_key: str):
         """Accept a single suggestion."""

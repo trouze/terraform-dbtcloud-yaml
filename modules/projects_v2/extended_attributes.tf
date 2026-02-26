@@ -36,12 +36,12 @@ locals {
     {
       for item in local.unprotected_extended_attributes :
       "${item.project_key}_${item.ext_key}" =>
-      dbtcloud_extended_attributes.extended_attrs["${item.project_key}_${item.ext_key}"].id
+      dbtcloud_extended_attributes.extended_attrs["${item.project_key}_${item.ext_key}"].extended_attributes_id
     },
     {
       for item in local.protected_extended_attributes :
       "${item.project_key}_${item.ext_key}" =>
-      dbtcloud_extended_attributes.protected_extended_attrs["${item.project_key}_${item.ext_key}"].id
+      dbtcloud_extended_attributes.protected_extended_attrs["${item.project_key}_${item.ext_key}"].extended_attributes_id
     }
   )
 }
