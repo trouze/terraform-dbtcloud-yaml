@@ -189,6 +189,38 @@ def _normalize_state_dbt_id(raw_id: object) -> Optional[int]:
     return None
 
 
+def _extract_resource_metadata_value(attributes: object) -> dict:
+    """Extract flattened resource_metadata map from Terraform state attributes."""
+    if not isinstance(attributes, dict):
+        return {}
+    resource_metadata = attributes.get("resource_metadata")
+    if not isinstance(resource_metadata, dict):
+        return {}
+    nested_value = resource_metadata.get("value")
+    if isinstance(nested_value, dict):
+        return nested_value
+    if "source_identity" in resource_metadata:
+        return resource_metadata
+    return {}
+
+
+def _build_source_identity(source: dict, source_key: str, source_type: str) -> Optional[str]:
+    """Build canonical source identity used by resource_metadata matching."""
+    metadata = source.get("metadata") or {}
+    explicit_identity = source.get("source_identity") or metadata.get("source_identity")
+    if isinstance(explicit_identity, str) and explicit_identity.strip():
+        return explicit_identity.strip()
+
+    if source_type == "PRJ" and source_key:
+        return f"PRJ:{source_key}"
+
+    project_key = source.get("project_key") or metadata.get("project_key")
+    if source_type == "EXTATTR" and project_key and source_key:
+        return f"EXTATTR:{project_key}:{source_key}"
+
+    return None
+
+
 def _compute_drift_status(
     source_type: str,
     source_name: str,
@@ -380,6 +412,9 @@ def build_grid_data(
     state_by_name: dict[tuple, dict] = {}  # Keys: (type, name) or (type, project, name) for NAME_KEYED
     state_by_id: dict[tuple[str, int], dict] = {}
     state_by_index: dict[tuple[str, str], dict] = {}  # Keys: (type, resource_index)
+    state_by_source_identity: dict[tuple[str, str], dict] = {}
+    state_by_source_id: dict[tuple[str, int], dict] = {}
+    state_by_source_id_project_key: dict[tuple[str, int, str], dict] = {}
     if state_result and state_result.resources:
         for res in state_result.resources:
             # Normalize dbt_id to int to ensure consistent lookups
@@ -414,6 +449,32 @@ def build_grid_data(
                     state_by_name[key] = state_info
             if res.resource_index:
                 state_by_index[(res.element_code, str(res.resource_index))] = state_info
+            metadata_value = _extract_resource_metadata_value(getattr(res, "attributes", {}))
+            source_identity = metadata_value.get("source_identity")
+            if isinstance(source_identity, str) and source_identity.strip():
+                identity_key = (res.element_code, source_identity.strip())
+                existing = state_by_source_identity.get(identity_key)
+                if not existing or existing.get("dbt_id") is None:
+                    state_by_source_identity[identity_key] = state_info
+            metadata_source_id = _normalize_state_dbt_id(metadata_value.get("source_id"))
+            if metadata_source_id is not None:
+                source_id_key = (res.element_code, metadata_source_id)
+                existing = state_by_source_id.get(source_id_key)
+                if not existing or existing.get("dbt_id") is None:
+                    state_by_source_id[source_id_key] = state_info
+                metadata_source_project_key = metadata_value.get("source_project_key")
+                if (
+                    isinstance(metadata_source_project_key, str)
+                    and metadata_source_project_key.strip()
+                ):
+                    source_project_key_key = (
+                        res.element_code,
+                        metadata_source_id,
+                        metadata_source_project_key.strip(),
+                    )
+                    existing = state_by_source_id_project_key.get(source_project_key_key)
+                    if not existing or existing.get("dbt_id") is None:
+                        state_by_source_id_project_key[source_project_key_key] = state_info
             # Index by dbt_id - this is the PRIMARY lookup for drift detection
             if dbt_id_normalized is not None:
                 state_by_id[(res.element_code, dbt_id_normalized)] = state_info
@@ -574,6 +635,21 @@ def build_grid_data(
     
     # Track which repositories have been added (to avoid duplicates)
     added_repo_keys: set[str] = set()
+
+    # Track duplicate source keys per type so metadata identity derived from key
+    # can defer to source_id when key collisions are present.
+    source_key_counts_by_type: dict[tuple[str, str], int] = {}
+    for item in source_items:
+        item_type = item.get("element_type_code", "")
+        item_key = item.get("key") or item.get("element_mapping_id", "")
+        item_project_name = item.get("project_name", "")
+        if item_type in NAME_KEYED_TYPES and item_project_name and item_key:
+            if item_key == item.get("element_mapping_id", ""):
+                item_key = f"{item_key}:{item_project_name}"
+        if item_type and item_key:
+            source_key_counts_by_type[(item_type, item_key)] = (
+                source_key_counts_by_type.get((item_type, item_key), 0) + 1
+            )
     
     rows = []
     for source in source_items:
@@ -639,6 +715,53 @@ def build_grid_data(
                         target_id_int = int(target_id_val)
                     except (TypeError, ValueError):
                         pass
+
+            # Self-heal stale confirmed mappings using state metadata identity/source_id.
+            source_project_key = source.get("project_key") or (source.get("metadata") or {}).get("project_key")
+            explicit_source_identity = (
+                source.get("source_identity")
+                or (source.get("metadata") or {}).get("source_identity")
+            )
+            source_identity = _build_source_identity(source, source_key, source_type)
+            if (
+                source_identity
+                and not explicit_source_identity
+                and source_key_counts_by_type.get((source_type, source_key), 0) > 1
+            ):
+                source_identity = None
+            source_id_for_metadata = _normalize_state_dbt_id(source_id)
+            metadata_state_resource = (
+                state_by_source_identity.get((source_type, source_identity))
+                if source_identity
+                else None
+            )
+            if not metadata_state_resource and source_id_for_metadata is not None:
+                if isinstance(source_project_key, str) and source_project_key.strip():
+                    metadata_state_resource = state_by_source_id_project_key.get(
+                        (source_type, source_id_for_metadata, source_project_key.strip())
+                    )
+                if not metadata_state_resource:
+                    metadata_state_resource = state_by_source_id.get(
+                        (source_type, source_id_for_metadata)
+                    )
+            if metadata_state_resource and metadata_state_resource.get("dbt_id") is not None:
+                metadata_state_id = metadata_state_resource.get("dbt_id")
+                target_from_metadata = (
+                    target_by_type_id.get((source_type, metadata_state_id))
+                    or target_by_id.get(metadata_state_id)
+                )
+                if (
+                    target_from_metadata
+                    and target_from_metadata.get("element_type_code") == source_type
+                    and target_id_int != metadata_state_id
+                ):
+                    target_id_int = metadata_state_id
+                    target_id_val = str(metadata_state_id)
+                    target_name = target_from_metadata.get("name", target_name)
+                elif target_id_int != metadata_state_id:
+                    target_id_int = metadata_state_id
+                    target_id_val = str(metadata_state_id)
+                    target_name = metadata_state_resource.get("name") or target_name
             state_id, drift_status, state_address = _compute_drift_status(
                 source_type, source_name, target_id_int, state_by_name, has_loaded_state,
                 state_by_id=state_by_id,
@@ -873,6 +996,33 @@ def build_grid_data(
             lookup_key = (source_type, normalized_source_name)
         clone_config = clone_by_key.get(source_key)
         target = target_by_type_name.get(lookup_key)
+        source_project_key = source.get("project_key") or (source.get("metadata") or {}).get("project_key")
+        explicit_source_identity = (
+            source.get("source_identity")
+            or (source.get("metadata") or {}).get("source_identity")
+        )
+        source_identity = _build_source_identity(source, source_key, source_type)
+        if (
+            source_identity
+            and not explicit_source_identity
+            and source_key_counts_by_type.get((source_type, source_key), 0) > 1
+        ):
+            source_identity = None
+        source_id_for_metadata = _normalize_state_dbt_id(source_id)
+        metadata_state_resource = (
+            state_by_source_identity.get((source_type, source_identity))
+            if source_identity
+            else None
+        )
+        if not metadata_state_resource and source_id_for_metadata is not None:
+            if isinstance(source_project_key, str) and source_project_key.strip():
+                metadata_state_resource = state_by_source_id_project_key.get(
+                    (source_type, source_id_for_metadata, source_project_key.strip())
+                )
+            if not metadata_state_resource:
+                metadata_state_resource = state_by_source_id.get(
+                    (source_type, source_id_for_metadata)
+                )
         _prj_state_resource = None
         _prj_state_dbt_id = None
         _prj_state_typed_hit = False
@@ -888,13 +1038,34 @@ def build_grid_data(
                 target = target_crd_by_env.get(crd_lookup)
                 if target:
                     match_confidence = "env_match"  # Matched by environment
+
+        # Prefer Terraform state metadata identity over name-based target match.
+        if metadata_state_resource and metadata_state_resource.get("dbt_id") is not None:
+            metadata_state_id = metadata_state_resource.get("dbt_id")
+            target_from_metadata = (
+                target_by_type_id.get((source_type, metadata_state_id))
+                or target_by_id.get(metadata_state_id)
+            )
+            if (
+                target_from_metadata
+                and target_from_metadata.get("element_type_code") == source_type
+            ):
+                target = target_from_metadata
+                match_confidence = "metadata_state_match"
+            elif not target:
+                target = {
+                    "dbt_id": metadata_state_id,
+                    "name": metadata_state_resource.get("name", ""),
+                    "element_type_code": source_type,
+                    "project_name": project_name,
+                }
+                match_confidence = "metadata_state_match"
         
         # STATE-AWARE AUTO-MATCHING: If no target found by name but resource is in TF state,
         # look up the state's ID in targets and auto-suggest that match. This handles cases
         # where source name differs from target name but the resource was already imported.
         if not target and state_result:
-            state_resource = None
-            source_project_key = source.get("project_key") or (source.get("metadata") or {}).get("project_key")
+            state_resource = metadata_state_resource
             expected_extattr_state_index = (
                 f"{source_project_key}_{source_key}"
                 if source_type == "EXTATTR" and source_project_key and source_key

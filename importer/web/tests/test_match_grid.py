@@ -879,6 +879,323 @@ class TestMatchGridRegressionCases:
         ]
         assert duplicate_state_only == []
 
+    def test_project_metadata_identity_overrides_name_match_when_state_points_to_different_target(self):
+        """PRJ rows should prefer state metadata identity over ambiguous name match."""
+        source_items = [
+            {
+                "key": "analytics",
+                "name": "Analytics",
+                "element_type_code": "PRJ",
+                "dbt_id": 33,
+                "project_name": "",
+            }
+        ]
+        # First item wins name lookup, but state metadata points to dbt_id=111.
+        target_items = [
+            {
+                "key": "analytics_wrong",
+                "name": "Analytics",
+                "element_type_code": "PRJ",
+                "dbt_id": 999,
+                "project_name": "",
+            },
+            {
+                "key": "analytics_state",
+                "name": "Analytics Legacy",
+                "element_type_code": "PRJ",
+                "dbt_id": 111,
+                "project_name": "",
+            },
+        ]
+        state_result = SimpleNamespace(
+            resources=[
+                SimpleNamespace(
+                    element_code="PRJ",
+                    dbt_id=111,
+                    name="legacy_analytics_name_in_state",
+                    tf_name="projects",
+                    project_id=None,
+                    resource_index="analytics_2",
+                    attributes={
+                        "resource_metadata": {
+                            "value": {
+                                "source_identity": "PRJ:analytics",
+                            }
+                        }
+                    },
+                    address='module.dbt_cloud.module.projects_v2[0].dbtcloud_project.projects["analytics_2"]',
+                )
+            ]
+        )
+
+        rows = build_grid_data(
+            source_items=source_items,
+            target_items=target_items,
+            confirmed_mappings=[],
+            rejected_keys=set(),
+            state_result=state_result,
+            state_loaded=True,
+        )
+
+        assert len(rows) >= 1
+        row = rows[0]
+        assert row["source_type"] == "PRJ"
+        assert row["target_id"] == "111"
+        assert row["drift_status"] == "in_sync"
+        assert row["action"] == "match"
+
+    def test_extattr_metadata_identity_matches_without_resource_index(self):
+        """EXTATTR rows should match via metadata identity when resource_index is unavailable."""
+        source_items = [
+            {
+                "key": "ext_attrs_2",
+                "name": "Extended Attributes",
+                "element_type_code": "EXTATTR",
+                "dbt_id": 2,
+                "project_name": "bpe_dbt_dev",
+                "project_key": "bpe_dbt_dev",
+            }
+        ]
+        target_items = [
+            {
+                "key": "extattrs_name_match_wrong",
+                "name": "Extended Attributes",
+                "element_type_code": "EXTATTR",
+                "dbt_id": 999,
+                "project_name": "bpe_dbt_dev",
+            },
+            {
+                "key": "extattrs_state_target",
+                "name": "Ext Attrs Existing",
+                "element_type_code": "EXTATTR",
+                "dbt_id": 556,
+                "project_name": "bpe_dbt_dev",
+            },
+        ]
+        state_result = SimpleNamespace(
+            resources=[
+                SimpleNamespace(
+                    element_code="EXTATTR",
+                    dbt_id=556,
+                    name="legacy_extattr_name",
+                    tf_name="extended_attributes",
+                    project_id=70437463664685,
+                    resource_index=None,
+                    attributes={
+                        "resource_metadata": {
+                            "value": {
+                                "source_identity": "EXTATTR:bpe_dbt_dev:ext_attrs_2",
+                                "source_key": "ext_attrs_2",
+                                "source_project_key": "bpe_dbt_dev",
+                            }
+                        }
+                    },
+                    address='module.dbt_cloud.module.projects_v2[0].dbtcloud_extended_attributes.extended_attributes["bpe_dbt_dev_ext_attrs_2"]',
+                )
+            ]
+        )
+
+        rows = build_grid_data(
+            source_items=source_items,
+            target_items=target_items,
+            confirmed_mappings=[],
+            rejected_keys=set(),
+            state_result=state_result,
+            state_loaded=True,
+        )
+
+        assert len(rows) >= 1
+        row = rows[0]
+        assert row["source_type"] == "EXTATTR"
+        assert row["target_id"] == "556"
+        assert row["drift_status"] == "in_sync"
+        assert row["action"] == "match"
+
+    def test_project_metadata_source_id_fallback_handles_duplicate_source_keys(self):
+        """PRJ rows with duplicate source keys should resolve via metadata source_id."""
+        source_items = [
+            {
+                "key": "analytics",
+                "name": "Analytics",
+                "element_type_code": "PRJ",
+                "dbt_id": 33,
+                "project_name": "",
+            },
+            {
+                "key": "analytics",
+                "name": "Analytics",
+                "element_type_code": "PRJ",
+                "dbt_id": 36,
+                "project_name": "",
+            },
+            {
+                "key": "analytics",
+                "name": "Analytics",
+                "element_type_code": "PRJ",
+                "dbt_id": 1,
+                "project_name": "",
+            },
+        ]
+        target_items = [
+            {
+                "key": "analytics_t1",
+                "name": "Analytics",
+                "element_type_code": "PRJ",
+                "dbt_id": 70437463664689,
+                "project_name": "",
+            },
+            {
+                "key": "analytics_t2",
+                "name": "Analytics",
+                "element_type_code": "PRJ",
+                "dbt_id": 70437463664681,
+                "project_name": "",
+            },
+            {
+                "key": "analytics_t3",
+                "name": "Analytics",
+                "element_type_code": "PRJ",
+                "dbt_id": 70437463664676,
+                "project_name": "",
+            },
+        ]
+        state_result = SimpleNamespace(
+            resources=[
+                SimpleNamespace(
+                    element_code="PRJ",
+                    dbt_id=70437463664689,
+                    name="Analytics",
+                    tf_name="projects",
+                    project_id=None,
+                    resource_index="analytics",
+                    attributes={
+                        "resource_metadata": {
+                            "value": {"source_identity": "PRJ:analytics", "source_id": 33}
+                        }
+                    },
+                    address='module.dbt_cloud.module.projects_v2[0].dbtcloud_project.projects["analytics"]',
+                ),
+                SimpleNamespace(
+                    element_code="PRJ",
+                    dbt_id=70437463664681,
+                    name="Analytics",
+                    tf_name="projects",
+                    project_id=None,
+                    resource_index="analytics_2",
+                    attributes={
+                        "resource_metadata": {
+                            "value": {"source_identity": "PRJ:analytics_2", "source_id": 36}
+                        }
+                    },
+                    address='module.dbt_cloud.module.projects_v2[0].dbtcloud_project.projects["analytics_2"]',
+                ),
+                SimpleNamespace(
+                    element_code="PRJ",
+                    dbt_id=70437463664676,
+                    name="Analytics",
+                    tf_name="projects",
+                    project_id=None,
+                    resource_index="analytics_3",
+                    attributes={
+                        "resource_metadata": {
+                            "value": {"source_identity": "PRJ:analytics_3", "source_id": 1}
+                        }
+                    },
+                    address='module.dbt_cloud.module.projects_v2[0].dbtcloud_project.projects["analytics_3"]',
+                ),
+            ]
+        )
+
+        rows = build_grid_data(
+            source_items=source_items,
+            target_items=target_items,
+            confirmed_mappings=[],
+            rejected_keys=set(),
+            state_result=state_result,
+            state_loaded=True,
+        )
+
+        prj_rows = [
+            r
+            for r in rows
+            if r.get("source_type") == "PRJ" and not r.get("is_state_only")
+        ]
+        assert len(prj_rows) == 3
+        by_source_id = {int(r["source_id"]): r for r in prj_rows}
+        assert by_source_id[33]["target_id"] == "70437463664689"
+        assert by_source_id[36]["target_id"] == "70437463664681"
+        assert by_source_id[1]["target_id"] == "70437463664676"
+        assert by_source_id[33]["drift_status"] == "in_sync"
+        assert by_source_id[36]["drift_status"] == "in_sync"
+        assert by_source_id[1]["drift_status"] == "in_sync"
+
+    def test_confirmed_project_mapping_self_heals_using_metadata_source_id(self):
+        """Confirmed PRJ rows should self-heal stale target_id using state metadata."""
+        source_items = [
+            {
+                "key": "analytics",
+                "name": "Analytics",
+                "element_type_code": "PRJ",
+                "dbt_id": 33,
+                "project_name": "",
+            }
+        ]
+        target_items = [
+            {
+                "key": "analytics_wrong",
+                "name": "Analytics",
+                "element_type_code": "PRJ",
+                "dbt_id": 70437463664676,
+                "project_name": "",
+            },
+        ]
+        confirmed_mappings = [
+            {
+                "source_key": "analytics",
+                "source_name": "Analytics",
+                "source_type": "PRJ",
+                "project_name": "",
+                "target_id": 70437463664676,
+                "target_name": "Analytics",
+                "action": "adopt",
+                "match_type": "manual",
+            }
+        ]
+        state_result = SimpleNamespace(
+            resources=[
+                SimpleNamespace(
+                    element_code="PRJ",
+                    dbt_id=70437463664689,
+                    name="Analytics",
+                    tf_name="projects",
+                    project_id=None,
+                    resource_index="analytics",
+                    attributes={
+                        "resource_metadata": {
+                            "value": {"source_identity": "PRJ:analytics", "source_id": 33}
+                        }
+                    },
+                    address='module.dbt_cloud.module.projects_v2[0].dbtcloud_project.projects["analytics"]',
+                )
+            ]
+        )
+
+        rows = build_grid_data(
+            source_items=source_items,
+            target_items=target_items,
+            confirmed_mappings=confirmed_mappings,
+            rejected_keys=set(),
+            state_result=state_result,
+            state_loaded=True,
+        )
+
+        assert len(rows) >= 1
+        row = rows[0]
+        assert row["source_type"] == "PRJ"
+        assert row["target_id"] == "70437463664689"
+        assert row["drift_status"] == "in_sync"
+        assert row["action"] == "match"
+
     def test_confirmed_mapping_collision_disambiguates_by_project_name(self):
         """When source_key collides, confirmed mapping should select by project_name."""
         source_items = [
