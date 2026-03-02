@@ -1,0 +1,24 @@
+---
+description: Route migration webapp tasks to the migration-browsermcp skill
+globs: ["importer/web/**/*.py", ".cursor/soak_test.py", "restart_web.sh"]
+alwaysApply: true
+---
+
+# Migration Webapp Skill Routing
+
+For tasks in this repository that involve the migration workflow web app, browser MCP automation, AG Grid behavior, or migration debugging:
+
+1. Read and follow `.cursor/skills/migration-webapp-browsermcp/SKILL.md`.
+2. Use the supporting files referenced by that skill:
+   - `.cursor/skills/migration-webapp-browsermcp/workflow-checklist.md`
+   - `.cursor/skills/migration-webapp-browsermcp/debug-playbook.md`
+   - `.cursor/skills/migration-webapp-browsermcp/scripts/smoke_migration_steps.sh`
+3. Treat that skill as the operational source of truth for:
+   - restart and credential bootstrap flow,
+   - browser lock/snapshot interaction cadence,
+   - AG Grid screenshot validation expectations,
+   - timeout/recovery workflow.
+4. For destructive actions, follow the skill's authorization contract:
+   - require `APPROVE_DEBUG_SESSION` before deploy/apply or destroy,
+   - enforce the skill-defined TTL and quotas,
+   - remain in non-destructive mode when authorization is absent.
