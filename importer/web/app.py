@@ -729,7 +729,7 @@ def protection_management_page() -> None:
 
 @ui.page("/removal-management")
 def removal_management_page() -> None:
-    """Removal Management page route."""
+    """State Management page route."""
     state = get_state()
     state.current_step = WorkflowStep.REMOVAL_MANAGEMENT
     save_state()

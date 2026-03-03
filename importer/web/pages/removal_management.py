@@ -16,6 +16,7 @@ from importer.web.utils.terraform_helpers import (
     run_terraform_command,
 )
 from importer.web.utils.terraform_state_reader import read_terraform_state
+from importer.web.utils.yaml_viewer import create_plan_viewer_dialog
 
 
 def _normalize_str(value: object) -> str:
@@ -225,6 +226,51 @@ def _build_state_rm_commands_from_rows(rows: list[dict]) -> list[str]:
     return commands
 
 
+def _build_refresh_target_addresses_from_rows(rows: list[dict]) -> list[str]:
+    """Build deterministic target addresses for refresh-only commands."""
+    addresses: list[str] = []
+    seen_addresses: set[str] = set()
+    for row in rows:
+        address = _normalize_str(row.get("state_address"))
+        if not address or address in seen_addresses:
+            continue
+        seen_addresses.add(address)
+        addresses.append(address)
+    return addresses
+
+
+def _build_refresh_only_command_preview(target_addresses: list[str]) -> dict[str, str]:
+    """Build preview strings for refresh-only plan/apply."""
+    target_flags = " ".join([f"-target '{address}'" for address in target_addresses])
+    plan_flags = "-refresh-only -no-color -input=false"
+    apply_flags = "-refresh-only -auto-approve -no-color -input=false"
+    if target_flags:
+        return {
+            "plan": f"terraform plan {plan_flags} {target_flags}",
+            "apply": f"terraform apply {apply_flags} {target_flags}",
+        }
+    return {
+        "plan": f"terraform plan {plan_flags}",
+        "apply": f"terraform apply {apply_flags}",
+    }
+
+
+def _build_refresh_plan_cmd(target_addresses: list[str]) -> list[str]:
+    """Build argv for terraform plan -refresh-only."""
+    cmd = ["terraform", "plan", "-refresh-only", "-no-color", "-input=false"]
+    for address in target_addresses:
+        cmd.extend(["-target", address])
+    return cmd
+
+
+def _build_refresh_apply_cmd(target_addresses: list[str]) -> list[str]:
+    """Build argv for terraform apply -refresh-only."""
+    cmd = ["terraform", "apply", "-refresh-only", "-auto-approve", "-no-color", "-input=false"]
+    for address in target_addresses:
+        cmd.extend(["-target", address])
+    return cmd
+
+
 def _build_type_counts(rows: list[dict]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for row in rows:
@@ -244,6 +290,14 @@ def _collect_missing_terraform_env(env: dict[str, str]) -> list[str]:
     if not _normalize_str(env.get("TF_VAR_dbt_host_url")):
         missing.append("TF_VAR_dbt_host_url")
     return missing
+
+
+def _extract_first_error_reason(output: str) -> Optional[str]:
+    for line in output.splitlines():
+        if line.startswith("Error:"):
+            reason = line.replace("Error:", "", 1).strip()
+            return reason or "terraform command failed"
+    return None
 
 
 async def _refresh_reconcile_state(state: AppState, tf_path: Path, save_state: Optional[Callable[[], None]]) -> None:
@@ -278,6 +332,10 @@ def create_removal_management_page(
         "selected_only": False,
     }
     ui_refs: dict[str, Any] = {}
+    refresh_state: dict[str, Any] = {
+        "plan_output": "",
+        "plan_failure": None,
+    }
 
     def _selected_rows() -> list[dict]:
         return [row for row in all_rows if _normalize_str(row.get("row_id")) in selected_keys]
@@ -294,18 +352,29 @@ def create_removal_management_page(
 
         preview_btn = ui_refs.get("preview_button")
         execute_btn = ui_refs.get("execute_button")
+        refresh_selected_btn = ui_refs.get("refresh_selected_button")
+        refresh_preview_selected_btn = ui_refs.get("refresh_preview_selected_button")
         clear_btn = ui_refs.get("clear_button")
         select_filtered_btn = ui_refs.get("select_filtered_button")
+        view_plan_btn = ui_refs.get("view_plan_button")
         if preview_btn is not None:
-            preview_btn.set_text(f"Preview Commands ({count})")
+            preview_btn.set_text(f"Preview Removal Commands ({count})")
             preview_btn.set_enabled(count > 0)
         if execute_btn is not None:
-            execute_btn.set_text(f"Execute Selected ({count})")
+            execute_btn.set_text(f"Execute State Removals ({count})")
             execute_btn.set_enabled(count > 0)
+        if refresh_selected_btn is not None:
+            refresh_selected_btn.set_text(f"Refresh Selected ({count})")
+            refresh_selected_btn.set_enabled(count > 0)
+        if refresh_preview_selected_btn is not None:
+            refresh_preview_selected_btn.set_text(f"Preview Selected Refresh ({count})")
+            refresh_preview_selected_btn.set_enabled(count > 0)
         if clear_btn is not None:
             clear_btn.set_enabled(count > 0)
         if select_filtered_btn is not None:
             select_filtered_btn.set_enabled(len(filtered_rows) > 0)
+        if view_plan_btn is not None:
+            view_plan_btn.set_enabled(bool(refresh_state.get("plan_output")))
 
     def _refresh_grid() -> list[dict]:
         type_select = ui_refs.get("type_select")
@@ -350,7 +419,7 @@ def create_removal_management_page(
 
         terminal: TerminalOutput = ui_refs["terminal"]  # type: ignore[assignment]
         terminal.clear()
-        terminal.set_title("Output - Removal Management")
+        terminal.set_title("Output - State Management")
         terminal.info(f"Executing {len(commands)} terraform state rm command(s)")
         terminal.info("")
 
@@ -394,6 +463,163 @@ def create_removal_management_page(
         all_rows.clear()
         all_rows.extend(updated_rows)
         _refresh_grid()
+
+    def _selected_target_addresses() -> list[str]:
+        rows = _selected_rows()
+        return _build_refresh_target_addresses_from_rows(rows)
+
+    def _open_refresh_preview_dialog(selected_only: bool) -> None:
+        target_addresses = _selected_target_addresses() if selected_only else []
+        if selected_only and not target_addresses:
+            ui.notify("Select at least one row with a valid state address", type="warning")
+            return
+        preview = _build_refresh_only_command_preview(target_addresses)
+        title = "Preview Refresh Commands (Selected)" if selected_only else "Preview Refresh Commands (All In State)"
+        with ui.dialog() as dialog, ui.card().classes("p-4").style("min-width: 680px;"):
+            ui.label(title).classes("text-lg font-semibold mb-2")
+            with ui.column().classes("w-full gap-2 mb-2"):
+                ui.label(preview["plan"]).classes("font-mono text-xs")
+                ui.label(preview["apply"]).classes("font-mono text-xs")
+            with ui.row().classes("w-full justify-end"):
+                ui.button("Close", on_click=dialog.close).props("flat")
+        dialog.open()
+
+    def _open_refresh_plan_output() -> None:
+        plan_output = str(refresh_state.get("plan_output") or "")
+        if not plan_output:
+            ui.notify("No refresh plan output available yet", type="warning")
+            return
+        create_plan_viewer_dialog(
+            plan_output,
+            "State Refresh Plan Output",
+            failure_reason=refresh_state.get("plan_failure"),
+        ).open()
+
+    async def _run_refresh_apply(target_addresses: list[str]) -> None:
+        tf_path, _yaml_file, _baseline = resolve_deployment_paths(state)
+        if not tf_path.exists() or not tf_path.is_dir():
+            ui.notify("State refresh blocked: Terraform directory not found", type="negative")
+            return
+        if shutil.which("terraform") is None:
+            ui.notify("State refresh blocked: terraform CLI not found in PATH", type="negative")
+            return
+        env = get_terraform_env(state)
+        missing_env = _collect_missing_terraform_env(env)
+        if missing_env:
+            ui.notify(
+                f"State refresh blocked: missing terraform credentials ({', '.join(missing_env)})",
+                type="negative",
+            )
+            return
+
+        terminal: TerminalOutput = ui_refs["terminal"]  # type: ignore[assignment]
+        terminal.info("")
+        terminal.info("Running refresh-only apply...")
+        preview = _build_refresh_only_command_preview(target_addresses)
+        terminal.info(f"> {preview['apply']}")
+        return_code, stdout, stderr = await run_terraform_command(
+            _build_refresh_apply_cmd(target_addresses),
+            tf_path=tf_path,
+            env=env,
+        )
+        if stdout.strip():
+            for line in stdout.splitlines():
+                terminal.info(f"  {line}")
+        if stderr.strip():
+            for line in stderr.splitlines():
+                terminal.warning(f"  {line}")
+        if return_code != 0:
+            terminal.error(f"Refresh apply failed (exit code {return_code})")
+            ui.notify(
+                f"State refresh apply failed: {_extract_first_error_reason(stdout + stderr) or 'see output'}",
+                type="negative",
+            )
+            return
+
+        terminal.success("Refresh apply completed successfully")
+        await _refresh_reconcile_state(state, tf_path, save_state)
+        selected_keys.clear()
+        updated_rows = _build_removal_candidates(state)
+        all_rows.clear()
+        all_rows.extend(updated_rows)
+        _refresh_grid()
+        ui.notify("State refresh apply completed", type="positive")
+
+    def _open_refresh_apply_dialog(target_addresses: list[str]) -> None:
+        preview = _build_refresh_only_command_preview(target_addresses)
+        with ui.dialog() as dialog, ui.card().classes("p-4").style("min-width: 640px;"):
+            ui.label("Confirm Refresh-Only Apply").classes("text-lg font-semibold mb-2")
+            ui.label(
+                "This will run `terraform apply -refresh-only` and update Terraform state for existing managed objects."
+            ).classes("text-sm opacity-80 mb-2")
+            with ui.column().classes("w-full gap-1 mb-3"):
+                ui.label(preview["apply"]).classes("font-mono text-xs")
+            with ui.row().classes("w-full justify-end gap-2"):
+                ui.button("Cancel", on_click=dialog.close).props("flat")
+
+                async def _confirm_and_run() -> None:
+                    dialog.close()
+                    await _run_refresh_apply(target_addresses)
+
+                ui.button("Run Refresh Apply", on_click=_confirm_and_run).props("color=primary")
+        dialog.open()
+
+    async def _run_refresh_plan(selected_only: bool) -> None:
+        target_addresses = _selected_target_addresses() if selected_only else []
+        if selected_only and not target_addresses:
+            ui.notify("Select at least one row with a valid state address", type="warning")
+            return
+        tf_path, _yaml_file, _baseline = resolve_deployment_paths(state)
+        if not tf_path.exists() or not tf_path.is_dir():
+            ui.notify("State refresh blocked: Terraform directory not found", type="negative")
+            return
+        if shutil.which("terraform") is None:
+            ui.notify("State refresh blocked: terraform CLI not found in PATH", type="negative")
+            return
+        env = get_terraform_env(state)
+        missing_env = _collect_missing_terraform_env(env)
+        if missing_env:
+            ui.notify(
+                f"State refresh blocked: missing terraform credentials ({', '.join(missing_env)})",
+                type="negative",
+            )
+            return
+
+        terminal: TerminalOutput = ui_refs["terminal"]  # type: ignore[assignment]
+        terminal.clear()
+        terminal.set_title("Output - State Management")
+        preview = _build_refresh_only_command_preview(target_addresses)
+        terminal.info("Running refresh-only plan...")
+        terminal.info(f"> {preview['plan']}")
+        return_code, stdout, stderr = await run_terraform_command(
+            _build_refresh_plan_cmd(target_addresses),
+            tf_path=tf_path,
+            env=env,
+        )
+        if stdout.strip():
+            for line in stdout.splitlines():
+                terminal.info(f"  {line}")
+        if stderr.strip():
+            for line in stderr.splitlines():
+                terminal.warning(f"  {line}")
+
+        full_output = (stdout or "") + (stderr or "")
+        refresh_state["plan_output"] = full_output
+        refresh_state["plan_failure"] = _extract_first_error_reason(full_output) if return_code != 0 else None
+        if return_code != 0:
+            terminal.error(f"Refresh plan failed (exit code {return_code})")
+            _refresh_grid()
+            ui.notify(
+                f"State refresh plan failed: {refresh_state['plan_failure'] or 'see output'}",
+                type="negative",
+            )
+            return
+
+        terminal.success("Refresh plan completed")
+        _refresh_grid()
+        _open_refresh_plan_output()
+        _open_refresh_apply_dialog(target_addresses)
+        ui.notify("Refresh plan complete. Review and confirm apply.", type="positive")
 
     def _open_execute_dialog() -> None:
         rows = _selected_rows()
@@ -443,15 +669,22 @@ def create_removal_management_page(
 
     with ui.column().classes("w-full max-w-7xl mx-auto p-8 gap-4"):
         with ui.row().classes("w-full items-center gap-3"):
-            ui.icon("remove_circle", size="lg").classes("text-slate-600")
-            ui.label("Removal Management").classes("text-2xl font-bold")
+            ui.icon("sync_alt", size="lg").classes("text-slate-600")
+            ui.label("State Management").classes("text-2xl font-bold")
 
         ui.label(
-            "Remove selected resources from Terraform state (unadopt) with explicit command preview and confirmation."
+            "Manage Terraform state with refresh-only sync and explicit state-removal controls."
         ).classes("text-sm text-slate-500")
 
+        with ui.card().classes("w-full p-4 border border-blue-300 bg-blue-50"):
+            ui.label("Refresh-Only Notice").classes("font-semibold text-blue-800")
+            ui.label(
+                "Refresh-only updates Terraform state from remote objects for resources already in state. "
+                "It does not import unmanaged resources and does not create or destroy infrastructure."
+            ).classes("text-sm text-blue-900")
+
         with ui.card().classes("w-full p-4 border border-amber-300 bg-amber-50"):
-            ui.label("Safety Notice").classes("font-semibold text-amber-800")
+            ui.label("State Removal Notice").classes("font-semibold text-amber-800")
             ui.label(
                 "This action runs `terraform state rm` and only detaches resources from Terraform state. "
                 "It does not delete remote dbt Cloud objects."
@@ -557,12 +790,34 @@ def create_removal_management_page(
                 with ui.row().classes("items-center gap-2 flex-wrap"):
                     select_filtered_button = ui.button("Select Filtered", icon="done_all").props("outline dense")
                     clear_button = ui.button("Clear Selection", icon="clear_all").props("outline dense")
-                    preview_button = ui.button("Preview Commands (0)", icon="visibility").props("outline dense")
-                    execute_button = ui.button("Execute Selected (0)", icon="play_arrow").props("color=negative dense")
                     ui_refs["select_filtered_button"] = select_filtered_button
                     ui_refs["clear_button"] = clear_button
-                    ui_refs["preview_button"] = preview_button
-                    ui_refs["execute_button"] = execute_button
+
+        with ui.card().classes("w-full p-3 border border-blue-200 rounded-lg"):
+            ui.label("State Refresh").classes("text-xs font-semibold uppercase tracking-wide text-blue-700 mb-2")
+            with ui.row().classes("w-full items-center gap-2 flex-wrap"):
+                refresh_preview_all_button = ui.button("Preview All Refresh Commands", icon="visibility").props(
+                    "outline dense"
+                )
+                refresh_preview_selected_button = ui.button("Preview Selected Refresh (0)", icon="visibility").props(
+                    "outline dense"
+                )
+                refresh_all_button = ui.button("Refresh All In State", icon="sync").props("color=primary dense")
+                refresh_selected_button = ui.button("Refresh Selected (0)", icon="sync_alt").props(
+                    "outline color=primary dense"
+                )
+                view_plan_button = ui.button("View Plan Output", icon="description").props("outline dense")
+                ui_refs["refresh_preview_selected_button"] = refresh_preview_selected_button
+                ui_refs["refresh_selected_button"] = refresh_selected_button
+                ui_refs["view_plan_button"] = view_plan_button
+
+        with ui.card().classes("w-full p-3 border border-amber-200 rounded-lg"):
+            ui.label("State Removal").classes("text-xs font-semibold uppercase tracking-wide text-amber-700 mb-2")
+            with ui.row().classes("w-full items-center gap-2 flex-wrap"):
+                preview_button = ui.button("Preview Removal Commands (0)", icon="visibility").props("outline dense")
+                execute_button = ui.button("Execute State Removals (0)", icon="play_arrow").props("color=negative dense")
+                ui_refs["preview_button"] = preview_button
+                ui_refs["execute_button"] = execute_button
 
         column_defs = [
             {
@@ -636,9 +891,20 @@ def create_removal_management_page(
         clear_button.on("click", _clear_selection)
         preview_button.on("click", _show_preview_dialog)
         execute_button.on("click", _open_execute_dialog)
+        refresh_preview_all_button.on("click", lambda: _open_refresh_preview_dialog(False))
+        refresh_preview_selected_button.on("click", lambda: _open_refresh_preview_dialog(True))
+        async def _run_refresh_all_click() -> None:
+            await _run_refresh_plan(False)
+
+        async def _run_refresh_selected_click() -> None:
+            await _run_refresh_plan(True)
+
+        refresh_all_button.on("click", _run_refresh_all_click)
+        refresh_selected_button.on("click", _run_refresh_selected_click)
+        view_plan_button.on("click", _open_refresh_plan_output)
 
         terminal = TerminalOutput(max_lines=1200, auto_scroll=True, show_timestamps=True)
-        terminal.create(height="300px", title="Output - Removal Management")
+        terminal.create(height="300px", title="Output - State Management")
         ui_refs["terminal"] = terminal
 
         _refresh_grid()

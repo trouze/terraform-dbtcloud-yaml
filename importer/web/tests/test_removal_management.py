@@ -2,6 +2,10 @@
 
 from importer.web.pages.removal_management import (
     _build_candidate_rows_from_inputs,
+    _build_refresh_apply_cmd,
+    _build_refresh_only_command_preview,
+    _build_refresh_plan_cmd,
+    _build_refresh_target_addresses_from_rows,
     _build_state_rm_commands_from_rows,
     _collect_missing_terraform_env,
     _filter_removal_rows,
@@ -134,6 +138,74 @@ def test_build_state_rm_commands_from_rows_dedupes_addresses() -> None:
     assert commands == [
         "terraform state rm 'module.foo.bar[\"a\"]'",
         "terraform state rm 'module.foo.bar[\"b\"]'",
+    ]
+
+
+def test_build_refresh_target_addresses_from_rows_dedupes_and_skips_blank() -> None:
+    addresses = _build_refresh_target_addresses_from_rows(
+        [
+            {"state_address": "module.foo.bar[\"a\"]"},
+            {"state_address": "module.foo.bar[\"a\"]"},
+            {"state_address": ""},
+            {"state_address": "module.foo.bar[\"b\"]"},
+        ]
+    )
+    assert addresses == [
+        "module.foo.bar[\"a\"]",
+        "module.foo.bar[\"b\"]",
+    ]
+
+
+def test_build_refresh_only_command_preview_for_all_scope() -> None:
+    preview = _build_refresh_only_command_preview([])
+    assert preview["plan"] == "terraform plan -refresh-only -no-color -input=false"
+    assert preview["apply"] == "terraform apply -refresh-only -auto-approve -no-color -input=false"
+
+
+def test_build_refresh_only_command_preview_for_selected_scope() -> None:
+    preview = _build_refresh_only_command_preview(
+        [
+            "module.foo.bar[\"a\"]",
+            "module.foo.bar[\"b\"]",
+        ]
+    )
+    assert preview["plan"] == (
+        "terraform plan -refresh-only -no-color -input=false "
+        "-target 'module.foo.bar[\"a\"]' -target 'module.foo.bar[\"b\"]'"
+    )
+    assert preview["apply"] == (
+        "terraform apply -refresh-only -auto-approve -no-color -input=false "
+        "-target 'module.foo.bar[\"a\"]' -target 'module.foo.bar[\"b\"]'"
+    )
+
+
+def test_build_refresh_plan_cmd_all_scope() -> None:
+    assert _build_refresh_plan_cmd([]) == [
+        "terraform",
+        "plan",
+        "-refresh-only",
+        "-no-color",
+        "-input=false",
+    ]
+
+
+def test_build_refresh_apply_cmd_selected_scope() -> None:
+    assert _build_refresh_apply_cmd(
+        [
+            "module.foo.bar[\"a\"]",
+            "module.foo.bar[\"b\"]",
+        ]
+    ) == [
+        "terraform",
+        "apply",
+        "-refresh-only",
+        "-auto-approve",
+        "-no-color",
+        "-input=false",
+        "-target",
+        "module.foo.bar[\"a\"]",
+        "-target",
+        "module.foo.bar[\"b\"]",
     ]
 
 

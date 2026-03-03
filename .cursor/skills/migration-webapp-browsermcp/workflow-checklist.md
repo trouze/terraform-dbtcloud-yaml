@@ -7,6 +7,7 @@ Copy this checklist into task notes and mark each gate.
 - [ ] Confirm repo is `terraform-dbtcloud-yaml`
 - [ ] Start/restart app with `./restart_web.sh`
 - [ ] Open app at `http://127.0.0.1:8080`
+- [ ] Navigate to `/` and select `PS Sandbox` project after each restart
 - [ ] Confirm migration workflow scope (not Jobs-as-Code / Account Explorer)
 
 ## Credential Bootstrap
@@ -52,6 +53,15 @@ Copy this checklist into task notes and mark each gate.
 - [ ] Confirm whether destructive execution is authorized for this session
 - [ ] If not authorized, stop at non-destructive validation
 - [ ] If authorized, record the action in session audit log before/after execution
+
+## State Management Utility
+
+- [ ] `/removal-management`: verify page title is **State Management**
+- [ ] Verify both sections render: **State Refresh** and **State Removal**
+- [ ] Verify `Refresh Selected` is disabled when no rows are selected
+- [ ] Run `Refresh All In State` plan path and confirm `View Plan Output` becomes enabled
+- [ ] Open `View Plan Output` and confirm the shared viewer dialog renders
+- [ ] Verify removal actions remain available and unchanged in behavior (preview + execute controls)
 
 ## Destroy Gate
 

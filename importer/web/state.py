@@ -94,7 +94,7 @@ STEP_NAMES = {
     WorkflowStep.JAC_GENERATE: "Generate YAML",
     # Utilities
     WorkflowStep.UTILITIES: "Protection Management",
-    WorkflowStep.REMOVAL_MANAGEMENT: "Removal Management",
+    WorkflowStep.REMOVAL_MANAGEMENT: "State Management",
     # Adoption step
     WorkflowStep.ADOPT: "Adopt Resources",
 }

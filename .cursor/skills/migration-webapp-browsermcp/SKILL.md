@@ -23,8 +23,9 @@ If the task is for a different repo or workflow, stop and ask before proceeding.
    - intended workflow is Migration (`fetch_source -> ... -> deploy`)
 2. Restart app with canonical script:
    - `./restart_web.sh`
-3. Assume session state was cleared after restart.
-4. Reload credentials before deep testing:
+3. Navigate to `/` (Home) and select the **PS Sandbox** project before proceeding.
+4. Assume session state was cleared after restart.
+5. Reload credentials before deep testing:
    - `/fetch_target` -> `Load .env` -> handle modal if shown -> verify API token field is populated.
 
 ## BrowserMCP Interaction Contract
@@ -69,8 +70,26 @@ Use this order unless the task explicitly scopes a subset:
 8. `/configure`
 9. `/target_credentials`
 10. `/deploy`
+11. `/removal-management` (State Management utility: refresh-only + state removal)
 
 Reference per-step assertions in `workflow-checklist.md`.
+
+## State Management Page Checks
+
+When validating `/removal-management`:
+
+1. Verify split sections exist:
+   - `State Refresh`
+   - `State Removal`
+2. Verify refresh controls:
+   - `Preview All Refresh Commands`
+   - `Refresh All In State`
+   - `Refresh Selected (N)` (enabled only when rows are selected)
+   - `View Plan Output` (enabled after a plan run)
+3. Verify removal controls remain available and clearly separated:
+   - preview removal commands
+   - execute state removals
+4. If running refresh plan, confirm plan output opens in the shared viewer dialog and can be reopened via `View Plan Output`.
 
 ## AG Grid Validation Protocol (Required)
 

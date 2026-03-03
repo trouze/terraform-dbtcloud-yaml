@@ -98,6 +98,15 @@
 - Match key actions (row action edits, adopt-cascade skip, adopt/protect guard cancel) trigger `_reload_with_debug(...)` so grid drift markers are recomputed without requiring manual browser reload.
 - Regression coverage remains in `importer/web/tests/test_match_no_terraform_execution.py` for these recompute hooks.
 
+### 12. State Management refresh workflow docs
+**Check if:**
+- Any update to `/removal-management` behavior (now State Management) is reflected in:
+  - relevant PRD status notes under `prd/`
+  - `.cursor/skills/migration-webapp-browsermcp/SKILL.md`
+  - `.cursor/skills/migration-webapp-browsermcp/workflow-checklist.md`
+  - `.cursor/skills/migration-webapp-browsermcp/debug-playbook.md`
+- Browser validation notes include Home -> `PS Sandbox` project selection after each app restart.
+
 ---
 
 ## Version Numbering Guidelines
@@ -139,9 +148,10 @@ Follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html):
 9. **Update AG Grid standards/regression docs** for any UI table rendering fix
 10. **Verify deploy path scoping** if release touches Deploy directory/state behavior
 11. **Verify Match recompute hooks** for key action/drift refresh behavior
-12. **Run tests** to verify version is correctly reported and key path behavior is stable
-13. **Commit with message**: `chore: release vX.Y.Z`
-14. **Tag release** (if applicable): `git tag vX.Y.Z`
+12. **Review State Management docs** when state utility flows changed
+13. **Run tests** to verify version is correctly reported and key path behavior is stable
+14. **Commit with message**: `chore: release vX.Y.Z`
+15. **Tag release** (if applicable): `git tag vX.Y.Z`
 
 ---
 
@@ -195,7 +205,7 @@ head -30 CHANGELOG.md
 
 ---
 
-**Last Updated:** 2026-02-25  
-**Document Version:** 1.4
+**Last Updated:** 2026-03-03  
+**Document Version:** 1.5
 
 

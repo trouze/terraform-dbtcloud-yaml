@@ -100,6 +100,21 @@ Actions:
 3. compare summary cards with table rows (state vs intent visibility)
 4. report any divergence with screenshots and command output summary
 
+## 6b) State Management refresh viewer not appearing
+
+Symptoms:
+
+- refresh plan runs but no viewer is visible
+- `View Plan Output` button state is unclear
+
+Actions:
+
+1. verify you are on `/removal-management` and the page shows `State Refresh` section
+2. run `Refresh All In State` once and wait for completion snapshot
+3. check whether `View Plan Output` becomes enabled
+4. click `View Plan Output` and verify shared viewer dialog opens (`Download Logs`, `Copy to Clipboard`, `Close`)
+5. if viewer still fails to open, capture snapshot + terminal output evidence and stop before apply
+
 ## 7) Destructive actions without clear permission
 
 Rule:
