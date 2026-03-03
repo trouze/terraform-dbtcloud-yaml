@@ -119,7 +119,7 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
     )
 
     # region agent log
-    _colliding_keys = {}
+    _colliding_keys: Dict[str, List[Any]] = {}
     for _p in _sorted_projects:
         _pk = _p.get("key", "")
         _colliding_keys.setdefault(_pk, []).append(_p.get("id"))
@@ -139,6 +139,7 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
     for project in _sorted_projects:
         project_name = project.get("name") or project.get("key")
         raw_project_key = project.get("key") or ""
+        _project_jobs = project.get("jobs", []) or []
         deduped_project_key = _dedup_project_key(raw_project_key)
         project_mapping_id = _register(
             records,
@@ -274,30 +275,30 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
                 # project-level). They can't be managed in Terraform, so skip them.
                 if cred_id is None:
                     project_crd_skipped_null_id += 1
-                    continue
-                project_crd_with_id += 1
+                else:
+                    project_crd_with_id += 1
 
-                crd_extra: Dict[str, Any] = {
-                    "dbt_id": cred_id,
-                    "project_key": deduped_project_key,
-                    "project_name": project_name,
-                    "environment_key": env.get("key"),
-                    "environment_name": env.get("name"),
-                    "parent_environment_id": env_mapping_id,
-                    "parent_project_id": project_mapping_id,
-                    "credential_type": cred_type,
-                    "credential_schema": cred_schema,
-                    "credential_user": cred_user,
-                    "credential_id": cred_id,
-                }
-                _register(
-                    records,
-                    credential,
-                    "CRD",
-                    name=cred_display_name,
-                    identifier=cred_identifier,
-                    extra=crd_extra,
-                )
+                    crd_extra: Dict[str, Any] = {
+                        "dbt_id": cred_id,
+                        "project_key": deduped_project_key,
+                        "project_name": project_name,
+                        "environment_key": env.get("key"),
+                        "environment_name": env.get("name"),
+                        "parent_environment_id": env_mapping_id,
+                        "parent_project_id": project_mapping_id,
+                        "credential_type": cred_type,
+                        "credential_schema": cred_schema,
+                        "credential_user": cred_user,
+                        "credential_id": cred_id,
+                    }
+                    _register(
+                        records,
+                        credential,
+                        "CRD",
+                        name=cred_display_name,
+                        identifier=cred_identifier,
+                        extra=crd_extra,
+                    )
 
             # Jobs per environment
             env_key = env.get("key")
@@ -429,6 +430,5 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
         },
     )
     # endregion
-
     return records
 

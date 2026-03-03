@@ -585,7 +585,7 @@ def create_entity_table(
     filter_options = ["all"] + types_in_data
     
     # Count by type
-    type_counts = {}
+    type_counts: Dict[str, int] = {}
     for item in report_items:
         t = item.get("element_type_code", "UNK")
         type_counts[t] = type_counts.get(t, 0) + 1
