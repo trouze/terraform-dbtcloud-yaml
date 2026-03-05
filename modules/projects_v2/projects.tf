@@ -39,15 +39,13 @@ locals {
   ]) > 0
 
   # Determine effective git clone strategy for each repository
-  # If github_app is specified but no PAT available, fallback to deploy_key
-  # When github_installation_id is provided, API automatically uses github_app, so we must match that
+  # Preserve explicit non-deploy_key strategies from source YAML when possible.
+  # If github_app is specified but no PAT/installation ID is available, fallback to deploy_key.
+  # When github_installation_id is provided, API automatically uses github_app, so we must match that.
   # Use nonsensitive() to prevent strategy string from inheriting PAT's sensitivity
   effective_git_clone_strategy = {
     for key, repo in local.resolve_repository :
     key => nonsensitive(
-      # If source remote_url is not SSH-style, force deploy_key.
-      # This supports integration-not-configured migrations by pairing with SSH fallback URL.
-      !can(regex("^(git@|ssh:)", trimspace(try(repo.remote_url, "")))) ? "deploy_key" :
       # If Azure integration strategy is selected but required Azure IDs are missing, force deploy_key.
       # This avoids API failures when integrations are not configured in the target account yet.
       try(repo.git_clone_strategy, "") == "azure_active_directory_app" && (
