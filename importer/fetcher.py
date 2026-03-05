@@ -41,8 +41,6 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 # Transient network errors that should trigger retry
 TRANSIENT_ERRORS: Tuple[type, ...] = (OSError, ConnectionError, TimeoutError)
-
-
 def _safe_credential_error_summary(exc: Exception) -> str:
     """Return a concise credential fetch error summary for debug logs."""
     text = str(exc).strip()
@@ -261,8 +259,6 @@ def fetch_account_snapshot(
     # Fetch projects list once (sequential) so we can display totals / submit work
     project_items = list(client.paginate("/projects/"))
     total_projects = len(project_items)
-
-
     # Flat, non-nested concurrency to avoid deadlocks: submit env/jobs/envvars tasks per project,
     # then submit overrides tasks for all jobs, then assemble.
     # All fetch functions include retry logic for transient network errors.
@@ -839,7 +835,6 @@ def fetch_account_snapshot(
 
     if progress:
         progress.on_resource_done("projects", len(projects))
-
     return AccountSnapshot(
         account_id=client.settings.account_id,
         account_name=account_name,
@@ -992,6 +987,10 @@ def _fetch_repositories(
     # First pass: list all repositories
     repo_items = list(client.paginate("/repositories/"))
     log.info(f"Found {len(repo_items)} repositories")
+    repo_keys = [slug(item.get("name") or item.get("remote_url", "repo")) for item in repo_items]
+    key_counts: dict[str, int] = {}
+    for key in repo_keys:
+        key_counts[key] = key_counts.get(key, 0) + 1
 
     # Identify repos that need v3 detail fetches
     settings = client.settings
@@ -1040,7 +1039,11 @@ def _fetch_repositories(
     # Assemble Repository objects
     for item in repo_items:
         name = item.get("remote_url", "repo")
-        repo_key = slug(item.get("name") or name)
+        repo_id = item.get("id")
+        base_repo_key = slug(item.get("name") or name)
+        repo_key = base_repo_key
+        if key_counts.get(base_repo_key, 0) > 1 and repo_id is not None:
+            repo_key = f"{base_repo_key}_{repo_id}"
 
         if progress:
             progress.on_resource_item("repositories", repo_key)

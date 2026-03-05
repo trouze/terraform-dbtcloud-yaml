@@ -50,7 +50,6 @@ STATUS_SUCCESS = "#22C55E"  # green-500
 STATUS_WARNING = "#EAB308"  # yellow-500
 STATUS_ERROR = "#EF4444"    # red-500
 
-
 def _resolve_tf_dir_for_project(state: AppState, tf_dir: Optional[str]) -> Path:
     """Resolve terraform dir relative to active project path when needed."""
     raw = (tf_dir or "deployments/migration").strip() or "deployments/migration"
