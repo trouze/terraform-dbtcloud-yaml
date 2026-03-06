@@ -224,6 +224,12 @@ def get_terraform_env(state: "AppState") -> dict[str, str]:
     env["DBT_CLOUD_TOKEN"] = api_token
     env["DBT_CLOUD_HOST_URL"] = host_url
 
+    # Use local provider dev override when project .terraformrc exists (for debugging)
+    project_root = _project_root(state)
+    terraformrc = project_root / ".terraformrc"
+    if terraformrc.exists():
+        env["TF_CLI_CONFIG_FILE"] = str(terraformrc.resolve())
+
     return env
 
 

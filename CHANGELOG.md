@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Deploy UI local provider override**: When a project `.terraformrc` exists (e.g. for provider debugging), Terraform Init/Plan/Apply from the UI now set `TF_CLI_CONFIG_FILE` so the local provider binary is used automatically.
+
 ## [0.25.0] - 2026-03-05
 
 ### Added
