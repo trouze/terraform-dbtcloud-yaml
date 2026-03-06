@@ -7,6 +7,8 @@ from typing import Dict, List, Optional, Set, Tuple
 # Format: child_type -> parent_type(s)
 ENTITY_PARENT_TYPES = {
     "JOB": ["ENV", "PRJ"],  # Job belongs to Environment and Project
+    "JCTG": ["ENV", "PRJ"],
+    "JEVO": ["JOB"],
     "CRD": ["ENV"],         # Credential belongs to Environment
     "ENV": ["PRJ"],         # Environment belongs to Project
     "VAR": ["PRJ"],         # Environment Variable belongs to Project
@@ -44,6 +46,8 @@ TYPE_DEPTH = {
     "EXTATTR": 2,  # Extended Attributes at depth 2 (project-scoped)
     "CRD": 3,  # Credentials at depth 3 (under environments)
     "JOB": 3,  # Jobs at depth 3
+    "JCTG": 3,
+    "JEVO": 4,
 }
 
 # Sort order for entity types (for hierarchical display)
@@ -62,6 +66,8 @@ TYPE_SORT_ORDER = {
     "EXTATTR": 25,  # Extended Attributes sort between project and environment
     "CRD": 35,  # Credentials sort after environments but before jobs
     "JOB": 40,
+    "JCTG": 41,
+    "JEVO": 42,
 }
 
 

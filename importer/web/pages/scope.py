@@ -30,6 +30,8 @@ RESOURCE_TYPES = {
     "CRD": {"name": "Credential", "code": "CRED", "icon": "vpn_key", "color": "#78716C"},
     "VAR": {"name": "Env Variable", "code": "ENVVAR", "icon": "code", "color": "#A855F7"},
     "JOB": {"name": "Job", "code": "JOB", "icon": "schedule", "color": "#EF4444"},
+    "JCTG": {"name": "Job Completion Trigger", "code": "JCTG", "icon": "play_circle_outline", "color": "#F97316"},
+    "JEVO": {"name": "Env Var Job Override", "code": "JEVO", "icon": "tune", "color": "#14B8A6"},
 }
 
 
@@ -544,6 +546,7 @@ TYPE_CODE_MAP = {
     "ACC": "ACCNT", "CON": "CONN", "REP": "REPO", "TOK": "SRVTKN",
     "GRP": "GRP", "NOT": "NOTIFY", "WEB": "WBHK", "PLE": "PRVLNK",
     "PRJ": "PRJCT", "ENV": "ENV", "CRD": "CRED", "VAR": "ENVVAR", "JOB": "JOB",
+    "JCTG": "JCTG", "JEVO": "JEVO",
     "EXTATTR": "EXTATTR",
 }
 
@@ -921,6 +924,8 @@ def _create_action_panel(
                 "ENV": ("environments", "Environments"),
                 "EXTATTR": ("extended_attributes", "Extended Attributes"),
                 "JOB": ("jobs", "Jobs"),
+                "JCTG": ("job_completion_triggers", "Job Triggers"),
+                "JEVO": ("environment_variable_job_overrides", "Env Var Job Overrides"),
                 "VAR": ("environment_variables", "Env Variables"),
             }
             
@@ -1274,6 +1279,7 @@ def _get_effective_selection(
         "GRP": "groups", "NOT": "notifications", "WEB": "webhooks",
         "PLE": "privatelink_endpoints", "PRJ": "projects", "ENV": "environments",
         "EXTATTR": "extended_attributes", "VAR": "environment_variables", "JOB": "jobs",
+        "JCTG": "job_completion_triggers", "JEVO": "environment_variable_job_overrides",
     }
     
     effective_ids = set()
@@ -1579,6 +1585,8 @@ def _do_normalize(
         "ENV": "environments",
         "EXTATTR": "extended_attributes",
         "JOB": "jobs",
+        "JCTG": "job_completion_triggers",
+        "JEVO": "environment_variable_job_overrides",
         "VAR": "environment_variables",
     }
     

@@ -16,6 +16,8 @@ NODE_STYLES = {
     "ENV": {"shape": "ellipse", "color": "#10B981", "icon": "cloud"},
     "VAR": {"shape": "rectangle", "color": "#64748B", "icon": "code"},
     "JOB": {"shape": "hexagon", "color": "#3B82F6", "icon": "play_circle"},
+    "JCTG": {"shape": "triangle", "color": "#F97316", "icon": "play_circle_outline"},
+    "JEVO": {"shape": "rectangle", "color": "#14B8A6", "icon": "tune"},
 }
 
 # Type display names
@@ -32,6 +34,8 @@ TYPE_NAMES = {
     "ENV": "Environment",
     "VAR": "Env Variable",
     "JOB": "Job",
+    "JCTG": "Job Completion Trigger",
+    "JEVO": "Env Var Job Override",
 }
 
 

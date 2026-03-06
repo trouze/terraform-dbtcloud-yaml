@@ -39,6 +39,8 @@ RESOURCE_TYPES = {
     "ENV": {"name": "Environment", "code": "ENV", "icon": "layers", "color": "#06B6D4"},
     "VAR": {"name": "Env Variable", "code": "ENVVAR", "icon": "code", "color": "#A855F7"},
     "JOB": {"name": "Job", "code": "JOB", "icon": "schedule", "color": "#EF4444"},
+    "JCTG": {"name": "Job Completion Trigger", "code": "JCTG", "icon": "play_circle_outline", "color": "#F97316"},
+    "JEVO": {"name": "Env Var Job Override", "code": "JEVO", "icon": "tune", "color": "#14B8A6"},
     "EXTATTR": {"name": "Extended Attributes", "code": "EXTATTR", "icon": "tune", "color": "#7C3AED"},
 }
 
@@ -901,6 +903,8 @@ def _create_action_panel(
                 "PRJ": ("projects", "Projects"),
                 "ENV": ("environments", "Environments"),
                 "JOB": ("jobs", "Jobs"),
+                "JCTG": ("job_completion_triggers", "Job Triggers"),
+                "JEVO": ("environment_variable_job_overrides", "Env Var Job Overrides"),
                 "VAR": ("environment_variables", "Env Variables"),
                 "EXTATTR": ("extended_attributes", "Extended Attributes"),
             }
@@ -1255,6 +1259,7 @@ def _get_effective_selection(
         "GRP": "groups", "NOT": "notifications", "WEB": "webhooks",
         "PLE": "privatelink_endpoints", "PRJ": "projects", "ENV": "environments",
         "VAR": "environment_variables", "JOB": "jobs",
+        "JCTG": "job_completion_triggers", "JEVO": "environment_variable_job_overrides",
         "EXTATTR": "extended_attributes",
     }
     
@@ -1560,6 +1565,8 @@ def _do_normalize(
         "PRJ": "projects",
         "ENV": "environments",
         "JOB": "jobs",
+        "JCTG": "job_completion_triggers",
+        "JEVO": "environment_variable_job_overrides",
         "VAR": "environment_variables",
         "EXTATTR": "extended_attributes",
     }
