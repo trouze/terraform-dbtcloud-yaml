@@ -1154,13 +1154,21 @@ def _normalize_projects(
         if config.is_resource_included("environment_variables"):
             project_data["environment_variables"] = _normalize_environment_variables(project, config, context)
 
-        # Project artefacts (docs/freshness job IDs)
+        # Project artefacts (docs/freshness job keys)
+        # Resolve source job IDs to job keys so the TF module can look up target job IDs.
         if project.docs_job_id or project.freshness_job_id:
-            project_data["project_artefacts"] = {}
+            job_id_to_key = {j.id: j.key for j in project.jobs if getattr(j, "id", None)}
+            artefacts: Dict[str, Any] = {}
             if project.docs_job_id:
-                project_data["project_artefacts"]["docs_job_id"] = project.docs_job_id
+                docs_key = job_id_to_key.get(project.docs_job_id)
+                if docs_key:
+                    artefacts["docs_job_key"] = docs_key
             if project.freshness_job_id:
-                project_data["project_artefacts"]["freshness_job_id"] = project.freshness_job_id
+                freshness_key = job_id_to_key.get(project.freshness_job_id)
+                if freshness_key:
+                    artefacts["freshness_job_key"] = freshness_key
+            if artefacts:
+                project_data["project_artefacts"] = artefacts
 
         # Lineage integrations
         if project.lineage_integrations:
