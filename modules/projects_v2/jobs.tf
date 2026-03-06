@@ -228,6 +228,12 @@ locals {
     )
   }
 
+  # errors_on_lint_failure only applies when linting is active (CI jobs only).
+  errors_on_lint_failure_effective = {
+    for key, item in local.jobs_map :
+    key => local.run_lint_effective[key] ? try(item.job_data.errors_on_lint_failure, false) : false
+  }
+
 }
 
 #############################################
@@ -255,7 +261,7 @@ resource "dbtcloud_job" "jobs" {
   deferring_environment_id = (
     try(each.value.job_data.deferring_environment_key, null) != null
   ) ? try(local.environment_id_lookup["${each.value.project_key}_${each.value.job_data.deferring_environment_key}"], null) : null
-  errors_on_lint_failure = try(each.value.job_data.errors_on_lint_failure, false)
+  errors_on_lint_failure = local.errors_on_lint_failure_effective[each.key]
   generate_docs          = try(each.value.job_data.generate_docs, false)
   is_active              = try(each.value.job_data.is_active, true)
   num_threads            = coalesce(try(each.value.job_data.num_threads, null), 4)
@@ -327,7 +333,7 @@ resource "dbtcloud_job" "protected_jobs" {
   deferring_environment_id = (
     try(each.value.job_data.deferring_environment_key, null) != null
   ) ? try(local.environment_id_lookup["${each.value.project_key}_${each.value.job_data.deferring_environment_key}"], null) : null
-  errors_on_lint_failure = try(each.value.job_data.errors_on_lint_failure, false)
+  errors_on_lint_failure = local.errors_on_lint_failure_effective[each.key]
   generate_docs          = try(each.value.job_data.generate_docs, false)
   is_active              = try(each.value.job_data.is_active, true)
   num_threads            = coalesce(try(each.value.job_data.num_threads, null), 4)
