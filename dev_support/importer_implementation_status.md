@@ -1,7 +1,7 @@
 # Importer Implementation Status & Tracking
 
-**Last Updated:** 2026-03-02  
-**Current Importer Version:** 0.24.0  
+**Last Updated:** 2026-03-05  
+**Current Importer Version:** 0.25.0  
 **Status:** Phase 3 Complete + Interactive Mode + Web UI + E2E Testing Infrastructure + Destroy Workflow + Target Match Feature + Jobs as Code Generator + dbt-jobs-as-code Validation + SAO Support + Native Integration Detection + Target Credentials Redesign + Resource Protection with Cascade + Destroy Page Enhancements + State-Aware Matching Fix + Match Diagnostics Improvements + AG Grid Standardization + Dialog Width Fix + Protection Mismatch Fix + Adoption Override Data Flow Fix + Debug Logging Standards + View Output Plan Dialog Fix + Independent Protection Architecture + Comprehensive Protection Unit Tests + Repository Key Prefix Matching Fix + Extended Attributes (EXTATTR) Support + Target Intent State File + Protection as Disposition Property + Explicit Global Intent Filtering + Drift Detection + TF State Repo Identity Fixup + Global Resources Configuration + Protection Intent Key Fix + EnvVar Protection + State-Only Resource Fixes + TF Plan Stability + Plan Targeting Fix + Deploy Page State-Based Protection
 
 > **⚠️ IMPORTANT: Keep This Document Updated**
@@ -420,9 +420,9 @@ Before starting end-to-end testing with a real account, verify:
 ## Version Tracking
 
 ### Importer Version
-- **Current:** 0.24.0
+- **Current:** 0.25.0
 - **File:** `importer/VERSION`
-- **Last Updated:** 2026-03-02
+- **Last Updated:** 2026-03-05
 
 ### Terraform Module Version
 - **Current:** Supports v1 and v2 schemas
@@ -666,6 +666,13 @@ The following items require API endpoint research before implementation can begi
 ---
 
 ## Change Log
+
+### 2026-03-05 (v0.25.0)
+- **Version:** Incremented to 0.25.0 (minor release - state management refresh-only workflows + clone strategy and job row fixes)
+- **Added:** State Management refresh-only workflows for safe state inspection
+- **Fixed:** Repository clone strategy preservation during normalization
+- **Fixed:** Target job rows retained when environment credentials are null
+- **Documented:** GitLab deploy_token API 500 root cause via Datadog traces (backend PR #16687)
 
 ### 2026-03-02 (v0.24.0)
 - **Version:** Incremented to 0.24.0 (minor release - removal management utility + normalization and workflow hardening)

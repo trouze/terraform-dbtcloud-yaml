@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-03-05
+
+### Added
+- **State Management Refresh-Only Workflows**: Expanded `/removal-management` (now State Management) with refresh-only workflows for state inspection without requiring destructive operations.
+- **Bug Documentation**: Documented GitLab `deploy_token` API 500 root cause analysis with Datadog trace evidence (`bugs/bug3-gitlab-deploy-token-pat.md`).
+
+### Fixed
+- **Repository Clone Strategy Preservation**: Explicit `git_clone_strategy` values set in source YAML are now preserved during normalization instead of being overridden by default `deploy_key`.
+- **Target Job Rows with Null Environment Credentials**: Target job rows no longer disappear from the match grid when environment credentials are null.
+
+### Changed
+- **Debug Instrumentation Cleanup**: Removed stale debug session instrumentation from prior development cycles.
+
 ## [0.24.0] - 2026-03-02
 
 ### Added
