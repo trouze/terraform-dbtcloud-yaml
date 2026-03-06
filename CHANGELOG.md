@@ -9,12 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-03-05
+
 ### Added
-- **Resource type map rollout (S3-S6)**: Registered 10 new resource type codes across all protection, hierarchy, and UI maps:
-  - S3 Quick Wins: `JCTG` (Job Completion Trigger), `JEVO` (Environment Variable Job Override)
-  - S4 Account-Level: `ACFT` (Account Features), `IPRST` (IP Restrictions Rule), `LNGI` (Lineage Integration), `OAUTH` (OAuth Configuration)
-  - S5 Project-Level: `PARFT` (Project Artefacts), `USRGRP` (User Groups)
-  - S6 Semantic Layer: `SLCFG` (Semantic Layer Configuration), `SLSTM` (Semantic Layer Credential Mapping)
+- **Full-stack S4-S6 resource support**: End-to-end fetch, normalize, Terraform module, and UI integration for 8 new resource types:
+  - S4 Account-Level: `dbtcloud_account_features` (ACFT), `dbtcloud_ip_restrictions_rule` (IPRST), `dbtcloud_oauth_configuration` (OAUTH), `dbtcloud_user_groups` (USRGRP)
+  - S5 Project-Level: `dbtcloud_project_artefacts` (PARFT), `dbtcloud_lineage_integration` (LNGI)
+  - S6 Semantic Layer: `dbtcloud_semantic_layer_configuration` (SLCFG), `dbtcloud_semantic_layer_credential_service_token_mapping` (SLSTM)
+- **Pydantic models** for all new resource types (`LineageIntegration`, `SemanticLayerConfiguration`, `AccountFeatures`, `IpRestrictionsRule`, `OAuthConfiguration`, `UserGroups`)
+- **Fetcher functions** for account-level and project-level resources with parallel fetch support
+- **Normalization functions** with sensitive data redaction (`client_secret`, `token`)
+- **Terraform modules**: 7 new `.tf` files in `modules/projects_v2/` for all new resource types
+- **Entity table** columns, filters, and data loaders for all 8 types
+- **Reporter** summary and detailed sections for new resource counts
+- **Element IDs** registration for all 8 types in `apply_element_ids()`
+
+### Fixed
+- **Scope page connection selection**: When "All Projects" scope is active, all connections are now selected unconditionally instead of only those referenced by environments. Previously, 36 of 67 connections were missed because they had no environment reference (legacy, unused, or project-level-only connections).
+
+### Changed
+- **UI maps updated across 12 files**: `scope.py`, `mapping.py`, `deploy.py`, `destroy.py`, `target_matcher.py`, `terraform_import.py`, `protection_manager.py`, `hierarchy_index.py`, `terraform_state_reader.py`, `progress_tree.py`, `fetch_source.py`, `fetch_target.py`
 
 ## [0.26.0] - 2026-03-05
 

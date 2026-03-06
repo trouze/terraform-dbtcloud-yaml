@@ -108,6 +108,20 @@ variable "enable_gitlab_deploy_token" {
   default     = false
 }
 
+variable "oauth_client_secrets" {
+  description = "Map of OAuth configuration keys to their client_secret values. Keys must match oauth_configuration.key in YAML."
+  type        = map(string)
+  default     = {}
+  sensitive   = true
+}
+
+variable "lineage_tokens" {
+  description = "Map of lineage integration keys (project_key_integration_key) to their token values."
+  type        = map(string)
+  default     = {}
+  sensitive   = true
+}
+
 variable "environment_credentials" {
   description = "Map of environment keys to credential values. Keys are 'project_key_env_key' (e.g., 'my_project_prod')"
   type = map(object({

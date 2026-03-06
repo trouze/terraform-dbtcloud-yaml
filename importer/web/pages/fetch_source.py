@@ -764,6 +764,16 @@ async def _run_fetch(
             "extended_attributes": sum(len(p.extended_attributes) for p in snapshot.projects),
             "connections": len(snapshot.globals.connections),
             "repositories": len(snapshot.globals.repositories),
+            "account_features": 1 if snapshot.globals.account_features else 0,
+            "ip_restrictions": len(snapshot.globals.ip_restrictions),
+            "oauth_configurations": len(snapshot.globals.oauth_configurations),
+            "user_groups": len(snapshot.globals.user_groups),
+            "lineage_integrations": sum(len(p.lineage_integrations) for p in snapshot.projects),
+            "semantic_layer_configs": sum(1 for p in snapshot.projects if p.semantic_layer_config),
+            "project_artefacts": sum(
+                1 for p in snapshot.projects
+                if p.docs_job_id or p.freshness_job_id
+            ),
         }
 
         # Also update account info
@@ -805,7 +815,19 @@ async def _run_fetch(
         terminal.info(f"  Extended Attributes: {fetch_state.resource_counts.get('extended_attributes', 0)}")
         terminal.info(f"  Connections: {fetch_state.resource_counts.get('connections', 0)}")
         terminal.info(f"  Repositories: {fetch_state.resource_counts.get('repositories', 0)}")
+        terminal.info(f"  Account Features: {fetch_state.resource_counts.get('account_features', 0)}")
+        terminal.info(f"  IP Restrictions: {fetch_state.resource_counts.get('ip_restrictions', 0)}")
+        terminal.info(f"  OAuth Configurations: {fetch_state.resource_counts.get('oauth_configurations', 0)}")
+        terminal.info(f"  User Groups: {fetch_state.resource_counts.get('user_groups', 0)}")
+        terminal.info(f"  Lineage Integrations: {fetch_state.resource_counts.get('lineage_integrations', 0)}")
+        terminal.info(f"  Semantic Layer Configs: {fetch_state.resource_counts.get('semantic_layer_configs', 0)}")
+        terminal.info(f"  Project Artefacts: {fetch_state.resource_counts.get('project_artefacts', 0)}")
         terminal.info(f"  Total time: {fetch_duration:.1f}s")
+
+        # Update progress tree with project-scoped resource counts
+        for rc_key in ("lineage_integrations", "semantic_layer_configs", "project_artefacts"):
+            count = fetch_state.resource_counts.get(rc_key, 0)
+            progress_tree.on_resource_done(rc_key, count)
 
         # Mark progress tree as complete
         progress_tree.complete()

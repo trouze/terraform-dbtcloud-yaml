@@ -819,6 +819,14 @@ def _create_protected_resources_panel(
         "REP": "Repositories",
         "CON": "Connections",
         "EXTATTR": "Extended Attributes",
+        "ACFT": "Account Features",
+        "IPRST": "IP Restrictions",
+        "LNGI": "Lineage Integrations",
+        "OAUTH": "OAuth Configurations",
+        "PARFT": "Project Artefacts",
+        "USRGRP": "User Groups",
+        "SLCFG": "Semantic Layer Configs",
+        "SLSTM": "SL Credential Mappings",
     }
     
     with ui.expansion(
@@ -921,6 +929,14 @@ def _create_import_section(
                     "GRP": "Groups",
                     "NOT": "Notifications",
                     "EXTATTR": "Extended Attributes",
+                    "ACFT": "Account Features",
+                    "IPRST": "IP Restrictions",
+                    "LNGI": "Lineage Integrations",
+                    "OAUTH": "OAuth Configurations",
+                    "PARFT": "Project Artefacts",
+                    "USRGRP": "User Groups",
+                    "SLCFG": "Semantic Layer Configs",
+                    "SLSTM": "SL Credential Mappings",
                 }
                 label = type_labels.get(rtype, rtype)
                 ui.badge(f"{len(items)} {label}").props("dense")

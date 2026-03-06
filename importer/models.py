@@ -185,15 +185,74 @@ class EnvironmentVariable(ImporterBaseModel):
     environment_values: Dict[str, str]
 
 
+class LineageIntegration(ImporterBaseModel):
+    key: str
+    id: Optional[int] = None
+    name: Optional[str] = None
+    host: Optional[str] = None
+    site_id: Optional[str] = None
+    token_name: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class SemanticLayerConfiguration(ImporterBaseModel):
+    key: str
+    id: Optional[int] = None
+    environment_id: Optional[int] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 class Project(ImporterBaseModel):
     key: str
     id: Optional[int] = None
     name: str
     repository_key: Optional[str] = None
+    docs_job_id: Optional[int] = None
+    freshness_job_id: Optional[int] = None
     environments: List[Environment] = Field(default_factory=list)
     extended_attributes: List[ExtendedAttributes] = Field(default_factory=list)
     environment_variables: List[EnvironmentVariable] = Field(default_factory=list)
     jobs: List[Job] = Field(default_factory=list)
+    lineage_integrations: List[LineageIntegration] = Field(default_factory=list)
+    semantic_layer_config: Optional[SemanticLayerConfiguration] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class AccountFeatures(ImporterBaseModel):
+    advanced_ci: Optional[bool] = None
+    partial_parsing: Optional[bool] = None
+    repo_caching: Optional[bool] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class IpRestrictionsRule(ImporterBaseModel):
+    key: str
+    id: Optional[int] = None
+    name: str
+    type: Optional[str] = None
+    description: Optional[str] = None
+    rule_set_enabled: Optional[bool] = None
+    cidrs: List[Dict[str, Any]] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class OAuthConfiguration(ImporterBaseModel):
+    key: str
+    id: Optional[int] = None
+    name: str
+    type: Optional[str] = None
+    client_id: Optional[str] = None
+    authorize_url: Optional[str] = None
+    token_url: Optional[str] = None
+    redirect_uri: Optional[str] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class UserGroups(ImporterBaseModel):
+    key: str
+    user_id: int
+    email: Optional[str] = None
+    group_ids: List[int] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -205,6 +264,10 @@ class Globals(ImporterBaseModel):
     notifications: Dict[str, Notification] = Field(default_factory=dict)
     webhooks: Dict[str, WebhookSubscription] = Field(default_factory=dict)
     privatelink_endpoints: Dict[str, PrivateLinkEndpoint] = Field(default_factory=dict)
+    account_features: Optional[AccountFeatures] = None
+    ip_restrictions: Dict[str, IpRestrictionsRule] = Field(default_factory=dict)
+    oauth_configurations: Dict[str, OAuthConfiguration] = Field(default_factory=dict)
+    user_groups: Dict[str, UserGroups] = Field(default_factory=dict)
 
 
 class AccountSnapshot(ImporterBaseModel):

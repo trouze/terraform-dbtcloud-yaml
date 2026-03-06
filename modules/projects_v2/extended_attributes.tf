@@ -64,11 +64,11 @@ resource "dbtcloud_extended_attributes" "extended_attrs" {
   state               = lookup(each.value.ext_data, "state", 1)
   extended_attributes = jsonencode(lookup(each.value.ext_data, "extended_attributes", {}))
   resource_metadata = {
-    source_project_id = lookup(local.source_project_ids_by_key, each.value.project_key, null)
-    source_id         = try(each.value.ext_data.id, null)
-    source_identity   = "EXTATTR:${each.value.project_key}:${each.value.ext_key}"
-    source_key        = each.value.ext_key
-    source_name       = each.value.ext_key
+    source_project_id  = lookup(local.source_project_ids_by_key, each.value.project_key, null)
+    source_id          = try(each.value.ext_data.id, null)
+    source_identity    = "EXTATTR:${each.value.project_key}:${each.value.ext_key}"
+    source_key         = each.value.ext_key
+    source_name        = each.value.ext_key
     source_project_key = each.value.project_key
   }
 }
@@ -86,11 +86,11 @@ resource "dbtcloud_extended_attributes" "protected_extended_attrs" {
   state               = lookup(each.value.ext_data, "state", 1)
   extended_attributes = jsonencode(lookup(each.value.ext_data, "extended_attributes", {}))
   resource_metadata = {
-    source_project_id = lookup(local.source_project_ids_by_key, each.value.project_key, null)
-    source_id         = try(each.value.ext_data.id, null)
-    source_identity   = "EXTATTR:${each.value.project_key}:${each.value.ext_key}"
-    source_key        = each.value.ext_key
-    source_name       = each.value.ext_key
+    source_project_id  = lookup(local.source_project_ids_by_key, each.value.project_key, null)
+    source_id          = try(each.value.ext_data.id, null)
+    source_identity    = "EXTATTR:${each.value.project_key}:${each.value.ext_key}"
+    source_key         = each.value.ext_key
+    source_name        = each.value.ext_key
     source_project_key = each.value.project_key
   }
 

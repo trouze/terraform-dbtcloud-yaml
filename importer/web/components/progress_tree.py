@@ -14,6 +14,10 @@ GLOBAL_RESOURCES = [
     ("notifications", "Notifications"),
     ("webhooks", "Webhooks"),
     ("privatelink_endpoints", "PrivateLink Endpoints"),
+    ("account_features", "Account Features"),
+    ("ip_restrictions", "IP Restrictions"),
+    ("oauth_configurations", "OAuth Configurations"),
+    ("user_groups", "User Groups"),
 ]
 
 PROJECT_RESOURCES = [
@@ -23,6 +27,9 @@ PROJECT_RESOURCES = [
     ("jobs", "Jobs"),
     ("environment_variables", "Env Variables (No Secret Values)"),
     ("job_env_var_overrides", "Job Overrides"),
+    ("lineage_integrations", "Lineage Integrations"),
+    ("semantic_layer_configs", "Semantic Layer Configs"),
+    ("project_artefacts", "Project Artefacts"),
 ]
 
 

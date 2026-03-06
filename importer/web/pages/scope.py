@@ -556,6 +556,8 @@ TYPE_CODE_MAP = {
     "PRJ": "PRJCT", "ENV": "ENV", "CRD": "CRED", "VAR": "ENVVAR", "JOB": "JOB",
     "JCTG": "JCTG", "JEVO": "JEVO",
     "EXTATTR": "EXTATTR",
+    "ACFT": "ACFT", "IPRST": "IPRST", "LNGI": "LNGI", "OAUTH": "OAUTH",
+    "PARFT": "PARFT", "USRGRP": "USRGRP", "SLCFG": "SLCFG", "SLSTM": "SLSTM",
 }
 
 
@@ -935,6 +937,14 @@ def _create_action_panel(
                 "JCTG": ("job_completion_triggers", "Job Triggers"),
                 "JEVO": ("environment_variable_job_overrides", "Env Var Job Overrides"),
                 "VAR": ("environment_variables", "Env Variables"),
+                "ACFT": ("account_features", "Account Features"),
+                "IPRST": ("ip_restrictions", "IP Restrictions"),
+                "LNGI": ("lineage_integrations", "Lineage Integrations"),
+                "OAUTH": ("oauth_configurations", "OAuth Configurations"),
+                "PARFT": ("project_artefacts", "Project Artefacts"),
+                "USRGRP": ("user_groups", "User Groups"),
+                "SLCFG": ("semantic_layer_configs", "Semantic Layer Configs"),
+                "SLSTM": ("sl_credential_mappings", "SL Credential Mappings"),
             }
             
             def create_filter_toggle(type_code: str, filter_key: str, label: str, count: int):
@@ -1197,31 +1207,33 @@ def _apply_scope_selection(
             if child_item and child_item.get("element_type_code") == "ENV":
                 selected_env_ids.add(child_id)
     
-    # 4. Find and select connections referenced by selected environments
-    # Use connection_id for reliable lookups (key matching is fallback)
-    used_connection_ids: set[int] = set()
-    used_connection_keys: set[str] = set()
-    
-    for env_id in selected_env_ids:
-        env_item = item_by_id.get(env_id)
-        if env_item:
-            conn_id = env_item.get("connection_id")
-            conn_key = env_item.get("connection_key")
-            if conn_id:
-                used_connection_ids.add(conn_id)
-            elif conn_key:
-                # Fallback to key matching if no ID available
-                used_connection_keys.add(conn_key)
-    
-    for item in report_items:
-        if item.get("element_type_code") == "CON":
-            conn_dbt_id = item.get("dbt_id")
-            conn_key = item.get("key")
-            # Match by ID first, then by key as fallback
-            if conn_dbt_id and conn_dbt_id in used_connection_ids:
+    # 4. Select connections
+    # all_projects: include ALL connections (global resources needed for full migration).
+    # specific_projects: only connections referenced by selected environments.
+    if state.map.scope_mode == "all_projects":
+        for item in report_items:
+            if item.get("element_type_code") == "CON":
                 selection_manager.set_selected(item.get("element_mapping_id"), True, auto_save=False)
-            elif conn_key and conn_key in used_connection_keys:
-                selection_manager.set_selected(item.get("element_mapping_id"), True, auto_save=False)
+    else:
+        used_connection_ids: set[int] = set()
+        used_connection_keys: set[str] = set()
+        for env_id in selected_env_ids:
+            env_item = item_by_id.get(env_id)
+            if env_item:
+                conn_id = env_item.get("connection_id")
+                conn_key = env_item.get("connection_key")
+                if conn_id:
+                    used_connection_ids.add(conn_id)
+                elif conn_key:
+                    used_connection_keys.add(conn_key)
+        for item in report_items:
+            if item.get("element_type_code") == "CON":
+                conn_dbt_id = item.get("dbt_id")
+                conn_key = item.get("key")
+                if conn_dbt_id and conn_dbt_id in used_connection_ids:
+                    selection_manager.set_selected(item.get("element_mapping_id"), True, auto_save=False)
+                elif conn_key and conn_key in used_connection_keys:
+                    selection_manager.set_selected(item.get("element_mapping_id"), True, auto_save=False)
     
     # 5. Select globals based on toggle settings
     global_toggles = {
@@ -1288,6 +1300,9 @@ def _get_effective_selection(
         "PLE": "privatelink_endpoints", "PRJ": "projects", "ENV": "environments",
         "EXTATTR": "extended_attributes", "VAR": "environment_variables", "JOB": "jobs",
         "JCTG": "job_completion_triggers", "JEVO": "environment_variable_job_overrides",
+        "ACFT": "account_features", "IPRST": "ip_restrictions", "LNGI": "lineage_integrations",
+        "OAUTH": "oauth_configurations", "PARFT": "project_artefacts", "USRGRP": "user_groups",
+        "SLCFG": "semantic_layer_configs", "SLSTM": "sl_credential_mappings",
     }
     
     effective_ids = set()
@@ -1596,6 +1611,14 @@ def _do_normalize(
         "JCTG": "job_completion_triggers",
         "JEVO": "environment_variable_job_overrides",
         "VAR": "environment_variables",
+        "ACFT": "account_features",
+        "IPRST": "ip_restrictions",
+        "LNGI": "lineage_integrations",
+        "OAUTH": "oauth_configurations",
+        "PARFT": "project_artefacts",
+        "USRGRP": "user_groups",
+        "SLCFG": "semantic_layer_configs",
+        "SLSTM": "sl_credential_mappings",
     }
     
     # Create mapping config with exclusions

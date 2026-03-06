@@ -221,7 +221,7 @@ class HierarchyIndex:
             # The connection_key on ENV is tracked in _connection_by_key for lookup purposes only.
             
             # Link globals (without parent_project_id) to account
-            if entity_type in {"CON", "TOK", "GRP", "NOT", "WEB", "PLE"}:
+            if entity_type in {"CON", "TOK", "GRP", "NOT", "WEB", "PLE", "ACFT", "IPRST", "OAUTH", "USRGRP", "SLSTM"}:
                 account_ids = self._by_type.get("ACC", set())
                 if account_ids:
                     account_id = next(iter(account_ids))
@@ -461,7 +461,7 @@ class HierarchyIndex:
         project_name = entity.get("project_name", "") or ""
         
         # For globals and account, sort by type then name
-        if entity_type in {"ACC", "CON", "REP", "TOK", "GRP", "NOT", "WEB", "PLE"}:
+        if entity_type in {"ACC", "CON", "REP", "TOK", "GRP", "NOT", "WEB", "PLE", "ACFT", "IPRST", "OAUTH", "USRGRP", "SLSTM"}:
             return (type_order, "", name.lower(), "")
         
         # For project-scoped items, sort by project, type, name

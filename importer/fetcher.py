@@ -17,6 +17,7 @@ from slugify import slugify
 from .client import DbtCloudClient
 from .config import Settings
 from .models import (
+    AccountFeatures,
     AccountSnapshot,
     Connection,
     Credential,
@@ -25,12 +26,17 @@ from .models import (
     ExtendedAttributes,
     Globals,
     Group,
+    IpRestrictionsRule,
     Job,
+    LineageIntegration,
     Notification,
+    OAuthConfiguration,
     PrivateLinkEndpoint,
     Project,
     Repository,
+    SemanticLayerConfiguration,
     ServiceToken,
+    UserGroups,
     WebhookSubscription,
 )
 
@@ -221,6 +227,10 @@ def fetch_account_snapshot(
         ("notifications", _fetch_notifications),
         ("webhooks", _fetch_webhooks),
         ("privatelink_endpoints", _fetch_privatelink_endpoints),
+        ("account_features", _fetch_account_features),
+        ("ip_restrictions", _fetch_ip_restrictions),
+        ("oauth_configurations", _fetch_oauth_configurations),
+        ("user_groups", _fetch_user_groups),
     ]
 
     globals_results: dict[str, Any] = {}
@@ -245,6 +255,10 @@ def fetch_account_snapshot(
             notifications=globals_results["notifications"],
             webhooks=globals_results["webhooks"],
             privatelink_endpoints=globals_results["privatelink_endpoints"],
+            account_features=globals_results.get("account_features"),
+            ip_restrictions=globals_results.get("ip_restrictions", {}),
+            oauth_configurations=globals_results.get("oauth_configurations", {}),
+            user_groups=globals_results.get("user_groups", {}),
         )
 
     # Check for cancellation after globals phase
@@ -637,6 +651,8 @@ def fetch_account_snapshot(
                         id=item.get("id"),
                         name=item["name"],
                         repository_key=repository_key,
+                        docs_job_id=item.get("docs_job_id") or None,
+                        freshness_job_id=item.get("freshness_job_id") or None,
                         metadata=item,
                     )
                     project_id = int(project.id or 0)
@@ -812,6 +828,13 @@ def fetch_account_snapshot(
                                 )
                             )
                     project.environment_variables = env_vars
+
+                    project.lineage_integrations = list(
+                        _fetch_lineage_integrations(client, project_id, progress=None)
+                    )
+                    project.semantic_layer_config = _fetch_semantic_layer_config(
+                        client, project_id, progress=None
+                    )
 
                     projects.append(project)
                     if progress:
@@ -1322,6 +1345,194 @@ def _fetch_privatelink_endpoints(
     return privatelink_endpoints
 
 
+def _fetch_account_features(
+    client: DbtCloudClient,
+    progress: Optional[FetchProgressCallback] = None,
+) -> Optional[AccountFeatures]:
+    """Fetch account feature flags (private API). Returns None if unavailable."""
+    log.info("Fetching account features (private API)")
+    if progress:
+        progress.on_resource_start("account_features")
+    try:
+        resp = client.get(f"/private/accounts/{client.settings.account_id}/features/")
+        data = resp.get("data", resp) if isinstance(resp, dict) else {}
+        features = AccountFeatures(
+            advanced_ci=data.get("advanced_ci"),
+            partial_parsing=data.get("partial_parsing"),
+            repo_caching=data.get("repo_caching"),
+            metadata=data if isinstance(data, dict) else {},
+        )
+        if progress:
+            progress.on_resource_done("account_features", 1)
+        return features
+    except Exception as exc:
+        log.warning("Failed to fetch account features (private API may not be available): %s", exc)
+        if progress:
+            progress.on_resource_done("account_features", 0)
+        return None
+
+
+def _fetch_ip_restrictions(
+    client: DbtCloudClient,
+    progress: Optional[FetchProgressCallback] = None,
+) -> Dict[str, IpRestrictionsRule]:
+    """Fetch IP restriction rules (v3)."""
+    log.info("Fetching IP restrictions (v3)")
+    if progress:
+        progress.on_resource_start("ip_restrictions")
+    rules: Dict[str, IpRestrictionsRule] = {}
+    try:
+        for item in client.paginate("/ip-restrictions/", version="v3"):
+            rule_name = item.get("name") or f"ip_rule_{item.get('id', 'unknown')}"
+            key = slug(rule_name)
+
+            if progress:
+                progress.on_resource_item("ip_restrictions", key)
+
+            rules[key] = IpRestrictionsRule(
+                key=key,
+                id=item.get("id"),
+                name=rule_name,
+                type=item.get("type"),
+                description=item.get("description"),
+                rule_set_enabled=item.get("rule_set_enabled"),
+                cidrs=item.get("cidrs", []),
+                metadata=item,
+            )
+    except Exception as exc:
+        log.warning("Failed to fetch IP restrictions: %s", exc)
+    if progress:
+        progress.on_resource_done("ip_restrictions", len(rules))
+    return rules
+
+
+def _fetch_oauth_configurations(
+    client: DbtCloudClient,
+    progress: Optional[FetchProgressCallback] = None,
+) -> Dict[str, OAuthConfiguration]:
+    """Fetch OAuth configurations (v3). Sensitive fields are not returned by API."""
+    log.info("Fetching OAuth configurations (v3)")
+    if progress:
+        progress.on_resource_start("oauth_configurations")
+    configs: Dict[str, OAuthConfiguration] = {}
+    try:
+        for item in client.paginate("/oauth-configurations/", version="v3"):
+            config_name = item.get("name") or item.get("type") or f"oauth_{item.get('id', 'unknown')}"
+            key = slug(config_name)
+
+            if progress:
+                progress.on_resource_item("oauth_configurations", key)
+
+            configs[key] = OAuthConfiguration(
+                key=key,
+                id=item.get("id"),
+                name=config_name,
+                type=item.get("type"),
+                client_id=item.get("client_id"),
+                authorize_url=item.get("authorize_url"),
+                token_url=item.get("token_url"),
+                redirect_uri=item.get("redirect_uri"),
+                metadata=item,
+            )
+    except Exception as exc:
+        log.warning("Failed to fetch OAuth configurations: %s", exc)
+    if progress:
+        progress.on_resource_done("oauth_configurations", len(configs))
+    return configs
+
+
+def _fetch_user_groups(
+    client: DbtCloudClient,
+    progress: Optional[FetchProgressCallback] = None,
+) -> Dict[str, UserGroups]:
+    """Fetch users and their group assignments (v2)."""
+    log.info("Fetching user group assignments (v2)")
+    if progress:
+        progress.on_resource_start("user_groups")
+    user_groups: Dict[str, UserGroups] = {}
+    try:
+        for item in client.paginate("/users/"):
+            user_id = item.get("id")
+            email = item.get("email") or ""
+            if not user_id:
+                continue
+            key = slug(email or f"user_{user_id}")
+
+            if progress:
+                progress.on_resource_item("user_groups", key)
+
+            permissions = item.get("permissions", [])
+            group_ids = sorted(set(
+                p.get("group_id") for p in permissions
+                if isinstance(p, dict) and p.get("group_id") is not None
+            ))
+
+            user_groups[key] = UserGroups(
+                key=key,
+                user_id=user_id,
+                email=email,
+                group_ids=group_ids,
+                metadata=item,
+            )
+    except Exception as exc:
+        log.warning("Failed to fetch user group assignments: %s", exc)
+    if progress:
+        progress.on_resource_done("user_groups", len(user_groups))
+    return user_groups
+
+
+def _fetch_lineage_integrations(
+    client: DbtCloudClient,
+    project_id: int,
+    progress: Optional[FetchProgressCallback] = None,
+) -> List[LineageIntegration]:
+    """Fetch lineage integrations for a project (v3)."""
+    integrations: List[LineageIntegration] = []
+    try:
+        for item in client.paginate(
+            f"/projects/{project_id}/integrations/lineage/",
+            version="v3",
+        ):
+            name = item.get("name") or item.get("host") or f"lineage_{item.get('id', 'unknown')}"
+            key = slug(name)
+            integrations.append(LineageIntegration(
+                key=key,
+                id=item.get("id"),
+                name=name,
+                host=item.get("host"),
+                site_id=item.get("site_id"),
+                token_name=item.get("token_name"),
+                metadata=item,
+            ))
+    except Exception as exc:
+        log.debug("No lineage integrations for project %s: %s", project_id, exc)
+    return integrations
+
+
+def _fetch_semantic_layer_config(
+    client: DbtCloudClient,
+    project_id: int,
+    progress: Optional[FetchProgressCallback] = None,
+) -> Optional[SemanticLayerConfiguration]:
+    """Fetch semantic layer configuration for a project (v3). Singleton per project."""
+    try:
+        items = list(client.paginate(
+            f"/projects/{project_id}/semantic-layer-configurations/",
+            version="v3",
+        ))
+        if items:
+            item = items[0]
+            return SemanticLayerConfiguration(
+                key=f"sl_config_{project_id}",
+                id=item.get("id"),
+                environment_id=item.get("environment_id"),
+                metadata=item,
+            )
+    except Exception as exc:
+        log.debug("No semantic layer config for project %s: %s", project_id, exc)
+    return None
+
+
 def _fetch_projects(
     client: DbtCloudClient,
     globals_model: Globals,
@@ -1351,6 +1562,8 @@ def _fetch_projects(
             id=item.get("id"),
             name=project_name,
             repository_key=repository_key,
+            docs_job_id=item.get("docs_job_id") or None,
+            freshness_job_id=item.get("freshness_job_id") or None,
             metadata=item,
         )
         project_id = project.id or 0
@@ -1362,6 +1575,12 @@ def _fetch_projects(
         )
         project.environment_variables = list(
             _fetch_environment_variables(client, project_id, progress)
+        )
+        project.lineage_integrations = list(
+            _fetch_lineage_integrations(client, project_id, progress)
+        )
+        project.semantic_layer_config = _fetch_semantic_layer_config(
+            client, project_id, progress
         )
         projects.append(project)
 

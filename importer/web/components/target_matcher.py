@@ -156,6 +156,17 @@ RESOURCE_TYPE_LABELS = {
     "ENV": "Environment",
     "VAR": "Env Variable",
     "JOB": "Job",
+    "JCTG": "Job Completion Trigger",
+    "JEVO": "Env Var Job Override",
+    "EXTATTR": "Extended Attributes",
+    "ACFT": "Account Features",
+    "IPRST": "IP Restrictions",
+    "LNGI": "Lineage Integration",
+    "OAUTH": "OAuth Configuration",
+    "PARFT": "Project Artefacts",
+    "USRGRP": "User Groups",
+    "SLCFG": "Semantic Layer Config",
+    "SLSTM": "SL Credential Mapping",
 }
 
 

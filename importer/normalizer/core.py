@@ -6,16 +6,20 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from ..models import (
+    AccountFeatures,
     AccountSnapshot,
     Connection,
     Credential,
     ExtendedAttributes,
     Group,
+    IpRestrictionsRule,
     Notification,
+    OAuthConfiguration,
     PrivateLinkEndpoint,
     Project,
     Repository,
     ServiceToken,
+    UserGroups,
 )
 from . import MappingConfig, NormalizationContext
 
@@ -345,7 +349,27 @@ def normalize_snapshot(
         v2_data["globals"]["notifications"] = _normalize_notifications(
             snapshot.globals.notifications, config, context
         )
-    
+
+    if config.is_resource_included("account_features") and snapshot.globals.account_features:
+        v2_data["globals"]["account_features"] = _normalize_account_features(
+            snapshot.globals.account_features, config, context
+        )
+
+    if config.is_resource_included("ip_restrictions"):
+        v2_data["globals"]["ip_restrictions"] = _normalize_ip_restrictions(
+            snapshot.globals.ip_restrictions, config, context
+        )
+
+    if config.is_resource_included("oauth_configurations"):
+        v2_data["globals"]["oauth_configurations"] = _normalize_oauth_configurations(
+            snapshot.globals.oauth_configurations, config, context
+        )
+
+    if config.is_resource_included("user_groups"):
+        v2_data["globals"]["user_groups"] = _normalize_user_groups(
+            snapshot.globals.user_groups, config, context
+        )
+
     # Normalize projects
     if config.is_resource_included("projects"):
         v2_data["projects"] = _normalize_projects(snapshot, config, context)
@@ -855,6 +879,145 @@ def _normalize_notifications(
     return result
 
 
+def _normalize_account_features(
+    features: AccountFeatures,
+    config: MappingConfig,
+    context: NormalizationContext,
+) -> Dict[str, Any]:
+    """Normalize account features to v2 format (singleton)."""
+    result: Dict[str, Any] = {}
+    if features.advanced_ci is not None:
+        result["advanced_ci"] = features.advanced_ci
+    if features.partial_parsing is not None:
+        result["partial_parsing"] = features.partial_parsing
+    if features.repo_caching is not None:
+        result["repo_caching"] = features.repo_caching
+    return result
+
+
+def _normalize_ip_restrictions(
+    rules: Dict[str, IpRestrictionsRule],
+    config: MappingConfig,
+    context: NormalizationContext,
+) -> List[Dict[str, Any]]:
+    """Normalize IP restriction rules to v2 format."""
+    result = []
+    exclude_keys = config.get_exclude_keys("ip_restrictions")
+    exclude_ids = config.get_exclude_ids("ip_restrictions")
+
+    for key, rule in rules.items():
+        if key in exclude_keys or _get_element_id(rule) and _get_element_id(rule) in exclude_ids:
+            context.add_exclusion("ip_restriction", key, "Excluded by filter", _get_element_id(rule))
+            continue
+
+        normalized_key = context.resolve_collision(key, namespace="ip_restrictions")
+        if _get_element_id(rule):
+            context.register_element(_get_element_id(rule), normalized_key)
+
+        rule_data: Dict[str, Any] = {
+            "key": normalized_key,
+            "name": rule.name,
+            "type": rule.type,
+            "description": rule.description,
+            "rule_set_enabled": rule.rule_set_enabled if rule.rule_set_enabled is not None else False,
+            "cidrs": rule.cidrs if rule.cidrs else [],
+        }
+
+        if not config.should_strip_source_ids() and rule.id:
+            rule_data["id"] = rule.id
+
+        result.append(rule_data)
+
+    return result
+
+
+def _normalize_oauth_configurations(
+    configs: Dict[str, OAuthConfiguration],
+    config: MappingConfig,
+    context: NormalizationContext,
+) -> List[Dict[str, Any]]:
+    """Normalize OAuth configurations to v2 format. client_secret is redacted."""
+    result = []
+    exclude_keys = config.get_exclude_keys("oauth_configurations")
+    exclude_ids = config.get_exclude_ids("oauth_configurations")
+
+    for key, oauth in configs.items():
+        if key in exclude_keys or _get_element_id(oauth) and _get_element_id(oauth) in exclude_ids:
+            context.add_exclusion("oauth_configuration", key, "Excluded by filter", _get_element_id(oauth))
+            continue
+
+        normalized_key = context.resolve_collision(key, namespace="oauth_configurations")
+        if _get_element_id(oauth):
+            context.register_element(_get_element_id(oauth), normalized_key)
+
+        oauth_data: Dict[str, Any] = {
+            "key": normalized_key,
+            "name": oauth.name,
+            "type": oauth.type,
+            "client_id": oauth.client_id,
+            "client_secret": "__REDACTED__",
+            "authorize_url": oauth.authorize_url,
+            "token_url": oauth.token_url,
+            "redirect_uri": oauth.redirect_uri,
+        }
+
+        if not config.should_strip_source_ids() and oauth.id:
+            oauth_data["id"] = oauth.id
+
+        result.append(oauth_data)
+
+    return result
+
+
+def _normalize_user_groups(
+    user_groups: Dict[str, UserGroups],
+    config: MappingConfig,
+    context: NormalizationContext,
+) -> List[Dict[str, Any]]:
+    """Normalize user-group assignments to v2 format."""
+    result = []
+    exclude_keys = config.get_exclude_keys("user_groups")
+
+    for key, ug in user_groups.items():
+        if key in exclude_keys:
+            context.add_exclusion("user_groups", key, "Excluded by filter", ug.user_id)
+            continue
+
+        normalized_key = context.resolve_collision(key, namespace="user_groups")
+
+        ug_data: Dict[str, Any] = {
+            "key": normalized_key,
+            "user_id": ug.user_id,
+            "email": ug.email,
+            "group_ids": ug.group_ids,
+        }
+
+        result.append(ug_data)
+
+    return result
+
+
+def _normalize_lineage_integrations(
+    project: Project,
+    config: MappingConfig,
+    context: NormalizationContext,
+) -> List[Dict[str, Any]]:
+    """Normalize lineage integrations for a project. Token is redacted."""
+    result = []
+    for li in project.lineage_integrations:
+        li_data: Dict[str, Any] = {
+            "key": li.key,
+            "host": li.host,
+            "site_id": li.site_id,
+            "token_name": li.token_name,
+            "token": "__REDACTED__",
+        }
+        if not config.should_strip_source_ids() and li.id:
+            li_data["id"] = li.id
+        result.append(li_data)
+    return result
+
+
 def _build_project_id_mapping(
     snapshot: AccountSnapshot,
     config: MappingConfig,
@@ -990,7 +1153,29 @@ def _normalize_projects(
         # Normalize environment variables
         if config.is_resource_included("environment_variables"):
             project_data["environment_variables"] = _normalize_environment_variables(project, config, context)
-        
+
+        # Project artefacts (docs/freshness job IDs)
+        if project.docs_job_id or project.freshness_job_id:
+            project_data["project_artefacts"] = {}
+            if project.docs_job_id:
+                project_data["project_artefacts"]["docs_job_id"] = project.docs_job_id
+            if project.freshness_job_id:
+                project_data["project_artefacts"]["freshness_job_id"] = project.freshness_job_id
+
+        # Lineage integrations
+        if project.lineage_integrations:
+            project_data["lineage_integrations"] = _normalize_lineage_integrations(
+                project, config, context
+            )
+
+        # Semantic layer configuration
+        if project.semantic_layer_config:
+            project_data["semantic_layer_config"] = {
+                "environment_id": project.semantic_layer_config.environment_id,
+            }
+            if not config.should_strip_source_ids() and project.semantic_layer_config.id:
+                project_data["semantic_layer_config"]["id"] = project.semantic_layer_config.id
+
         result.append(project_data)
     
     return result

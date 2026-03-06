@@ -365,6 +365,18 @@ def generate_moved_blocks(
             "REP": "Repository",
             "EXTATTR": "Extended Attributes",
             "VAR": "Env Variable",
+            "CON": "Connection",
+            "TOK": "Service Token",
+            "GRP": "Group",
+            "NOT": "Notification",
+            "ACFT": "Account Features",
+            "IPRST": "IP Restrictions Rule",
+            "LNGI": "Lineage Integration",
+            "OAUTH": "OAuth Configuration",
+            "PARFT": "Project Artefacts",
+            "USRGRP": "User Groups",
+            "SLCFG": "Semantic Layer Config",
+            "SLSTM": "SL Credential Mapping",
         }.get(change.resource_type, change.resource_type)
         
         lines.extend([
@@ -730,6 +742,18 @@ def format_protection_warnings(warnings: list[ProtectedDestroyWarning]) -> str:
         "REP": "Repository",
         "EXTATTR": "Extended Attributes",
         "VAR": "Env Variable",
+        "CON": "Connection",
+        "TOK": "Service Token",
+        "GRP": "Group",
+        "NOT": "Notification",
+        "ACFT": "Account Features",
+        "IPRST": "IP Restrictions Rule",
+        "LNGI": "Lineage Integration",
+        "OAUTH": "OAuth Configuration",
+        "PARFT": "Project Artefacts",
+        "USRGRP": "User Groups",
+        "SLCFG": "Semantic Layer Config",
+        "SLSTM": "SL Credential Mapping",
     }
     
     for warning in warnings:
@@ -1496,6 +1520,15 @@ def generate_repair_moved_blocks(
         "GRP": "group",
         "CON": "connection",
         "TOK": "service_token",
+        "NOT": "notification",
+        "ACFT": "account_features",
+        "IPRST": "ip_restrictions_rule",
+        "LNGI": "lineage_integration",
+        "OAUTH": "oauth_configuration",
+        "PARFT": "project_artefacts",
+        "USRGRP": "user_groups",
+        "SLCFG": "semantic_layer_configuration",
+        "SLSTM": "semantic_layer_credential_service_token_mapping",
     }
     
     for project_key, project_mismatches in sorted(by_project.items()):
@@ -1685,6 +1718,18 @@ def format_mismatches_for_display(mismatches: list[ProtectionMismatch]) -> str:
         "PREP": "Project-Repository Link",
         "EXTATTR": "Extended Attributes",
         "VAR": "Env Variable",
+        "GRP": "Group",
+        "CON": "Connection",
+        "TOK": "Service Token",
+        "NOT": "Notification",
+        "ACFT": "Account Features",
+        "IPRST": "IP Restrictions Rule",
+        "LNGI": "Lineage Integration",
+        "OAUTH": "OAuth Configuration",
+        "PARFT": "Project Artefacts",
+        "USRGRP": "User Groups",
+        "SLCFG": "Semantic Layer Config",
+        "SLSTM": "SL Credential Mapping",
     }
     
     by_project = {}

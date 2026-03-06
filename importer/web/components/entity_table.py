@@ -295,7 +295,62 @@ def _load_full_data_for_type(state: AppState, type_code: str, is_target: bool = 
                 eat["project_name"] = project_name
                 eat["project_key"] = project_key
                 results.append(eat)
-    
+
+    elif type_code == "ACFT":
+        acft = globals_block.get("account_features")
+        if acft and isinstance(acft, dict):
+            acft["_key"] = "account_features"
+            results.append(acft)
+
+    elif type_code == "IPRST":
+        for key, rule in (globals_block.get("ip_restrictions") or {}).items():
+            rule["_key"] = key
+            results.append(rule)
+
+    elif type_code == "OAUTH":
+        for key, oauth in (globals_block.get("oauth_configurations") or {}).items():
+            oauth["_key"] = key
+            results.append(oauth)
+
+    elif type_code == "USRGRP":
+        for key, ug in (globals_block.get("user_groups") or {}).items():
+            ug["_key"] = key
+            results.append(ug)
+
+    elif type_code == "PARFT":
+        for project in snapshot.get("projects", []):
+            if project.get("docs_job_id") or project.get("freshness_job_id"):
+                results.append({
+                    "project_name": project.get("name"),
+                    "project_key": project.get("key"),
+                    "docs_job_id": project.get("docs_job_id"),
+                    "freshness_job_id": project.get("freshness_job_id"),
+                })
+
+    elif type_code == "LNGI":
+        for project in snapshot.get("projects", []):
+            project_name = project.get("name")
+            project_key = project.get("key")
+            for lngi in project.get("lineage_integrations", []):
+                lngi["project_name"] = project_name
+                lngi["project_key"] = project_key
+                results.append(lngi)
+
+    elif type_code == "SLCFG":
+        for project in snapshot.get("projects", []):
+            sl = project.get("semantic_layer_config")
+            if sl and isinstance(sl, dict):
+                sl["project_name"] = project.get("name")
+                sl["project_key"] = project.get("key")
+                results.append(sl)
+
+    elif type_code == "SLSTM":
+        for project in snapshot.get("projects", []):
+            for mapping in project.get("semantic_layer_credential_mappings", []):
+                mapping["project_name"] = project.get("name")
+                mapping["project_key"] = project.get("key")
+                results.append(mapping)
+
     return results
 
 
@@ -338,6 +393,14 @@ RESOURCE_TYPES = {
     "VAR": {"name": "Env Variable", "code": "ENVVAR", "icon": "code", "color": "#A855F7", "sort_order": "41"},
     "JOB": {"name": "Job", "code": "JOB", "icon": "schedule", "color": "#EF4444", "sort_order": "50"},
     "EXTATTR": {"name": "Extended Attributes", "code": "EXTATTR", "icon": "tune", "color": "#7C3AED", "sort_order": "42"},
+    "ACFT": {"name": "Account Features", "code": "ACFT", "icon": "settings", "color": "#6366F1", "sort_order": "05"},
+    "IPRST": {"name": "IP Restrictions", "code": "IPRST", "icon": "security", "color": "#DC2626", "sort_order": "06"},
+    "OAUTH": {"name": "OAuth Configuration", "code": "OAUTH", "icon": "vpn_key", "color": "#D97706", "sort_order": "07"},
+    "USRGRP": {"name": "User Groups", "code": "USRGRP", "icon": "group", "color": "#7C3AED", "sort_order": "08"},
+    "PARFT": {"name": "Project Artefacts", "code": "PARFT", "icon": "inventory_2", "color": "#059669", "sort_order": "35"},
+    "LNGI": {"name": "Lineage Integration", "code": "LNGI", "icon": "account_tree", "color": "#0EA5E9", "sort_order": "36"},
+    "SLCFG": {"name": "Semantic Layer Config", "code": "SLCFG", "icon": "layers", "color": "#EC4899", "sort_order": "37"},
+    "SLSTM": {"name": "SL Credential Mapping", "code": "SLSTM", "icon": "link", "color": "#F43F5E", "sort_order": "38"},
 }
 
 # Optimized default columns per entity type (most useful fields for each type)
@@ -356,6 +419,14 @@ DEFAULT_COLUMNS_BY_TYPE = {
     "VAR": ["line_item_number", "name", "project_name", "type", "display_value"],
     "JOB": ["line_item_number", "name", "id", "state", "project_name", "environment_id", "schedule_type", "triggers"],
     "EXTATTR": ["line_item_number", "name", "id", "state", "project_name", "key", "protected"],
+    "ACFT": ["line_item_number", "name"],
+    "IPRST": ["line_item_number", "name", "id", "type", "enabled"],
+    "OAUTH": ["line_item_number", "name", "id", "type"],
+    "USRGRP": ["line_item_number", "name", "id"],
+    "PARFT": ["line_item_number", "name", "project_name", "docs_job_id", "freshness_job_id"],
+    "LNGI": ["line_item_number", "name", "id", "project_name", "host"],
+    "SLCFG": ["line_item_number", "name", "project_name", "environment_id"],
+    "SLSTM": ["line_item_number", "name", "project_name"],
 }
 
 

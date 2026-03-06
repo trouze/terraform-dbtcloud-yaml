@@ -37,6 +37,23 @@ locals {
     ple.key => ple
   }
 
+  ip_restrictions_map = {
+    for rule in try(var.globals.ip_restrictions, []) :
+    rule.key => rule
+  }
+
+  oauth_configurations_map = {
+    for oauth in try(var.globals.oauth_configurations, []) :
+    oauth.key => oauth
+  }
+
+  user_groups_map = {
+    for ug in try(var.globals.user_groups, []) :
+    ug.key => ug
+  }
+
+  account_features = try(var.globals.account_features, null)
+
   # Extract LOOKUP placeholders from connection references
   lookup_connections = toset([
     for conn_ref in flatten([

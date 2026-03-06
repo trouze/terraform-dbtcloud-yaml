@@ -1136,6 +1136,14 @@ def _create_destroy_protection_panel(
         "REP": "Repository",
         "CON": "Connection",
         "EXTATTR": "Extended Attributes",
+        "ACFT": "Account Features",
+        "IPRST": "IP Restrictions Rule",
+        "LNGI": "Lineage Integration",
+        "OAUTH": "OAuth Configuration",
+        "PARFT": "Project Artefacts",
+        "USRGRP": "User Groups",
+        "SLCFG": "Semantic Layer Config",
+        "SLSTM": "SL Credential Mapping",
     }
     
     # Terraform address mapping for protected resources
@@ -1148,6 +1156,14 @@ def _create_destroy_protection_panel(
         "REP": "dbtcloud_repository",
         "CON": "dbtcloud_connection",
         "EXTATTR": "dbtcloud_extended_attributes",
+        "ACFT": "dbtcloud_account_features",
+        "IPRST": "dbtcloud_ip_restrictions_rule",
+        "LNGI": "dbtcloud_lineage_integration",
+        "OAUTH": "dbtcloud_oauth_configuration",
+        "PARFT": "dbtcloud_project_artefacts",
+        "USRGRP": "dbtcloud_user_groups",
+        "SLCFG": "dbtcloud_semantic_layer_configuration",
+        "SLSTM": "dbtcloud_semantic_layer_credential_service_token_mapping",
     }
     
     # Build rows for the grid with _selected column for checkbox state

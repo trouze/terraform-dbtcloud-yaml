@@ -60,6 +60,15 @@ RESOURCE_TYPE_TO_TF = {
     "VAR": "dbtcloud_environment_variable",
     "EXTATTR": "dbtcloud_extended_attributes",
     "JCTG": "dbtcloud_job_completion_trigger",
+    "JEVO": "dbtcloud_environment_variable_job_override",
+    "ACFT": "dbtcloud_account_features",
+    "IPRST": "dbtcloud_ip_restrictions_rule",
+    "LNGI": "dbtcloud_lineage_integration",
+    "OAUTH": "dbtcloud_oauth_configuration",
+    "PARFT": "dbtcloud_project_artefacts",
+    "USRGRP": "dbtcloud_user_groups",
+    "SLCFG": "dbtcloud_semantic_layer_configuration",
+    "SLSTM": "dbtcloud_semantic_layer_credential_service_token_mapping",
 }
 
 

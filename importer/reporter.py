@@ -31,6 +31,10 @@ def generate_summary_report(snapshot: AccountSnapshot) -> str:
         f"- **Notifications:** {len(snapshot.globals.notifications)}",
         f"- **Webhooks:** {len(snapshot.globals.webhooks)}",
         f"- **PrivateLink Endpoints:** {len(snapshot.globals.privatelink_endpoints)}",
+        f"- **Account Features:** {'Yes' if snapshot.globals.account_features else 'No'}",
+        f"- **IP Restrictions:** {len(snapshot.globals.ip_restrictions)}",
+        f"- **OAuth Configurations:** {len(snapshot.globals.oauth_configurations)}",
+        f"- **User Groups:** {len(snapshot.globals.user_groups)}",
         "",
         "## Projects Overview",
         "",
@@ -53,6 +57,12 @@ def generate_summary_report(snapshot: AccountSnapshot) -> str:
             else:
                 total_env_vars += 1
 
+    total_lineage = sum(len(p.lineage_integrations) for p in snapshot.projects)
+    total_sl_configs = sum(1 for p in snapshot.projects if p.semantic_layer_config)
+    total_artefacts = sum(
+        1 for p in snapshot.projects if p.docs_job_id or p.freshness_job_id
+    )
+
     lines.extend(
         [
             "### Aggregate Counts",
@@ -62,6 +72,9 @@ def generate_summary_report(snapshot: AccountSnapshot) -> str:
             f"- **Total Extended Attributes (EXTATTR):** {total_ext_attr}",
             f"- **Total Environment Variables:** {total_env_vars}",
             f"- **Total Environment Variable Secrets:** {total_secret_vars}",
+            f"- **Total Lineage Integrations:** {total_lineage}",
+            f"- **Total Semantic Layer Configs:** {total_sl_configs}",
+            f"- **Total Project Artefacts:** {total_artefacts}",
             "",
             "---",
             "",
@@ -86,6 +99,10 @@ def generate_summary_report(snapshot: AccountSnapshot) -> str:
             else:
                 project_vars += 1
 
+        project_lineage = len(project.lineage_integrations)
+        project_sl = "Yes" if project.semantic_layer_config else "No"
+        project_artefacts = "Yes" if (project.docs_job_id or project.freshness_job_id) else "No"
+
         lines.extend(
             [
                 f"### {project.name} (PRJ ID: {project.id})",
@@ -95,6 +112,9 @@ def generate_summary_report(snapshot: AccountSnapshot) -> str:
                 f"- **Extended Attributes (EXTATTR):** {project_ext_attr}",
                 f"- **Environment Variables:** {project_vars}",
                 f"- **Environment Variable Secrets:** {project_secrets}",
+                f"- **Lineage Integrations:** {project_lineage}",
+                f"- **Semantic Layer Config:** {project_sl}",
+                f"- **Project Artefacts:** {project_artefacts}",
                 "",
             ]
         )
@@ -289,6 +309,55 @@ def generate_detailed_report(snapshot: AccountSnapshot) -> str:
             lines.append(f"| `{key}` | {webhook_id} | {webhook_name} | {client_url} | {event_types_str} | {job_ids_str} | {active_str} |")
         lines.append("")
 
+    # Account Features
+    if snapshot.globals.account_features:
+        lines.append("### Account Features")
+        lines.append("")
+        af = snapshot.globals.account_features
+        for field_name in sorted(vars(af)):
+            if not field_name.startswith("_"):
+                lines.append(f"- **{field_name}:** {getattr(af, field_name, 'N/A')}")
+        lines.append("")
+
+    # IP Restrictions
+    if snapshot.globals.ip_restrictions:
+        lines.append("### IP Restrictions")
+        lines.append("")
+        lines.append("| Key | ID | Name | Type | Enabled |")
+        lines.append("|-----|----|------|------|---------|")
+        for key, rule in sorted(snapshot.globals.ip_restrictions.items()):
+            rule_id = getattr(rule, "id", "N/A")
+            rule_name = getattr(rule, "name", "N/A")
+            rule_type = getattr(rule, "type", "N/A")
+            enabled = getattr(rule, "enabled", "N/A")
+            lines.append(f"| `{key}` | {rule_id} | {rule_name} | {rule_type} | {enabled} |")
+        lines.append("")
+
+    # OAuth Configurations
+    if snapshot.globals.oauth_configurations:
+        lines.append("### OAuth Configurations")
+        lines.append("")
+        lines.append("| Key | ID | Name | Type |")
+        lines.append("|-----|----|------|------|")
+        for key, oauth in sorted(snapshot.globals.oauth_configurations.items()):
+            oauth_id = getattr(oauth, "id", "N/A")
+            oauth_name = getattr(oauth, "name", "N/A")
+            oauth_type = getattr(oauth, "type", "N/A")
+            lines.append(f"| `{key}` | {oauth_id} | {oauth_name} | {oauth_type} |")
+        lines.append("")
+
+    # User Groups
+    if snapshot.globals.user_groups:
+        lines.append("### User Groups")
+        lines.append("")
+        lines.append("| Key | ID | Name |")
+        lines.append("|-----|----|------|")
+        for key, ug in sorted(snapshot.globals.user_groups.items()):
+            ug_id = getattr(ug, "id", "N/A")
+            ug_name = getattr(ug, "name", key)
+            lines.append(f"| `{key}` | {ug_id} | {ug_name} |")
+        lines.append("")
+
     lines.extend(["---", "", "## Projects", ""])
 
     # Projects tree
@@ -321,6 +390,37 @@ def generate_detailed_report(snapshot: AccountSnapshot) -> str:
                 payload_keys = ", ".join(sorted(ext_attrs.keys())) if isinstance(ext_attrs, dict) else "—"
                 lines.append(f"| `{eat_key}` | {eat_id} | {eat_state} | {payload_keys} |")
             lines.append("")
+            lines.append("")
+
+        # Project Artefacts
+        if project.docs_job_id or project.freshness_job_id:
+            lines.append("#### Project Artefacts")
+            lines.append("")
+            if project.docs_job_id:
+                lines.append(f"- **Docs Job ID:** {project.docs_job_id}")
+            if project.freshness_job_id:
+                lines.append(f"- **Freshness Job ID:** {project.freshness_job_id}")
+            lines.append("")
+
+        # Lineage Integrations
+        if project.lineage_integrations:
+            lines.append("#### Lineage Integrations")
+            lines.append("")
+            lines.append("| ID | Name | Host |")
+            lines.append("|----|------|------|")
+            for lngi in project.lineage_integrations:
+                lngi_id = getattr(lngi, "id", "N/A")
+                lngi_name = getattr(lngi, "name", "N/A")
+                lngi_host = getattr(lngi, "host", "N/A")
+                lines.append(f"| {lngi_id} | {lngi_name} | {lngi_host} |")
+            lines.append("")
+
+        # Semantic Layer Configuration
+        if project.semantic_layer_config:
+            lines.append("#### Semantic Layer Configuration")
+            lines.append("")
+            sl = project.semantic_layer_config
+            lines.append(f"- **Environment ID:** {getattr(sl, 'environment_id', 'N/A')}")
             lines.append("")
 
         # Environment variables (split into regular and secrets)

@@ -103,6 +103,10 @@ TF_TYPE_TO_GLOBAL_SECTION: dict[str, str] = {
     "dbtcloud_global_connection": "connections",
     "dbtcloud_global_connections": "connections",
     "dbtcloud_repository": "repositories",
+    "dbtcloud_account_features": "account_features",
+    "dbtcloud_ip_restrictions_rule": "ip_restrictions",
+    "dbtcloud_oauth_configuration": "oauth_configurations",
+    "dbtcloud_user_groups": "user_groups",
 }
 
 

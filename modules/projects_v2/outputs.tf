@@ -208,11 +208,11 @@ output "gitlab_deploy_token_status" {
     repos = {
       for key, repo in local.resolve_repository :
       key => {
-        source_strategy = try(repo.git_clone_strategy, null)
+        source_strategy    = try(repo.git_clone_strategy, null)
         effective_strategy = local.effective_git_clone_strategy[key]
-        downgraded = local.gitlab_deploy_token_downgraded[key]
-        gitlab_project_id = local.gitlab_deploy_token_downgraded[key] ? null : try(repo.gitlab_project_id, null)
-        remote_url = local.effective_repository_remote_url[key]
+        downgraded         = local.gitlab_deploy_token_downgraded[key]
+        gitlab_project_id  = local.gitlab_deploy_token_downgraded[key] ? null : try(repo.gitlab_project_id, null)
+        remote_url         = local.effective_repository_remote_url[key]
       }
       if try(repo.git_clone_strategy, "") == "deploy_token"
     }
@@ -222,11 +222,11 @@ output "gitlab_deploy_token_status" {
 output "github_integration_discovery" {
   description = "Debug: GitHub integration discovery status"
   value = {
-    pat_provided           = var.dbt_pat != null
-    installations_found    = length(local.github_installations)
-    installation_by_owner  = local.github_installation_by_owner
-    fallback_id            = local.github_installation_id
-    host_url               = local.dbt_host_url
+    pat_provided          = var.dbt_pat != null
+    installations_found   = length(local.github_installations)
+    installation_by_owner = local.github_installation_by_owner
+    fallback_id           = local.github_installation_id
+    host_url              = local.dbt_host_url
     http_status = var.dbt_pat != null && length(data.http.github_installations) > 0 ? (
       try(data.http.github_installations[0].status_code, "unknown")
     ) : "not_called"
@@ -254,11 +254,11 @@ output "job_deferral_debug" {
         project_key               = item.project_key
         deferring_environment_key = try(item.job_data.deferring_environment_key, "NULL")
         lookup_key                = "${item.project_key}_${try(item.job_data.deferring_environment_key, "NULL")}"
-        key_exists_in_envs        = contains(
+        key_exists_in_envs = contains(
           concat(keys(dbtcloud_environment.environments), keys(dbtcloud_environment.protected_environments)),
           "${item.project_key}_${try(item.job_data.deferring_environment_key, "")}"
         )
-        run_compare_changes       = try(item.job_data.run_compare_changes, false)
+        run_compare_changes = try(item.job_data.run_compare_changes, false)
       }
       if try(item.job_data.deferring_environment_key, null) != null
     }

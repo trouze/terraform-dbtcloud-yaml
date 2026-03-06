@@ -327,6 +327,55 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
                         "job_completion_trigger_condition": jctc,
                     },
                 )
+        # Project Artefacts (PARFT) - derived from docs_job_id / freshness_job_id
+        if project.get("docs_job_id") or project.get("freshness_job_id"):
+            parft_data = {
+                "docs_job_id": project.get("docs_job_id"),
+                "freshness_job_id": project.get("freshness_job_id"),
+            }
+            _register(
+                records,
+                parft_data,
+                "PARFT",
+                name=f"{project_name} Artefacts",
+                identifier=f"{deduped_project_key}:artefacts",
+                extra={
+                    "project_key": deduped_project_key,
+                    "project_name": project_name,
+                    "parent_project_id": project_mapping_id,
+                },
+            )
+
+        # Lineage Integrations (LNGI) - per-project collection
+        for lngi in project.get("lineage_integrations", []):
+            _register(
+                records,
+                lngi,
+                "LNGI",
+                name=lngi.get("name") or f"Lineage Integration {lngi.get('id', '')}",
+                extra={
+                    "project_key": deduped_project_key,
+                    "project_name": project_name,
+                    "parent_project_id": project_mapping_id,
+                },
+            )
+
+        # Semantic Layer Configuration (SLCFG) - per-project singleton
+        sl_config = project.get("semantic_layer_config")
+        if sl_config and isinstance(sl_config, dict):
+            _register(
+                records,
+                sl_config,
+                "SLCFG",
+                name=f"{project_name} Semantic Layer Config",
+                identifier=f"{deduped_project_key}:slcfg",
+                extra={
+                    "project_key": deduped_project_key,
+                    "project_name": project_name,
+                    "parent_project_id": project_mapping_id,
+                },
+            )
+
         # region agent log
         _dbg_25ac29(
             "H70",
@@ -368,6 +417,34 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
                 extra={"resource_group": label},
             )
     
+    # Register additional global resource types (S4-S6)
+    for key, label, code in (
+        ("ip_restrictions", "IP Restrictions", "IPRST"),
+        ("oauth_configurations", "OAuth Configurations", "OAUTH"),
+        ("user_groups", "User Groups", "USRGRP"),
+    ):
+        resources = globals_block.get(key) or {}
+        for resource_key, resource in resources.items():
+            _register(
+                records,
+                resource,
+                code,
+                name=resource.get("name") or resource_key,
+                extra={"resource_group": label},
+            )
+
+    # Account features (singleton, not a dict collection)
+    account_features = globals_block.get("account_features")
+    if account_features and isinstance(account_features, dict):
+        _register(
+            records,
+            account_features,
+            "ACFT",
+            name="Account Features",
+            identifier=payload.get("account_id"),
+            extra={"resource_group": "Account Features"},
+        )
+
     # Register repositories with parent project linking
     repositories = globals_block.get("repositories") or {}
     for resource_key, resource in repositories.items():

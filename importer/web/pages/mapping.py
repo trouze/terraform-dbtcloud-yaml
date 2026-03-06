@@ -538,6 +538,8 @@ TYPE_CODE_MAP = {
     "GRP": "GRP", "NOT": "NOTIFY", "WEB": "WBHK", "PLE": "PRVLNK",
     "PRJ": "PRJCT", "ENV": "ENV", "VAR": "ENVVAR", "JOB": "JOB",
     "EXTATTR": "EXTATTR",
+    "ACFT": "ACFT", "IPRST": "IPRST", "LNGI": "LNGI", "OAUTH": "OAUTH",
+    "PARFT": "PARFT", "USRGRP": "USRGRP", "SLCFG": "SLCFG", "SLSTM": "SLSTM",
 }
 
 
@@ -915,6 +917,14 @@ def _create_action_panel(
                 "JEVO": ("environment_variable_job_overrides", "Env Var Job Overrides"),
                 "VAR": ("environment_variables", "Env Variables"),
                 "EXTATTR": ("extended_attributes", "Extended Attributes"),
+                "ACFT": ("account_features", "Account Features"),
+                "IPRST": ("ip_restrictions", "IP Restrictions"),
+                "LNGI": ("lineage_integrations", "Lineage Integrations"),
+                "OAUTH": ("oauth_configurations", "OAuth Configurations"),
+                "PARFT": ("project_artefacts", "Project Artefacts"),
+                "USRGRP": ("user_groups", "User Groups"),
+                "SLCFG": ("semantic_layer_configs", "Semantic Layer Configs"),
+                "SLSTM": ("sl_credential_mappings", "SL Credential Mappings"),
             }
             
             def create_filter_toggle(type_code: str, filter_key: str, label: str, count: int):
@@ -1269,8 +1279,11 @@ def _get_effective_selection(
         "VAR": "environment_variables", "JOB": "jobs",
         "JCTG": "job_completion_triggers", "JEVO": "environment_variable_job_overrides",
         "EXTATTR": "extended_attributes",
+        "ACFT": "account_features", "IPRST": "ip_restrictions", "LNGI": "lineage_integrations",
+        "OAUTH": "oauth_configurations", "PARFT": "project_artefacts", "USRGRP": "user_groups",
+        "SLCFG": "semantic_layer_configs", "SLSTM": "sl_credential_mappings",
     }
-    
+
     effective_ids = set()
     filter_stats = {
         "raw_selected": len(selected_ids),
@@ -1577,6 +1590,14 @@ def _do_normalize(
         "JEVO": "environment_variable_job_overrides",
         "VAR": "environment_variables",
         "EXTATTR": "extended_attributes",
+        "ACFT": "account_features",
+        "IPRST": "ip_restrictions",
+        "LNGI": "lineage_integrations",
+        "OAUTH": "oauth_configurations",
+        "PARFT": "project_artefacts",
+        "USRGRP": "user_groups",
+        "SLCFG": "semantic_layer_configs",
+        "SLSTM": "sl_credential_mappings",
     }
     
     # Create mapping config with exclusions
