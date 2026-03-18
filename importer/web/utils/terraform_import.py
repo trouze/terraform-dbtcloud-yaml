@@ -59,6 +59,7 @@ RESOURCE_TYPE_TO_TF = {
     "WEB": "dbtcloud_webhook",
     "VAR": "dbtcloud_environment_variable",
     "EXTATTR": "dbtcloud_extended_attributes",
+    "PRF": "dbtcloud_profile",
     "JCTG": "dbtcloud_job_completion_trigger",
     "JEVO": "dbtcloud_environment_variable_job_override",
     "ACFT": "dbtcloud_account_features",
@@ -540,6 +541,11 @@ def generate_reconcile_import_blocks(
                 tf_address = f"{_v2}.dbtcloud_extended_attributes.{_ext_res}[\"{safe_name}\"]"
                 address_reason = "projects_v2_extended_attrs"
 
+            elif element_code == "PRF":
+                _profile_res = "protected_profiles" if _is_protected else "profiles"
+                tf_address = f"{_v2}.dbtcloud_profile.{_profile_res}[\"{safe_name}\"]"
+                address_reason = "projects_v2_profile"
+
             elif element_code == "WEB":
                 tf_address = f"{_v2}.dbtcloud_webhook.webhooks[\"{safe_name}\"]"
                 address_reason = "projects_v2_webhook"
@@ -554,7 +560,7 @@ def generate_reconcile_import_blocks(
         
         # Repositories need project_id:repository_id format
         # Note: PREP (project_repository) target_id is already in composite format
-        if element_code == "REP":
+        if element_code in {"REP", "PRF"}:
             project_id = None
             if isinstance(drift, dict):
                 context = drift.get("context") or {}
@@ -696,14 +702,14 @@ def generate_adopt_imports_from_grid(
         project_id = row.get("project_id")
         if not project_id and project_name:
             project_id = project_id_by_name.get(_normalize_project_key(str(project_name)))
-        if element_code == "REP" and not project_id:
-            rep_lookup_keys = (
+        if element_code in {"REP", "PRF"} and not project_id:
+            composite_lookup_keys = (
                 row.get("project_name"),
                 row.get("source_name"),
                 row.get("source_key"),
                 row.get("target_name"),
             )
-            for candidate in rep_lookup_keys:
+            for candidate in composite_lookup_keys:
                 norm = _normalize_project_key(str(candidate or ""))
                 if not norm:
                     continue
@@ -737,8 +743,9 @@ def generate_adopt_imports_from_grid(
                                     "project_name_resolved": project_name,
                                     "project_id_resolved": str(project_id or ""),
                                     "lookup_candidates": [
-                                        _normalize_project_key(str(x or "")) for x in rep_lookup_keys
+                                        _normalize_project_key(str(x or "")) for x in composite_lookup_keys
                                     ],
+                                    "element_code": element_code,
                                 },
                                 "timestamp": int(time.time() * 1000),
                             }

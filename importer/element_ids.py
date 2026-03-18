@@ -85,6 +85,7 @@ def _register(
 def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List[Dict[str, Any]]:
     """Inject element_mapping_id into the payload and produce line items."""
     records: List[Dict[str, Any]] = []
+    registered_connection_keys: set[str] = set()
 
     account_name = payload.get("account_name") or f"Account {payload.get('account_id')}"
     _register(
@@ -107,6 +108,25 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
             return raw_key
         _project_key_counts[raw_key] += 1
         return f"{raw_key}_{_project_key_counts[raw_key]}"
+
+    def _register_connection_resource(connection: Dict[str, Any], fallback_key: str | None = None) -> None:
+        connection_id = connection.get("id")
+        connection_key = connection.get("key") or fallback_key or (
+            f"connection_{connection_id}" if connection_id is not None else None
+        )
+        dedupe_key = str(connection_id or connection_key or "")
+        if not dedupe_key or dedupe_key in registered_connection_keys:
+            return
+        registered_connection_keys.add(dedupe_key)
+        if connection_key and not connection.get("key"):
+            connection["key"] = connection_key
+        _register(
+            records,
+            connection,
+            "CON",
+            name=connection.get("name") or connection_key or f"Connection {connection_id or ''}",
+            extra={"resource_group": "Connections"},
+        )
 
     # Sort projects by ID for deterministic dedup: lowest ID gets base key.
     # Fallback to (name, key) for projects without IDs.
@@ -157,6 +177,21 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
             project_id_to_mapping[project.get("id")] = project_mapping_id
         if deduped_project_key:
             project_key_to_mapping[deduped_project_key] = project_mapping_id
+
+        project_metadata = project.get("metadata") or {}
+        project_connection = project.get("connection")
+        if not (project_connection and isinstance(project_connection, dict)):
+            project_connection = project_metadata.get("connection")
+        if project_connection and isinstance(project_connection, dict):
+            project_connection_id = project.get("connection_id") or project_metadata.get("connection_id")
+            _register_connection_resource(
+                project_connection,
+                fallback_key=project.get("connection_key") or project_metadata.get("connection_key") or (
+                    f"connection_{project_connection_id}"
+                    if project_connection_id is not None
+                    else None
+                ),
+            )
 
         # Extended attributes (EXTATTR) - project-scoped
         # #region agent log
@@ -226,6 +261,7 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
                     "parent_project_id": project_mapping_id,
                     "connection_key": env.get("connection_key"),  # For hierarchy linking
                     "connection_id": env.get("connection_id"),  # For ID-based connection lookup
+                    "primary_profile_key": env.get("primary_profile_key"),
                 },
             )
             
@@ -327,6 +363,30 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
                         "job_completion_trigger_condition": jctc,
                     },
                 )
+
+        # Profiles
+        for profile in project.get("profiles", []):
+            profile_key = profile.get("key") or f"profile_{profile.get('id', '')}"
+            profile_identifier = f"{deduped_project_key}:{profile_key}"
+            _register(
+                records,
+                profile,
+                "PRF",
+                name=profile_key,
+                identifier=profile_identifier,
+                extra={
+                    "project_key": deduped_project_key,
+                    "project_name": project_name,
+                    "parent_project_id": project_mapping_id,
+                    "profile_key": profile_key,
+                    "connection_key": profile.get("connection_key"),
+                    "connection_id": profile.get("connection_id"),
+                    "credentials_key": profile.get("credentials_key"),
+                    "credentials_id": profile.get("credentials_id"),
+                    "extended_attributes_key": profile.get("extended_attributes_key"),
+                    "extended_attributes_id": profile.get("extended_attributes_id"),
+                },
+            )
         # Project Artefacts (PARFT) - derived from docs_job_id / freshness_job_id
         if project.get("docs_job_id") or project.get("freshness_job_id"):
             parft_data = {
@@ -400,7 +460,6 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
     # Now register globals (after projects so we can link repositories)
     globals_block = payload.get("globals") or {}
     for key, label, code in (
-        ("connections", "Connections", "CON"),
         ("service_tokens", "Service Tokens", "TOK"),
         ("groups", "Groups", "GRP"),
         ("notifications", "Notifications", "NOT"),
@@ -416,6 +475,9 @@ def apply_element_ids(payload: Dict[str, Any], start_number: int = 1001) -> List
                 name=resource.get("name") or resource_key,
                 extra={"resource_group": label},
             )
+
+    for resource_key, resource in (globals_block.get("connections") or {}).items():
+        _register_connection_resource(resource, fallback_key=resource_key)
     
     # Register additional global resource types (S4-S6)
     for key, label, code in (

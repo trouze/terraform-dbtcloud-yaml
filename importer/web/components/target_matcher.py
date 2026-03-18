@@ -154,6 +154,7 @@ RESOURCE_TYPE_LABELS = {
     "PLE": "PrivateLink",
     "PRJ": "Project",
     "ENV": "Environment",
+    "PRF": "Profile",
     "VAR": "Env Variable",
     "JOB": "Job",
     "JCTG": "Job Completion Trigger",

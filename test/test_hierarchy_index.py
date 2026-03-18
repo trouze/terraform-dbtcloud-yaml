@@ -81,6 +81,14 @@ def sample_entities():
             "connection_key": "snowflake_dev",
             # No connection_id - tests backward compatibility
         },
+        # Credential
+        {
+            "element_mapping_id": "CRD_001",
+            "element_type_code": "CRD",
+            "name": "Production Credential",
+            "dbt_id": 901,
+            "parent_environment_id": "ENV_001",
+        },
     ]
 
 
@@ -173,6 +181,13 @@ class TestHierarchyIndexConnectionLookup:
         assert env.get("connection_key") == "snowflake_dev"
         assert env.get("connection_id") is None  # Not set
 
+    def test_get_credential_by_id_returns_mapping(self, sample_entities):
+        """Test that get_credential_by_id returns the credential mapping ID."""
+        index = HierarchyIndex(sample_entities)
+
+        assert index.get_credential_by_id(901) == "CRD_001"
+        assert index.get_credential_by_id(99999) is None
+
 
 class TestHierarchyIndexBasicFunctionality:
     """Tests to ensure basic HierarchyIndex functionality still works."""
@@ -208,3 +223,206 @@ class TestHierarchyIndexBasicFunctionality:
         # Environments should have project as parent
         parents = index.get_parents("ENV_001")
         assert "PRJ_001" in parents
+
+
+def test_profile_parent_is_project_and_depth_is_two():
+    """Profiles are project-scoped resources in the hierarchy."""
+    entities = [
+        {
+            "element_mapping_id": "PRJ_001",
+            "element_type_code": "PRJ",
+            "name": "Test Project",
+            "key": "test_project",
+            "project_key": "test_project",
+        },
+        {
+            "element_mapping_id": "PRF_001",
+            "element_type_code": "PRF",
+            "name": "Prod Profile",
+            "key": "test_project_prod_profile",
+            "project_key": "test_project",
+            "parent_project_id": "PRJ_001",
+            "connection_key": "snowflake_prod",
+        },
+    ]
+
+    index = HierarchyIndex(entities)
+
+    assert index.get_parents("PRF_001") == {"PRJ_001"}
+    assert index.get_depth("PRF_001") == 2
+
+
+def test_environment_and_profile_are_linked():
+    """Profiles pull in their linked environment, connection, credential, and ext attrs."""
+    entities = [
+        {
+            "element_mapping_id": "PRJ_001",
+            "element_type_code": "PRJ",
+            "name": "Test Project",
+            "key": "test_project",
+            "project_key": "test_project",
+        },
+        {
+            "element_mapping_id": "PRF_001",
+            "element_type_code": "PRF",
+            "name": "Prod Profile",
+            "key": "test_project_prod_profile",
+            "project_key": "test_project",
+            "parent_project_id": "PRJ_001",
+            "profile_key": "prod_profile",
+            "connection_key": "snowflake_prod",
+            "connection_id": 100,
+            "credentials_id": 901,
+            "extended_attributes_key": "ext_attrs_prod",
+        },
+        {
+            "element_mapping_id": "ENV_001",
+            "element_type_code": "ENV",
+            "name": "Production",
+            "key": "test_project_production",
+            "project_key": "test_project",
+            "parent_project_id": "PRJ_001",
+            "primary_profile_key": "prod_profile",
+        },
+        {
+            "element_mapping_id": "CON_001",
+            "element_type_code": "CON",
+            "name": "Snowflake Production",
+            "key": "snowflake_prod",
+            "dbt_id": 100,
+        },
+        {
+            "element_mapping_id": "CRD_001",
+            "element_type_code": "CRD",
+            "name": "Production Credential",
+            "dbt_id": 901,
+            "parent_environment_id": "ENV_001",
+        },
+        {
+            "element_mapping_id": "EXTATTR_001",
+            "element_type_code": "EXTATTR",
+            "name": "ext_attrs_prod",
+            "key": "test_project_ext_attrs_prod",
+            "extended_attributes_key": "ext_attrs_prod",
+            "project_key": "test_project",
+            "parent_project_id": "PRJ_001",
+        },
+    ]
+
+    index = HierarchyIndex(entities)
+
+    assert index.get_linked_entities("ENV_001") == {"PRF_001"}
+    assert index.get_linked_entities("PRF_001") == {
+        "CON_001",
+        "CRD_001",
+        "ENV_001",
+        "EXTATTR_001",
+    }
+
+
+def test_profile_links_environment_via_credential_parent():
+    """Profiles can discover their environment through the credential parent edge."""
+    entities = [
+        {
+            "element_mapping_id": "PRJ_001",
+            "element_type_code": "PRJ",
+            "name": "Test Project",
+            "key": "test_project",
+            "project_key": "test_project",
+        },
+        {
+            "element_mapping_id": "PRF_001",
+            "element_type_code": "PRF",
+            "name": "CI Profile",
+            "key": "ci_profile",
+            "project_key": "test_project",
+            "parent_project_id": "PRJ_001",
+            "profile_key": "ci_profile",
+            "connection_key": "snowflake_ci",
+            "connection_id": 100,
+            "credentials_key": "ci_environment",
+            "credentials_id": 901,
+        },
+        {
+            "element_mapping_id": "ENV_001",
+            "element_type_code": "ENV",
+            "name": "CI Environment",
+            "key": "ci_environment",
+            "project_key": "test_project",
+            "parent_project_id": "PRJ_001",
+            "primary_profile_key": None,
+        },
+        {
+            "element_mapping_id": "CRD_001",
+            "element_type_code": "CRD",
+            "name": "CI Credential",
+            "dbt_id": 901,
+            "parent_environment_id": "ENV_001",
+        },
+        {
+            "element_mapping_id": "CON_001",
+            "element_type_code": "CON",
+            "name": "Snowflake CI",
+            "key": "snowflake_ci",
+            "dbt_id": 100,
+        },
+    ]
+
+    index = HierarchyIndex(entities)
+
+    assert index.get_linked_entities("PRF_001") == {"CON_001", "CRD_001", "ENV_001"}
+
+
+def test_profile_falls_back_to_project_environments_when_no_direct_edge_exists():
+    """Profiles retain project environments even when report items omit explicit links."""
+    entities = [
+        {
+            "element_mapping_id": "PRJ_001",
+            "element_type_code": "PRJ",
+            "name": "Test Project",
+            "key": "test_project",
+            "project_key": "test_project",
+        },
+        {
+            "element_mapping_id": "PRF_001",
+            "element_type_code": "PRF",
+            "name": "Orphan Profile",
+            "key": "orphan_profile",
+            "project_key": "test_project",
+            "parent_project_id": "PRJ_001",
+            "profile_key": "orphan_profile",
+            "connection_key": "snowflake_prod",
+            "connection_id": 100,
+            "credentials_key": "cred_123",
+            "credentials_id": 123,
+        },
+        {
+            "element_mapping_id": "ENV_001",
+            "element_type_code": "ENV",
+            "name": "Development",
+            "key": "development",
+            "project_key": "test_project",
+            "parent_project_id": "PRJ_001",
+            "primary_profile_key": None,
+        },
+        {
+            "element_mapping_id": "ENV_002",
+            "element_type_code": "ENV",
+            "name": "Production",
+            "key": "prod",
+            "project_key": "test_project",
+            "parent_project_id": "PRJ_001",
+            "primary_profile_key": None,
+        },
+        {
+            "element_mapping_id": "CON_001",
+            "element_type_code": "CON",
+            "name": "Snowflake Production",
+            "key": "snowflake_prod",
+            "dbt_id": 100,
+        },
+    ]
+
+    index = HierarchyIndex(entities)
+
+    assert index.get_linked_entities("PRF_001") == {"CON_001", "ENV_001", "ENV_002"}

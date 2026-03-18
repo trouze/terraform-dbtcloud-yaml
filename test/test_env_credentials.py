@@ -786,6 +786,31 @@ class TestYamlConverterEnvironmentCredentials:
             assert '"snowflake"' in content
             assert "secret123" in content  # Password should be present
 
+    def test_convert_sets_main_tf_host_default_from_yaml_account(self):
+        """Generated main.tf should default dbt_host_url from normalized account host."""
+        import tempfile
+        import yaml as yaml_lib
+        from pathlib import Path
+        from importer.yaml_converter import YamlToTerraformConverter
+
+        yaml_content = {
+            "account": {"host_url": "https://do446.eu1.dbt.com"},
+            "globals": {"connections": []},
+            "projects": [],
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yaml_path = Path(tmpdir) / "config.yml"
+            with open(yaml_path, "w") as f:
+                yaml_lib.dump(yaml_content, f)
+
+            output_dir = Path(tmpdir) / "output"
+            converter = YamlToTerraformConverter()
+            converter.convert(str(yaml_path), str(output_dir), connection_credentials={}, environment_credentials={})
+
+            main_tf = (output_dir / "main.tf").read_text()
+            assert 'default     = "https://do446.eu1.dbt.com/api"' in main_tf
+
 
 class TestModuleImports:
     """Verify all new modules import without errors."""

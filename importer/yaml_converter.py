@@ -201,6 +201,13 @@ class YamlToTerraformConverter:
 
         # Load connection keys from YAML to determine which credentials are needed
         connection_keys = self._extract_connection_keys(yaml_path)
+        yaml_data = yaml.safe_load(yaml_path.read_text()) or {}
+        account_data = yaml_data.get("account") if isinstance(yaml_data, dict) else {}
+        account_host_url = (
+            str((account_data or {}).get("host_url") or target_host_url or "").strip()
+            if isinstance(account_data, dict)
+            else str(target_host_url or "").strip()
+        )
 
         # Load connection credentials from .env if not provided
         if connection_credentials is None:
@@ -236,7 +243,14 @@ class YamlToTerraformConverter:
                 module_source = str(self._repo_root)
 
         # Generate main.tf (following test/e2e_test/main.tf pattern)
-        self._write_main_tf(output_path, module_source, connection_keys, connection_credentials, environment_credentials)
+        self._write_main_tf(
+            output_path,
+            module_source,
+            connection_keys,
+            connection_credentials,
+            environment_credentials,
+            account_host_url=account_host_url,
+        )
         
         # Generate secrets.auto.tfvars with credentials (auto-loaded by Terraform)
         if connection_credentials or environment_credentials:
@@ -425,10 +439,14 @@ class YamlToTerraformConverter:
             Dict mapping "project_key_env_key" to their credential values.
         """
         try:
-            from importer.web.env_manager import load_env_credential_configs
+            from importer.web.env_manager import find_env_file, load_env_credential_configs
             
             # Load all environment credential configs from .env
             env_creds = load_env_credential_configs(env_path=env_path)
+            if not env_creds and env_path:
+                fallback_env_path = find_env_file()
+                if str(fallback_env_path) != str(env_path):
+                    env_creds = load_env_credential_configs(env_path=str(fallback_env_path))
             if not env_creds:
                 return {}
             
@@ -440,16 +458,32 @@ class YamlToTerraformConverter:
             
             for project in data.get("projects", []):
                 project_key = project.get("key", "")
-                for env in project.get("environments", []):
+                for env_index, env in enumerate(project.get("environments", []), start=1):
                     env_key = env.get("key", "")
                     if not env_key:
                         continue
                     
-                    # Normalize key for lookup (env_manager normalizes to lowercase with underscores)
-                    normalized_key = env_key.lower().replace("-", "_")
-                    
-                    if normalized_key in env_creds:
-                        creds = env_creds[normalized_key].copy()
+                    # Match the same environment-id variants used by the target credentials UI.
+                    lookup_candidates = [
+                        env_key.lower(),
+                        env_key.replace("-", "_").lower(),
+                        env_key.replace("_", "-").lower(),
+                        f"{env_index}_{env_key}".replace("-", "_").lower(),
+                        f"{env_index}_{env_key}".replace("_", "-").lower(),
+                    ]
+                    seen_candidates: set[str] = set()
+
+                    matched_creds = None
+                    for candidate in lookup_candidates:
+                        if not candidate or candidate in seen_candidates:
+                            continue
+                        seen_candidates.add(candidate)
+                        if candidate in env_creds:
+                            matched_creds = env_creds[candidate]
+                            break
+
+                    if matched_creds:
+                        creds = matched_creds.copy()
                         
                         # Remove meta field (use_dummy) - it's not a credential field
                         # Note: we now INCLUDE dummy credentials so Terraform still manages them
@@ -500,6 +534,7 @@ class YamlToTerraformConverter:
         connection_keys: list,
         connection_credentials: Dict[str, Dict[str, Any]],
         environment_credentials: Optional[Dict[str, Dict[str, Any]]] = None,
+        account_host_url: Optional[str] = None,
     ) -> None:
         """Write the main.tf file following the e2e test pattern.
 
@@ -511,6 +546,9 @@ class YamlToTerraformConverter:
             environment_credentials: Dict of environment credentials.
         """
         environment_credentials = environment_credentials or {}
+        default_host_url = (account_host_url or "https://cloud.getdbt.com").rstrip("/")
+        if not default_host_url.endswith("/api"):
+            default_host_url = f"{default_host_url}/api"
         
         # Build connection_credentials block for module call
         credentials_block = self._build_connection_credentials_block(connection_credentials)
@@ -559,7 +597,7 @@ variable "dbt_token" {{
 variable "dbt_host_url" {{
   description = "dbt Cloud API URL (including /api suffix)"
   type        = string
-  default     = "https://cloud.getdbt.com/api"
+  default     = "{default_host_url}"
 }}
 
 variable "dbt_pat" {{

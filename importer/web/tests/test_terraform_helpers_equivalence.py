@@ -106,6 +106,35 @@ class TestGetTerraformEnv:
         env = get_terraform_env(mock_state)
         assert env["TF_VAR_dbt_pat"] == "dbtu_auto_detected"
 
+    def test_falls_back_to_target_env_when_state_token_missing(
+        self, tmp_path: Path, mock_state: MagicMock
+    ) -> None:
+        from importer.web.utils.terraform_helpers import get_terraform_env
+
+        mock_state.project_path = str(tmp_path)
+        mock_state.target_credentials.api_token = ""
+        mock_state.target_credentials.account_id = ""
+        mock_state.target_credentials.host_url = ""
+        mock_state.target_credentials.token_type = ""
+        (tmp_path / "target.env").write_text(
+            "\n".join(
+                [
+                    "DBT_TARGET_HOST_URL=https://fallback.getdbt.com/",
+                    "DBT_TARGET_ACCOUNT_ID=4242",
+                    "DBT_TARGET_API_TOKEN=dbtu_fallback_token",
+                    ""
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        env = get_terraform_env(mock_state)
+
+        assert env["TF_VAR_dbt_account_id"] == "4242"
+        assert env["TF_VAR_dbt_token"] == "dbtu_fallback_token"
+        assert env["TF_VAR_dbt_pat"] == "dbtu_fallback_token"
+        assert env["TF_VAR_dbt_host_url"] == "https://fallback.getdbt.com/api"
+
 
 # ---------------------------------------------------------------------------
 # Contract 3a: adopt.py and deploy.py delegate to shared helper

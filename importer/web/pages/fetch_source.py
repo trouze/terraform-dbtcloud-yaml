@@ -755,6 +755,7 @@ async def _run_fetch(
         fetch_state.resource_counts = {
             "projects": len(snapshot.projects),
             "environments": sum(len(p.environments) for p in snapshot.projects),
+            "profiles": sum(len(p.profiles) for p in snapshot.projects),
             "credentials": sum(
                 1 for p in snapshot.projects 
                 for e in p.environments 
@@ -810,6 +811,7 @@ async def _run_fetch(
         terminal.success("━━━ FETCH COMPLETE ━━━")
         terminal.info(f"  Projects: {fetch_state.resource_counts.get('projects', 0)}")
         terminal.info(f"  Environments: {fetch_state.resource_counts.get('environments', 0)}")
+        terminal.info(f"  Profiles: {fetch_state.resource_counts.get('profiles', 0)}")
         terminal.info(f"  Credentials: {fetch_state.resource_counts.get('credentials', 0)}")
         terminal.info(f"  Jobs: {fetch_state.resource_counts.get('jobs', 0)}")
         terminal.info(f"  Extended Attributes: {fetch_state.resource_counts.get('extended_attributes', 0)}")
@@ -825,7 +827,7 @@ async def _run_fetch(
         terminal.info(f"  Total time: {fetch_duration:.1f}s")
 
         # Update progress tree with project-scoped resource counts
-        for rc_key in ("lineage_integrations", "semantic_layer_configs", "project_artefacts"):
+        for rc_key in ("profiles", "lineage_integrations", "semantic_layer_configs", "project_artefacts"):
             count = fetch_state.resource_counts.get(rc_key, 0)
             progress_tree.on_resource_done(rc_key, count)
 

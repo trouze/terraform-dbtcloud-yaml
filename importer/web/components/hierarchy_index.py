@@ -10,6 +10,7 @@ ENTITY_PARENT_TYPES = {
     "JCTG": ["ENV", "PRJ"],
     "JEVO": ["JOB"],
     "CRD": ["ENV"],         # Credential belongs to Environment
+    "PRF": ["PRJ"],         # Profile belongs to Project
     "ACFT": ["ACC"],
     "IPRST": ["ACC"],
     "LNGI": ["ACC"],
@@ -52,6 +53,7 @@ TYPE_DEPTH = {
     "ENV": 2,  # Environments at depth 2
     "VAR": 2,  # Env Variables at depth 2
     "EXTATTR": 2,  # Extended Attributes at depth 2 (project-scoped)
+    "PRF": 2,  # Profiles at depth 2 (project-scoped)
     "CRD": 3,  # Credentials at depth 3 (under environments)
     "JOB": 3,  # Jobs at depth 3
     "JCTG": 3,
@@ -80,6 +82,7 @@ TYPE_SORT_ORDER = {
     "ENV": 30,
     "VAR": 31,
     "EXTATTR": 25,  # Extended Attributes sort between project and environment
+    "PRF": 26,
     "CRD": 35,  # Credentials sort after environments but before jobs
     "JOB": 40,
     "JCTG": 41,
@@ -132,6 +135,9 @@ class HierarchyIndex:
         # Connection dbt_id -> Mapping ID (for ID-based connection lookups)
         self._connection_by_id: Dict[int, str] = {}
         
+        # Credential dbt_id -> Mapping ID (for ID-based credential lookups)
+        self._credential_by_id: Dict[int, str] = {}
+        
         if entities:
             self.build_index(entities)
     
@@ -150,6 +156,7 @@ class HierarchyIndex:
         self._repo_by_key.clear()
         self._connection_by_key.clear()
         self._connection_by_id.clear()
+        self._credential_by_id.clear()
         
         # First pass: index all entities by mapping_id and type
         for entity in entities:
@@ -185,6 +192,12 @@ class HierarchyIndex:
                     self._connection_by_key[conn_key] = mapping_id
                 if conn_dbt_id:
                     self._connection_by_id[conn_dbt_id] = mapping_id
+            
+            # Index credentials by ID
+            if entity_type == "CRD":
+                credential_dbt_id = entity.get("dbt_id")
+                if credential_dbt_id:
+                    self._credential_by_id[credential_dbt_id] = mapping_id
             
             # Initialize parent/child sets
             if mapping_id not in self._children:
@@ -330,16 +343,17 @@ class HierarchyIndex:
         return result
     
     def get_linked_entities(self, mapping_id: str) -> Set[str]:
-        """Get linked entity mapping IDs for ENV↔EXTATTR (same project).
+        """Get linked entity mapping IDs for ENV/PRF/EXTATTR relationships.
         
-        When an ENV references extended attributes via extended_attributes_key,
-        protecting/selecting one should include the other.
+        When an ENV references extended attributes or a primary profile, or when
+        a PRF references extended attributes, protecting/selecting one should
+        include the other.
         
         Args:
             mapping_id: Entity mapping ID (ENV or EXTATTR)
             
         Returns:
-            Set of linked mapping IDs (EXTATTR for ENV; ENVs that reference this EXTATTR for EXTATTR)
+            Set of linked mapping IDs for the related resources in the same project.
         """
         result: Set[str] = set()
         entity = self._entities.get(mapping_id)
@@ -351,27 +365,96 @@ class HierarchyIndex:
         if entity_type == "ENV":
             ext_key = entity.get("extended_attributes_key") or ""
             project_key = entity.get("project_key") or (entity_key.rsplit("_", 1)[0] if "_" in entity_key else "")
-            if not ext_key or not project_key:
-                return result
-            eat_composite = f"{project_key}_{ext_key}"
-            for eid, e in self._entities.items():
-                if e.get("element_type_code") != "EXTATTR":
-                    continue
-                if (e.get("key") or eid) == eat_composite:
-                    result.add(eid)
-                    break
+            if project_key and ext_key:
+                for eid, e in self._entities.items():
+                    if e.get("element_type_code") != "EXTATTR":
+                        continue
+                    extattr_key = e.get("extended_attributes_key") or e.get("key") or eid
+                    if extattr_key == ext_key:
+                        result.add(eid)
+                        break
+            profile_key = entity.get("primary_profile_key") or ""
+            if project_key and profile_key:
+                for eid, e in self._entities.items():
+                    if e.get("element_type_code") != "PRF":
+                        continue
+                    e_project = e.get("project_key") or ""
+                    e_profile_key = e.get("profile_key") or e.get("key") or ""
+                    if e_project == project_key and e_profile_key == profile_key:
+                        result.add(eid)
+                        break
         elif entity_type == "EXTATTR":
             project_key = entity.get("project_key") or (entity_key.rsplit("_", 1)[0] if "_" in entity_key else "")
             ext_key = entity.get("name") or (entity_key.rsplit("_", 1)[1] if "_" in entity_key else "")
             if not project_key or not ext_key:
                 return result
             for eid, e in self._entities.items():
-                if e.get("element_type_code") != "ENV":
+                if e.get("element_type_code") not in {"ENV", "PRF"}:
                     continue
                 e_project = e.get("project_key") or (e.get("key") or "").rsplit("_", 1)[0] if "_" in (e.get("key") or "") else ""
                 if e_project != project_key or (e.get("extended_attributes_key") or "") != ext_key:
                     continue
                 result.add(eid)
+        elif entity_type == "PRF":
+            project_key = entity.get("project_key") or (entity_key.rsplit("_", 1)[0] if "_" in entity_key else "")
+            profile_key = entity.get("profile_key") or entity.get("key") or ""
+            ext_key = entity.get("extended_attributes_key") or ""
+            matched_environment_ids: Set[str] = set()
+            if project_key and profile_key:
+                for eid, e in self._entities.items():
+                    if e.get("element_type_code") != "ENV":
+                        continue
+                    e_project = e.get("project_key") or ""
+                    if e_project == project_key and (e.get("primary_profile_key") or "") == profile_key:
+                        result.add(eid)
+                        matched_environment_ids.add(eid)
+            if project_key and ext_key:
+                for eid, e in self._entities.items():
+                    if e.get("element_type_code") != "EXTATTR":
+                        continue
+                    extattr_key = e.get("extended_attributes_key") or e.get("key") or eid
+                    if extattr_key == ext_key:
+                        result.add(eid)
+                        break
+            connection_id = entity.get("connection_id")
+            if connection_id is not None:
+                connection_mapping_id = self._connection_by_id.get(int(connection_id))
+                if connection_mapping_id:
+                    result.add(connection_mapping_id)
+            connection_key = entity.get("connection_key")
+            if connection_key:
+                connection_mapping_id = self._connection_by_key.get(str(connection_key))
+                if connection_mapping_id:
+                    result.add(connection_mapping_id)
+            credentials_id = entity.get("credentials_id")
+            if credentials_id is not None:
+                credential_mapping_id = self._credential_by_id.get(int(credentials_id))
+                if credential_mapping_id:
+                    result.add(credential_mapping_id)
+                    credential_entity = self._entities.get(credential_mapping_id) or {}
+                    parent_environment_id = credential_entity.get("parent_environment_id")
+                    if isinstance(parent_environment_id, str) and parent_environment_id:
+                        result.add(parent_environment_id)
+                        matched_environment_ids.add(parent_environment_id)
+            credentials_key = entity.get("credentials_key") or ""
+            if project_key and credentials_key:
+                for eid, e in self._entities.items():
+                    if e.get("element_type_code") != "ENV":
+                        continue
+                    if (e.get("project_key") or "") != project_key:
+                        continue
+                    if (e.get("key") or "") == credentials_key:
+                        result.add(eid)
+                        matched_environment_ids.add(eid)
+            if project_key and not matched_environment_ids:
+                # Report items do not always expose a direct profile->environment edge.
+                # Fall back to the environments in the same project so profile-scoped
+                # credentials are not dropped during normalization.
+                for eid, e in self._entities.items():
+                    if e.get("element_type_code") != "ENV":
+                        continue
+                    if (e.get("project_key") or "") == project_key:
+                        result.add(eid)
         return result
     
     def get_entities_by_type(self, entity_type: str) -> Set[str]:
@@ -395,6 +478,17 @@ class HierarchyIndex:
             The element_mapping_id for the connection, or None if not found
         """
         return self._connection_by_id.get(connection_id)
+
+    def get_credential_by_id(self, credential_id: int) -> Optional[str]:
+        """Get credential mapping ID by dbt Cloud credential ID.
+        
+        Args:
+            credential_id: The dbt Cloud credential ID (integer)
+            
+        Returns:
+            The element_mapping_id for the credential, or None if not found
+        """
+        return self._credential_by_id.get(credential_id)
     
     def get_depth(self, mapping_id: str) -> int:
         """Get the depth level of an entity in the hierarchy.

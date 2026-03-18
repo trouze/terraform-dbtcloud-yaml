@@ -161,6 +161,8 @@ class Environment(ImporterBaseModel):
     credential: Optional[Credential] = None  # Optional - development envs may not have credentials
     extended_attributes_key: Optional[str] = None  # Key of linked extended attributes (project-scoped)
     extended_attributes_id: Optional[int] = None  # Original API extended_attributes ID
+    primary_profile_key: Optional[str] = None
+    primary_profile_id: Optional[int] = None
     dbt_version: Optional[str] = None
     custom_branch: Optional[str] = None
     enable_model_query_history: Optional[bool] = None
@@ -183,6 +185,19 @@ class EnvironmentVariable(ImporterBaseModel):
     name: str
     project_default: Optional[str] = None
     environment_values: Dict[str, str]
+
+
+class Profile(ImporterBaseModel):
+    key: str
+    id: Optional[int] = None
+    connection_key: str
+    connection_id: Optional[int] = None
+    credentials_key: str
+    credentials_id: Optional[int] = None
+    credential: Optional[Credential] = None
+    extended_attributes_key: Optional[str] = None
+    extended_attributes_id: Optional[int] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class LineageIntegration(ImporterBaseModel):
@@ -210,6 +225,7 @@ class Project(ImporterBaseModel):
     docs_job_id: Optional[int] = None
     freshness_job_id: Optional[int] = None
     environments: List[Environment] = Field(default_factory=list)
+    profiles: List[Profile] = Field(default_factory=list)
     extended_attributes: List[ExtendedAttributes] = Field(default_factory=list)
     environment_variables: List[EnvironmentVariable] = Field(default_factory=list)
     jobs: List[Job] = Field(default_factory=list)
@@ -222,6 +238,10 @@ class AccountFeatures(ImporterBaseModel):
     advanced_ci: Optional[bool] = None
     partial_parsing: Optional[bool] = None
     repo_caching: Optional[bool] = None
+    ai_features: Optional[bool] = None
+    catalog_ingestion: Optional[bool] = None
+    explorer_account_ui: Optional[bool] = None
+    fusion_migration_permissions: Optional[bool] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -273,6 +293,7 @@ class Globals(ImporterBaseModel):
 class AccountSnapshot(ImporterBaseModel):
     account_id: int
     account_name: Optional[str] = None
+    host_url: Optional[str] = None
     globals: Globals = Field(default_factory=Globals)
     projects: List[Project] = Field(default_factory=list)
     fetch_warnings: List[Dict[str, Any]] = Field(default_factory=list)

@@ -92,6 +92,16 @@ class DbtCloudClient:
                 timeout=settings.timeout,
                 verify=settings.verify_ssl,
             ),
+            "api_root": httpx.Client(
+                base_url=f"{settings.host}/api",
+                headers={
+                    "Authorization": f"Bearer {settings.api_token}",
+                    "User-Agent": f"dbtcloud-importer/{get_version()}",
+                    "Accept-Encoding": "gzip, deflate",
+                },
+                timeout=settings.timeout,
+                verify=settings.verify_ssl,
+            ),
         }
 
     @classmethod
@@ -204,6 +214,71 @@ class DbtCloudClient:
                 break
 
             offset += limit
+
+    def get_at_api_root(self, path: str) -> Dict[str, Any]:
+        """
+        GET a path relative to {host}/api (e.g. /private/accounts/123/features/).
+        Used for endpoints that are not under /api/v2/ or /api/v3/ account scope.
+        Same retry and rate-limit behavior as get().
+        """
+        client = self._clients["api_root"]
+        attempt = 0
+
+        while True:
+            _RATE_LIMITER.wait_for_window()
+            resp = client.get(path)
+            if resp.status_code < 400:
+                _RATE_LIMITER.register_success()
+                return resp.json()
+
+            if resp.status_code == 404:
+                raise ApiError(resp)
+
+            attempt += 1
+            retry_after = resp.headers.get("Retry-After")
+
+            if resp.status_code == 429 and self.settings.rate_limit_retry_after:
+                if attempt > self.settings.max_retries:
+                    raise ApiError(resp)
+                try:
+                    sleep_time = float(retry_after) if retry_after else None
+                except (TypeError, ValueError):
+                    sleep_time = None
+                if sleep_time is None:
+                    sleep_time = self.settings.backoff_factor * (2 ** (attempt - 1))
+                sleep_time = _RATE_LIMITER.register_429(
+                    retry_after=sleep_time,
+                    fallback_backoff=self.settings.backoff_factor * (2 ** (attempt - 1)),
+                )
+                log.warning(
+                    "Rate limit hit (429) on api_root %s (attempt %s/%s). Sleeping %.2fs",
+                    path,
+                    attempt,
+                    self.settings.max_retries,
+                    sleep_time,
+                )
+                time.sleep(sleep_time)
+                continue
+
+            if resp.status_code == 409:
+                log.warning(
+                    "Conflict (409) on api_root %s - %s",
+                    path,
+                    resp.text[:200] if resp.text else "(empty)",
+                )
+
+            if attempt > self.settings.max_retries:
+                raise ApiError(resp)
+
+            backoff = self.settings.backoff_factor * (2 ** (attempt - 1))
+            log.info(
+                "Retrying api_root %s after status %s (attempt %s, sleeping %.2fs)",
+                path,
+                resp.status_code,
+                attempt,
+                backoff,
+            )
+            time.sleep(backoff)
 
 
 class PaginatedResponse(BaseModel):

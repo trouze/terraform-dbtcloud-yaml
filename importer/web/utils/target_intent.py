@@ -610,6 +610,12 @@ def _prune_globals_to_project_references(config: dict[str, Any]) -> tuple[int, i
             conn_key = env.get("connection")
             if conn_key:
                 referenced_connections.add(str(conn_key))
+        for profile in project.get("profiles", []) or []:
+            if not isinstance(profile, dict):
+                continue
+            conn_key = profile.get("connection_key")
+            if conn_key:
+                referenced_connections.add(str(conn_key))
 
     connections = globals_obj.get("connections") or []
     repositories = globals_obj.get("repositories") or []

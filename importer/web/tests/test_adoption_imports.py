@@ -243,8 +243,8 @@ class TestResourceTypeAddresses:
     """Criterion 4: All 7 resource types resolve to correct addresses."""
 
     def test_resource_type_to_tf_includes_all_adoption_types(self):
-        """RESOURCE_TYPE_TO_TF includes PRJ, ENV, JOB, REP, PREP, EXTATTR, VAR."""
-        required = {"PRJ", "ENV", "JOB", "REP", "PREP", "EXTATTR", "VAR"}
+        """RESOURCE_TYPE_TO_TF includes PRJ, ENV, JOB, REP, PREP, EXTATTR, VAR, PRF."""
+        required = {"PRJ", "ENV", "JOB", "REP", "PREP", "EXTATTR", "VAR", "PRF"}
         for code in required:
             assert code in RESOURCE_TYPE_TO_TF, f"{code} missing from RESOURCE_TYPE_TO_TF"
 
@@ -300,6 +300,20 @@ class TestResourceTypeAddresses:
         """EXTATTR resolves to dbtcloud_extended_attributes address."""
         result = generate_adopt_imports_from_grid([extattr_adopt_row])
         assert "dbtcloud_extended_attributes" in result
+
+    def test_profile_address_and_import_id_format(self):
+        """PRF resolves to dbtcloud_profile with project_id:profile_id imports."""
+        row = _make_adopt_row(
+            "PRF",
+            "analytics_prod_profile",
+            "Prod Profile",
+            900,
+            project_name="Analytics",
+            project_id=100,
+        )
+        result = generate_adopt_imports_from_grid([row])
+        assert "dbtcloud_profile" in result
+        assert '  id = "100:900"' in result
 
     def test_prep_address_format(self):
         """PREP resolves to dbtcloud_project_repository address."""

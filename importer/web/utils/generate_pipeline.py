@@ -65,6 +65,27 @@ def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> 
         return
 
 
+def _dbg_a7dab6(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    payload = {
+        "sessionId": "a7dab6",
+        "runId": "pre-fix",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(
+            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-a7dab6.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    except Exception:
+        return
+
+
 # ---------------------------------------------------------------------------
 # Result dataclass
 # ---------------------------------------------------------------------------
@@ -591,6 +612,74 @@ async def run_generate_pipeline(
     # ------------------------------------------------------------------
     if regenerate_hcl and yaml_file.exists():
         _progress(on_progress, "Regenerating Terraform HCL files...")
+        try:
+            yaml_snapshot = yaml.safe_load(yaml_file.read_text(encoding="utf-8")) or {}
+            profile_records: list[dict] = []
+            null_extattr_id_count = 0
+            missing_connection_ref_count = 0
+            missing_extattr_ref_count = 0
+            for project in yaml_snapshot.get("projects", []) if isinstance(yaml_snapshot, dict) else []:
+                if not isinstance(project, dict):
+                    continue
+                project_key = str(project.get("key") or "")
+                project_extattrs = {
+                    str(item.get("key"))
+                    for item in project.get("extended_attributes", [])
+                    if isinstance(item, dict) and item.get("key")
+                }
+                for profile in project.get("profiles", []) if isinstance(project.get("profiles"), list) else []:
+                    if not isinstance(profile, dict):
+                        continue
+                    ext_key = profile.get("extended_attributes_key")
+                    ext_id_present = "extended_attributes_id" in profile
+                    ext_id_value = profile.get("extended_attributes_id")
+                    if ext_id_present and ext_id_value is None:
+                        null_extattr_id_count += 1
+                    connection_key = str(profile.get("connection_key") or "")
+                    connection_missing = not bool(connection_key or profile.get("connection_id"))
+                    if connection_missing:
+                        missing_connection_ref_count += 1
+                    extattr_missing = bool(ext_key) and str(ext_key) not in project_extattrs
+                    if extattr_missing:
+                        missing_extattr_ref_count += 1
+                    profile_records.append(
+                        {
+                            "project_key": project_key,
+                            "profile_key": str(profile.get("key") or ""),
+                            "connection_key": connection_key,
+                            "connection_id": profile.get("connection_id"),
+                            "credentials_key": str(profile.get("credentials_key") or ""),
+                            "credentials_id": profile.get("credentials_id"),
+                            "extended_attributes_key": ext_key,
+                            "extended_attributes_id_present": ext_id_present,
+                            "extended_attributes_id": ext_id_value,
+                            "project_has_extended_attributes_key": str(ext_key) in project_extattrs if ext_key else True,
+                        }
+                    )
+            # region agent log
+            _dbg_a7dab6(
+                "H3",
+                "generate_pipeline.py:run_generate_pipeline",
+                "profile snapshot before HCL regeneration",
+                {
+                    "yaml_file": str(yaml_file),
+                    "profile_count": len(profile_records),
+                    "null_extended_attributes_id_count": null_extattr_id_count,
+                    "missing_connection_ref_count": missing_connection_ref_count,
+                    "missing_extended_attributes_ref_count": missing_extattr_ref_count,
+                    "profiles": profile_records[:40],
+                },
+            )
+            # endregion
+        except Exception as e:
+            # region agent log
+            _dbg_a7dab6(
+                "H3",
+                "generate_pipeline.py:run_generate_pipeline",
+                "failed to inspect profile snapshot before HCL regeneration",
+                {"error": str(e), "yaml_file": str(yaml_file)},
+            )
+            # endregion
         try:
             import asyncio
 

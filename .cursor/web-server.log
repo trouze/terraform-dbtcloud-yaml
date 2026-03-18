@@ -1,123 +1,248 @@
 /Users/operator/Library/Python/3.9/lib/python/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
   warnings.warn(
 NiceGUI ready to go on http://127.0.0.1:8080
-Task exception was never retrieved
-future: <Task finished name='Task-127' coro=<create_removal_management_page.<locals>._execute_selected() done, defined at /Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/removal_management.py:337> exception=RuntimeError('The current slot cannot be determined because the slot stack for this task is empty.\nThis may happen if you try to create UI from a background task.\nTo fix this, enter the target slot explicitly using `with container_element:`.')>
+binding propagation for 10 active links took 0.029 s
+binding propagation for 10 active links took 0.012 s
+binding propagation for 10 active links took 0.014 s
+binding propagation for 10 active links took 0.021 s
+binding propagation for 10 active links took 0.016 s
+binding propagation for 10 active links took 0.011 s
+binding propagation for 10 active links took 0.010 s
+Failed to fetch account features (private API may not be available): dbt Cloud API error 404: 
+<!doctype html>
+<html lang="en">
+<head>
+  <title>Not Found</title>
+</head>
+<body>
+  <h1>Not Found</h1><p>The requested resource was not found on this server.</p>
+</body>
+</html>
+
+Failed to fetch credential 487354: dbt Cloud API error 404: {"status":{"code":404,"is_success":false,"user_message":"The requested resource was not found. Please check that you have the proper permissions. If you are seeing this in error, please contact suppor
+Failed to fetch extended attributes project=90826 id=5651: dbt Cloud API error 404: {"status":{"code":404,"is_success":false,"user_message":"The specified Extended Attributes record was not found.","developer_message":""},"data":null,"extra":{},"error_code":null}
+Project ID 382446 not found in mapping - may cause apply errors
+Project ID 207472 not found in mapping - may cause apply errors
+Project ID 207472 not found in mapping - may cause apply errors
+Project ID 426885 not found in mapping - may cause apply errors
+Project ID 426885 not found in mapping - may cause apply errors
+Project ID 426885 not found in mapping - may cause apply errors
+Project ID 426885 not found in mapping - may cause apply errors
+Project ID 445167 not found in mapping - may cause apply errors
+Project ID 445167 not found in mapping - may cause apply errors
+Project ID 445167 not found in mapping - may cause apply errors
+Project ID 90650 not found in mapping - may cause apply errors
+Key collision detected in 'jobs': 'jerrie_ci_sandbox_ci' -> 'jerrie_ci_sandbox_ci_2'
+Key collision detected in 'jobs': 'pat_s_snowflake_sandbox_downstream_nightly_build' -> 'pat_s_snowflake_sandbox_downstream_nightly_build_2'
+Key collision detected in 'jobs': 'tyler_acxiom_new_job' -> 'tyler_acxiom_new_job_2'
+Failed to fetch account features (private API may not be available): dbt Cloud API error 404: 
+<!doctype html>
+<html lang="en">
+<head>
+  <title>Not Found</title>
+</head>
+<body>
+  <h1>Not Found</h1><p>The requested resource was not found on this server.</p>
+</body>
+</html>
+
+Failed to fetch account features (private API may not be available): dbt Cloud API error 404: 
+<!doctype html>
+<html lang="en">
+<head>
+  <title>Not Found</title>
+</head>
+<body>
+  <h1>Not Found</h1><p>The requested resource was not found on this server.</p>
+</body>
+</html>
+
+binding propagation for 0 active links took 0.040 s
+JavaScript did not respond within 1.0 s
 Traceback (most recent call last):
-  File "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/removal_management.py", line 348, in _execute_selected
-    if not await _confirm_execution(commands):
-  File "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/removal_management.py", line 314, in _confirm_execution
-    with ui.dialog() as dialog, ui.card().classes("p-4").style("min-width: 560px;"):
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/elements/dialog.py", line 22, in __init__
-    super().__init__(value=value, on_value_change=None)
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/elements/mixins/value_element.py", line 31, in __init__
-    super().__init__(**kwargs)
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/element.py", line 60, in __init__
-    client = _client or context.client
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/context.py", line 31, in client
-    return self.slot.parent.client
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/context.py", line 23, in slot
-    raise RuntimeError('The current slot cannot be determined because the slot stack for this task is empty.\n'
-RuntimeError: The current slot cannot be determined because the slot stack for this task is empty.
-This may happen if you try to create UI from a background task.
-To fix this, enter the target slot explicitly using `with container_element:`.
-Task exception was never retrieved
-future: <Task finished name='Task-233' coro=<create_removal_management_page.<locals>._execute_selected() done, defined at /Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/removal_management.py:337> exception=RuntimeError('The current slot cannot be determined because the slot stack for this task is empty.\nThis may happen if you try to create UI from a background task.\nTo fix this, enter the target slot explicitly using `with container_element:`.')>
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/locks.py", line 226, in wait
+    await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
 Traceback (most recent call last):
-  File "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/removal_management.py", line 348, in _execute_selected
-    if not await _confirm_execution(commands):
-  File "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/removal_management.py", line 314, in _confirm_execution
-    with ui.dialog() as dialog, ui.card().classes("p-4").style("min-width: 560px;"):
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/elements/dialog.py", line 22, in __init__
-    super().__init__(value=value, on_value_change=None)
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/elements/mixins/value_element.py", line 31, in __init__
-    super().__init__(**kwargs)
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/element.py", line 60, in __init__
-    client = _client or context.client
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/context.py", line 31, in client
-    return self.slot.parent.client
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/context.py", line 23, in slot
-    raise RuntimeError('The current slot cannot be determined because the slot stack for this task is empty.\n'
-RuntimeError: The current slot cannot be determined because the slot stack for this task is empty.
-This may happen if you try to create UI from a background task.
-To fix this, enter the target slot explicitly using `with container_element:`.
-Task exception was never retrieved
-future: <Task finished name='Task-251' coro=<create_removal_management_page.<locals>._execute_selected() done, defined at /Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/removal_management.py:337> exception=RuntimeError('The current slot cannot be determined because the slot stack for this task is empty.\nThis may happen if you try to create UI from a background task.\nTo fix this, enter the target slot explicitly using `with container_element:`.')>
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/tasks.py", line 492, in wait_for
+    fut.result()
+asyncio.exceptions.CancelledError
+
+The above exception was the direct cause of the following exception:
+
 Traceback (most recent call last):
-  File "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/removal_management.py", line 348, in _execute_selected
-    if not await _confirm_execution(commands):
-  File "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/removal_management.py", line 314, in _confirm_execution
-    with ui.dialog() as dialog, ui.card().classes("p-4").style("min-width: 560px;"):
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/elements/dialog.py", line 22, in __init__
-    super().__init__(value=value, on_value_change=None)
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/elements/mixins/value_element.py", line 31, in __init__
-    super().__init__(**kwargs)
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/element.py", line 60, in __init__
-    client = _client or context.client
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/context.py", line 31, in client
-    return self.slot.parent.client
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/context.py", line 23, in slot
-    raise RuntimeError('The current slot cannot be determined because the slot stack for this task is empty.\n'
-RuntimeError: The current slot cannot be determined because the slot stack for this task is empty.
-This may happen if you try to create UI from a background task.
-To fix this, enter the target slot explicitly using `with container_element:`.
-Task exception was never retrieved
-future: <Task finished name='Task-284' coro=<create_removal_management_page.<locals>._execute_selected() done, defined at /Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/removal_management.py:337> exception=RuntimeError('The current slot cannot be determined because the slot stack for this task is empty.\nThis may happen if you try to create UI from a background task.\nTo fix this, enter the target slot explicitly using `with container_element:`.')>
+  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/javascript_request.py", line 28, in __await__
+    yield from asyncio.wait_for(self._event.wait(), self.timeout).__await__()
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/tasks.py", line 494, in wait_for
+    raise exceptions.TimeoutError() from exc
+asyncio.exceptions.TimeoutError
+
+The above exception was the direct cause of the following exception:
+
 Traceback (most recent call last):
-  File "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/removal_management.py", line 348, in _execute_selected
-    if not await _confirm_execution(commands):
-  File "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/removal_management.py", line 314, in _confirm_execution
-    with ui.dialog() as dialog, ui.card().classes("p-4").style("min-width: 560px;"):
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/elements/dialog.py", line 22, in __init__
-    super().__init__(value=value, on_value_change=None)
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/elements/mixins/value_element.py", line 31, in __init__
-    super().__init__(**kwargs)
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/element.py", line 60, in __init__
-    client = _client or context.client
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/context.py", line 31, in client
-    return self.slot.parent.client
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/context.py", line 23, in slot
-    raise RuntimeError('The current slot cannot be determined because the slot stack for this task is empty.\n'
-RuntimeError: The current slot cannot be determined because the slot stack for this task is empty.
-This may happen if you try to create UI from a background task.
-To fix this, enter the target slot explicitly using `with container_element:`.
-Task exception was never retrieved
-future: <Task finished name='Task-530' coro=<create_removal_management_page.<locals>._execute_selected() done, defined at /Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/removal_management.py:337> exception=RuntimeError('The current slot cannot be determined because the slot stack for this task is empty.\nThis may happen if you try to create UI from a background task.\nTo fix this, enter the target slot explicitly using `with container_element:`.')>
+  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/events.py", line 439, in wait_for_result
+    await result
+  File "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/explore_source.py", line 330, in download_markdown
+    await ui.run_javascript(f'''
+  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/client.py", line 234, in send_and_wait
+    return await JavaScriptRequest(request_id, timeout=timeout)
+  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/javascript_request.py", line 30, in __await__
+    raise TimeoutError(f'JavaScript did not respond within {self.timeout:.1f} s') from e
+TimeoutError: JavaScript did not respond within 1.0 s
+JavaScript did not respond within 1.0 s
 Traceback (most recent call last):
-  File "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/removal_management.py", line 348, in _execute_selected
-    if not await _confirm_execution(commands):
-  File "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/removal_management.py", line 314, in _confirm_execution
-    with ui.dialog() as dialog, ui.card().classes("p-4").style("min-width: 560px;"):
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/elements/dialog.py", line 22, in __init__
-    super().__init__(value=value, on_value_change=None)
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/elements/mixins/value_element.py", line 31, in __init__
-    super().__init__(**kwargs)
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/element.py", line 60, in __init__
-    client = _client or context.client
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/context.py", line 31, in client
-    return self.slot.parent.client
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/context.py", line 23, in slot
-    raise RuntimeError('The current slot cannot be determined because the slot stack for this task is empty.\n'
-RuntimeError: The current slot cannot be determined because the slot stack for this task is empty.
-This may happen if you try to create UI from a background task.
-To fix this, enter the target slot explicitly using `with container_element:`.
-Task exception was never retrieved
-future: <Task finished name='Task-896' coro=<create_removal_management_page.<locals>._execute_selected() done, defined at /Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/removal_management.py:337> exception=RuntimeError('The current slot cannot be determined because the slot stack for this task is empty.\nThis may happen if you try to create UI from a background task.\nTo fix this, enter the target slot explicitly using `with container_element:`.')>
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/locks.py", line 226, in wait
+    await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
 Traceback (most recent call last):
-  File "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/removal_management.py", line 348, in _execute_selected
-    if not await _confirm_execution(commands):
-  File "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/removal_management.py", line 314, in _confirm_execution
-    with ui.dialog() as dialog, ui.card().classes("p-4").style("min-width: 560px;"):
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/elements/dialog.py", line 22, in __init__
-    super().__init__(value=value, on_value_change=None)
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/elements/mixins/value_element.py", line 31, in __init__
-    super().__init__(**kwargs)
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/element.py", line 60, in __init__
-    client = _client or context.client
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/context.py", line 31, in client
-    return self.slot.parent.client
-  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/context.py", line 23, in slot
-    raise RuntimeError('The current slot cannot be determined because the slot stack for this task is empty.\n'
-RuntimeError: The current slot cannot be determined because the slot stack for this task is empty.
-This may happen if you try to create UI from a background task.
-To fix this, enter the target slot explicitly using `with container_element:`.
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/tasks.py", line 492, in wait_for
+    fut.result()
+asyncio.exceptions.CancelledError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/javascript_request.py", line 28, in __await__
+    yield from asyncio.wait_for(self._event.wait(), self.timeout).__await__()
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/tasks.py", line 494, in wait_for
+    raise exceptions.TimeoutError() from exc
+asyncio.exceptions.TimeoutError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/events.py", line 439, in wait_for_result
+    await result
+  File "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/explore_source.py", line 330, in download_markdown
+    await ui.run_javascript(f'''
+  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/client.py", line 234, in send_and_wait
+    return await JavaScriptRequest(request_id, timeout=timeout)
+  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/javascript_request.py", line 30, in __await__
+    raise TimeoutError(f'JavaScript did not respond within {self.timeout:.1f} s') from e
+TimeoutError: JavaScript did not respond within 1.0 s
+JavaScript did not respond within 1.0 s
+Traceback (most recent call last):
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/locks.py", line 226, in wait
+    await fut
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/tasks.py", line 492, in wait_for
+    fut.result()
+asyncio.exceptions.CancelledError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/javascript_request.py", line 28, in __await__
+    yield from asyncio.wait_for(self._event.wait(), self.timeout).__await__()
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/tasks.py", line 494, in wait_for
+    raise exceptions.TimeoutError() from exc
+asyncio.exceptions.TimeoutError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/events.py", line 439, in wait_for_result
+    await result
+  File "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/explore_target.py", line 380, in download_markdown
+    await ui.run_javascript(f'''
+  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/client.py", line 234, in send_and_wait
+    return await JavaScriptRequest(request_id, timeout=timeout)
+  File "/Users/operator/Library/Python/3.9/lib/python/site-packages/nicegui/javascript_request.py", line 30, in __await__
+    raise TimeoutError(f'JavaScript did not respond within {self.timeout:.1f} s') from e
+TimeoutError: JavaScript did not respond within 1.0 s
+Project ID 557 not found in mapping - may cause apply errors
+Project ID 557 not found in mapping - may cause apply errors
+Project ID 552 not found in mapping - may cause apply errors
+Project ID 552 not found in mapping - may cause apply errors
+Project ID 552 not found in mapping - may cause apply errors
+Project ID 557 not found in mapping - may cause apply errors
+Project ID 557 not found in mapping - may cause apply errors
+Project ID 577 not found in mapping - may cause apply errors
+Project ID 566 not found in mapping - may cause apply errors
+Project ID 557 not found in mapping - may cause apply errors
+Project ID 552 not found in mapping - may cause apply errors
+Project ID 552 not found in mapping - may cause apply errors
+Project ID 552 not found in mapping - may cause apply errors
+Project ID 552 not found in mapping - may cause apply errors
+Project ID 553 not found in mapping - may cause apply errors
+Project ID 553 not found in mapping - may cause apply errors
+Project ID 553 not found in mapping - may cause apply errors
+Project ID 553 not found in mapping - may cause apply errors
+Project ID 484 not found in mapping - may cause apply errors
+Project ID 484 not found in mapping - may cause apply errors
+Project ID 484 not found in mapping - may cause apply errors
+Project ID 559 not found in mapping - may cause apply errors
+Project ID 559 not found in mapping - may cause apply errors
+Project ID 559 not found in mapping - may cause apply errors
+Project ID 559 not found in mapping - may cause apply errors
+Project ID 566 not found in mapping - may cause apply errors
+Project ID 566 not found in mapping - may cause apply errors
+Project ID 566 not found in mapping - may cause apply errors
+Project ID 566 not found in mapping - may cause apply errors
+Project ID 556 not found in mapping - may cause apply errors
+Project ID 556 not found in mapping - may cause apply errors
+Project ID 556 not found in mapping - may cause apply errors
+Project ID 556 not found in mapping - may cause apply errors
+Project ID 557 not found in mapping - may cause apply errors
+Project ID 557 not found in mapping - may cause apply errors
+Project ID 557 not found in mapping - may cause apply errors
+Project ID 557 not found in mapping - may cause apply errors
+Project ID 577 not found in mapping - may cause apply errors
+Project ID 577 not found in mapping - may cause apply errors
+Project ID 577 not found in mapping - may cause apply errors
+Project ID 577 not found in mapping - may cause apply errors
+Project ID 599 not found in mapping - may cause apply errors
+Project ID 599 not found in mapping - may cause apply errors
+Project ID 599 not found in mapping - may cause apply errors
+Project ID 599 not found in mapping - may cause apply errors
+Project ID 594 not found in mapping - may cause apply errors
+Project ID 594 not found in mapping - may cause apply errors
+Project ID 594 not found in mapping - may cause apply errors
+Project ID 594 not found in mapping - may cause apply errors
+Key collision detected in 'jobs': 'sse_dm_fin_fido_fns_ops_every3hour_egl_prod_egl_prod' -> 'sse_dm_fin_fido_fns_ops_every3hour_egl_prod_egl_prod_2'
+Key collision detected in 'jobs': 'sse_dm_fin_fido_fns_ops_weekly_egl_qa_egl_qa' -> 'sse_dm_fin_fido_fns_ops_weekly_egl_qa_egl_qa_2'
+Key collision detected in 'jobs': 'sse_dm_fin_fido_fns_ops_weekly_tcv_qa_tcv_qa' -> 'sse_dm_fin_fido_fns_ops_weekly_tcv_qa_tcv_qa_2'
+Key collision detected in 'jobs': 'sse_dm_fin_fido_revops_partner_ops_sbs_daily_order_errors_prod_revops_org62_partner_order_errors_prod' -> 'sse_dm_fin_fido_revops_partner_ops_sbs_daily_order_errors_prod_revops_org62_partner_order_errors_prod_2'
+Key collision detected in 'jobs': 'sse_dm_fin_fido_fns_services_daily_bookings_rpt_qa_services_bookings_report_qa' -> 'sse_dm_fin_fido_fns_services_daily_bookings_rpt_qa_services_bookings_report_qa_2'
+Key collision detected in 'jobs': 'sse_dm_fin_fido_revops_partner_ops_sbs_weekly_order_errors_qa_revops_org62_partner_order_errors_qa' -> 'sse_dm_fin_fido_revops_partner_ops_sbs_weekly_order_errors_qa_revops_org62_partner_order_errors_qa_2'
+Key collision detected in 'jobs': 'sse_dm_fin_fido_fns_ops_daily_tcv_prod_tcv_prod' -> 'sse_dm_fin_fido_fns_ops_daily_tcv_prod_tcv_prod_2'
+Key collision detected in 'jobs': 'sse_dm_fin_fido_mrt_revops_org62_v_gic_ror_qa_revops_org62_gic_ror_qa' -> 'sse_dm_fin_fido_mrt_revops_org62_v_gic_ror_qa_revops_org62_gic_ror_qa_2'
+Key collision detected in 'jobs': 'sse_dm_fin_fido_mrt_revops_org62_v_gic_ror_prod_revops_org62_gic_ror_prod' -> 'sse_dm_fin_fido_mrt_revops_org62_v_gic_ror_prod_revops_org62_gic_ror_prod_2'
+Key collision detected in 'jobs': 'sse_dm_fin_fido_fns_bookings_daily_newlogo_prod_dailylogo_prod' -> 'sse_dm_fin_fido_fns_bookings_daily_newlogo_prod_dailylogo_prod_2'
+Key collision detected in 'jobs': 'sse_dm_fin_fido_fns_bookings_daily_newlogo_qa_dailylogo_qa' -> 'sse_dm_fin_fido_fns_bookings_daily_newlogo_qa_dailylogo_qa_2'
+Failed to fetch account features (private API may not be available): dbt Cloud API error 404: 
+<!doctype html>
+<html lang="en">
+<head>
+  <title>Not Found</title>
+</head>
+<body>
+  <h1>Not Found</h1><p>The requested resource was not found on this server.</p>
+</body>
+</html>
+
+Failed to fetch credential 487354: dbt Cloud API error 404: {"status":{"code":404,"is_success":false,"user_message":"The requested resource was not found. Please check that you have the proper permissions. If you are seeing this in error, please contact suppor
+Failed to fetch extended attributes project=90826 id=5651: dbt Cloud API error 404: {"status":{"code":404,"is_success":false,"user_message":"The specified Extended Attributes record was not found.","developer_message":""},"data":null,"extra":{},"error_code":null}
+Failed to fetch account features (private API may not be available): dbt Cloud API error 404: 
+<!doctype html>
+<html lang="en">
+<head>
+  <title>Not Found</title>
+</head>
+<body>
+  <h1>Not Found</h1><p>The requested resource was not found on this server.</p>
+</body>
+</html>
+
+Auto-retaining globals.privatelink_endpoints (1 resource(s) in TF state) despite not being selected — prevents destruction
+Auto-retaining globals.privatelink_endpoints (1 resource(s) in TF state) despite not being selected — prevents destruction

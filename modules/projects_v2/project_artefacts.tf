@@ -19,9 +19,9 @@ locals {
   project_artefacts_list = flatten([
     for project in var.projects : [
       {
-        project_key      = project.key
-        project_id       = local.project_id_lookup[project.key]
-        docs_job_key     = try(project.project_artefacts.docs_job_key, null)
+        project_key       = project.key
+        project_id        = local.project_id_lookup[project.key]
+        docs_job_key      = try(project.project_artefacts.docs_job_key, null)
         freshness_job_key = try(project.project_artefacts.freshness_job_key, null)
       }
     ] if try(project.project_artefacts, null) != null

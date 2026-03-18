@@ -98,6 +98,20 @@ output "environment_ids" {
   )
 }
 
+output "profile_ids" {
+  description = "Map of project_key_profile_key to profile IDs"
+  value = merge(
+    {
+      for key, profile in dbtcloud_profile.profiles :
+      key => profile.profile_id
+    },
+    {
+      for key, profile in dbtcloud_profile.protected_profiles :
+      key => profile.profile_id
+    }
+  )
+}
+
 output "job_ids" {
   description = "Map of project_key_environment_key_job_key to job IDs"
   value = merge(

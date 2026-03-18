@@ -31,6 +31,46 @@ locals {
     ]
   ])
 
+  env_source_credential_ids = toset([
+    for item in local.all_environments :
+    tostring(try(item.env_data.credential.id, null))
+    if try(item.env_data.credential.id, null) != null
+  ])
+
+  standalone_profile_credential_owners = flatten([
+    for project in var.projects : [
+      for profile in try(project.profiles, []) : {
+        project_key      = project.key
+        project_id       = local.project_id_lookup[project.key]
+        owner_key        = profile.key
+        owner_kind       = "profile"
+        connection_key   = try(profile.connection_key, null)
+        connection_id    = try(profile.connection_id, null)
+        credential_data  = try(profile.credential, null)
+        credentials_id   = try(profile.credentials_id, null)
+      }
+      if try(profile.credential.credential_type, null) != null &&
+      try(profile.credentials_id, null) != null &&
+      !contains(local.env_source_credential_ids, tostring(profile.credentials_id))
+    ]
+  ])
+
+  all_credential_owners = concat(
+    [
+      for item in local.all_environments : {
+        project_key     = item.project_key
+        project_id      = item.project_id
+        owner_key       = item.env_key
+        owner_kind      = "environment"
+        connection_key  = try(item.env_data.connection, null)
+        connection_id   = try(item.env_data.connection_id, null)
+        credential_data = try(item.env_data.credential, null)
+        credentials_id  = try(item.env_data.credential.id, null)
+      }
+    ],
+    local.standalone_profile_credential_owners
+  )
+
   #############################################
   # Protection: Split environments into protected/unprotected
   #############################################
@@ -96,6 +136,44 @@ locals {
     )
   }
 
+  resolve_credential_id = {
+    for item in local.all_credential_owners :
+    "${item.project_key}_${item.owner_key}" => try(coalesce(
+      try(dbtcloud_databricks_credential.credentials["${item.project_key}_${item.owner_key}"].credential_id, null),
+      try(dbtcloud_snowflake_credential.credentials["${item.project_key}_${item.owner_key}"].credential_id, null),
+      try(dbtcloud_bigquery_credential.credentials["${item.project_key}_${item.owner_key}"].credential_id, null),
+      try(dbtcloud_postgres_credential.credentials["${item.project_key}_${item.owner_key}"].credential_id, null),
+      try(dbtcloud_athena_credential.credentials["${item.project_key}_${item.owner_key}"].credential_id, null),
+      try(dbtcloud_fabric_credential.credentials_sql["${item.project_key}_${item.owner_key}"].credential_id, null),
+      try(dbtcloud_fabric_credential.credentials_sp["${item.project_key}_${item.owner_key}"].credential_id, null),
+      try(dbtcloud_synapse_credential.credentials_sql["${item.project_key}_${item.owner_key}"].credential_id, null),
+      try(dbtcloud_synapse_credential.credentials_sp["${item.project_key}_${item.owner_key}"].credential_id, null),
+      try(dbtcloud_starburst_credential.credentials["${item.project_key}_${item.owner_key}"].credential_id, null),
+      try(dbtcloud_spark_credential.credentials["${item.project_key}_${item.owner_key}"].credential_id, null),
+      try(dbtcloud_teradata_credential.credentials["${item.project_key}_${item.owner_key}"].credential_id, null)
+    ), null)
+  }
+
+  resolve_environment_credential_id = {
+    for item in local.all_environments :
+    "${item.project_key}_${item.env_key}" => lookup(local.resolve_credential_id, "${item.project_key}_${item.env_key}", null)
+  }
+
+  source_credential_id_to_target_id = {
+    for item in local.all_environments :
+    tostring(try(item.env_data.credential.id, null)) => local.resolve_environment_credential_id["${item.project_key}_${item.env_key}"]
+    if try(item.env_data.credential.id, null) != null && local.resolve_environment_credential_id["${item.project_key}_${item.env_key}"] != null
+  }
+
+  resolve_primary_profile_id = {
+    for item in local.all_environments :
+    "${item.project_key}_${item.env_key}" => (
+      try(item.env_data.primary_profile_key, null) != null && try(item.env_data.primary_profile_key, "") != "" ?
+      lookup(local.resolve_profile_id, "${item.project_key}_${item.env_data.primary_profile_key}", null) :
+      null
+    )
+  }
+
   # Determine credential type from connection type (used for legacy token_map approach)
   credential_type_map = {
     for item in local.all_environments :
@@ -117,20 +195,21 @@ locals {
 #############################################
 resource "dbtcloud_databricks_credential" "credentials" {
   for_each = {
-    for item in local.all_environments :
-    "${item.project_key}_${item.env_key}" => item
+    for item in local.all_credential_owners :
+    "${item.project_key}_${item.owner_key}" => item
     if(
       # Legacy approach: Use token_map with token_name from YAML
       (
-        try(item.env_data.credential, null) != null &&
-        try(item.env_data.credential.token_name, null) != null &&
-        contains(local.available_token_names, item.env_data.credential.token_name) &&
-        try(item.env_data.credential.schema, null) != null
+        item.owner_kind == "environment" &&
+        try(item.credential_data, null) != null &&
+        try(item.credential_data.token_name, null) != null &&
+        contains(local.available_token_names, item.credential_data.token_name) &&
+        try(item.credential_data.schema, null) != null
       ) ||
       # New approach: Use environment_credentials with credential_type = databricks
       (
-        contains(local.available_env_cred_keys, "${item.project_key}_${item.env_key}") &&
-        try(local.env_cred_types["${item.project_key}_${item.env_key}"], "") == "databricks"
+        contains(local.available_env_cred_keys, "${item.project_key}_${item.owner_key}") &&
+        try(local.env_cred_types["${item.project_key}_${item.owner_key}"], "") == "databricks"
       )
     )
   }
@@ -140,16 +219,16 @@ resource "dbtcloud_databricks_credential" "credentials" {
   token = (
     contains(local.available_env_cred_keys, each.key) ?
     try(var.environment_credentials[each.key].token, null) :
-    lookup(var.token_map, try(each.value.env_data.credential.token_name, ""), null)
+    lookup(var.token_map, try(each.value.credential_data.token_name, ""), null)
   )
   schema = coalesce(
     try(var.environment_credentials[each.key].schema, null),
-    try(each.value.env_data.credential.schema, null)
+    try(each.value.credential_data.schema, null)
   )
-  catalog = coalesce(
+  catalog = try(coalesce(
     try(var.environment_credentials[each.key].catalog, null),
-    try(each.value.env_data.credential.catalog, null)
-  )
+    try(each.value.credential_data.catalog, null)
+  ), null)
   adapter_type = "databricks"
 }
 
@@ -158,16 +237,16 @@ resource "dbtcloud_databricks_credential" "credentials" {
 #############################################
 resource "dbtcloud_snowflake_credential" "credentials" {
   for_each = {
-    for item in local.all_environments :
-    "${item.project_key}_${item.env_key}" => item
-    if contains(local.available_env_cred_keys, "${item.project_key}_${item.env_key}") &&
-    try(local.env_cred_types["${item.project_key}_${item.env_key}"], "") == "snowflake"
+    for item in local.all_credential_owners :
+    "${item.project_key}_${item.owner_key}" => item
+    if contains(local.available_env_cred_keys, "${item.project_key}_${item.owner_key}") &&
+    try(local.env_cred_types["${item.project_key}_${item.owner_key}"], "") == "snowflake"
   }
 
   project_id             = each.value.project_id
   auth_type              = try(var.environment_credentials[each.key].auth_type, "password")
   num_threads            = try(var.environment_credentials[each.key].num_threads, 4)
-  schema                 = try(var.environment_credentials[each.key].schema, try(each.value.env_data.credential.schema, null))
+  schema                 = try(var.environment_credentials[each.key].schema, try(each.value.credential_data.schema, null))
   user                   = try(var.environment_credentials[each.key].user, null)
   password               = try(var.environment_credentials[each.key].password, null)
   private_key            = try(var.environment_credentials[each.key].private_key, null)
@@ -182,14 +261,14 @@ resource "dbtcloud_snowflake_credential" "credentials" {
 #############################################
 resource "dbtcloud_bigquery_credential" "credentials" {
   for_each = {
-    for item in local.all_environments :
-    "${item.project_key}_${item.env_key}" => item
-    if contains(local.available_env_cred_keys, "${item.project_key}_${item.env_key}") &&
-    try(local.env_cred_types["${item.project_key}_${item.env_key}"], "") == "bigquery"
+    for item in local.all_credential_owners :
+    "${item.project_key}_${item.owner_key}" => item
+    if contains(local.available_env_cred_keys, "${item.project_key}_${item.owner_key}") &&
+    try(local.env_cred_types["${item.project_key}_${item.owner_key}"], "") == "bigquery"
   }
 
   project_id  = each.value.project_id
-  dataset     = try(var.environment_credentials[each.key].dataset, try(each.value.env_data.credential.schema, ""))
+  dataset     = try(var.environment_credentials[each.key].dataset, try(each.value.credential_data.schema, ""))
   num_threads = try(var.environment_credentials[each.key].num_threads, 4)
 }
 
@@ -198,17 +277,17 @@ resource "dbtcloud_bigquery_credential" "credentials" {
 #############################################
 resource "dbtcloud_postgres_credential" "credentials" {
   for_each = {
-    for item in local.all_environments :
-    "${item.project_key}_${item.env_key}" => item
-    if contains(local.available_env_cred_keys, "${item.project_key}_${item.env_key}") &&
-    contains(["postgres", "redshift"], try(local.env_cred_types["${item.project_key}_${item.env_key}"], ""))
+    for item in local.all_credential_owners :
+    "${item.project_key}_${item.owner_key}" => item
+    if contains(local.available_env_cred_keys, "${item.project_key}_${item.owner_key}") &&
+    contains(["postgres", "redshift"], try(local.env_cred_types["${item.project_key}_${item.owner_key}"], ""))
   }
 
   project_id     = each.value.project_id
   type           = try(var.environment_credentials[each.key].target_name, var.environment_credentials[each.key].credential_type)
   username       = try(var.environment_credentials[each.key].username, "")
   password       = try(var.environment_credentials[each.key].password, null)
-  default_schema = try(var.environment_credentials[each.key].default_schema, try(var.environment_credentials[each.key].schema, try(each.value.env_data.credential.schema, null)))
+  default_schema = try(var.environment_credentials[each.key].default_schema, try(var.environment_credentials[each.key].schema, try(each.value.credential_data.schema, null)))
   num_threads    = try(var.environment_credentials[each.key].num_threads, null)
 }
 
@@ -217,16 +296,16 @@ resource "dbtcloud_postgres_credential" "credentials" {
 #############################################
 resource "dbtcloud_athena_credential" "credentials" {
   for_each = {
-    for item in local.all_environments :
-    "${item.project_key}_${item.env_key}" => item
-    if contains(local.available_env_cred_keys, "${item.project_key}_${item.env_key}") &&
-    try(local.env_cred_types["${item.project_key}_${item.env_key}"], "") == "athena"
+    for item in local.all_credential_owners :
+    "${item.project_key}_${item.owner_key}" => item
+    if contains(local.available_env_cred_keys, "${item.project_key}_${item.owner_key}") &&
+    try(local.env_cred_types["${item.project_key}_${item.owner_key}"], "") == "athena"
   }
 
   project_id            = each.value.project_id
   aws_access_key_id     = try(var.environment_credentials[each.key].aws_access_key_id, "")
   aws_secret_access_key = try(var.environment_credentials[each.key].aws_secret_access_key, "")
-  schema                = try(var.environment_credentials[each.key].schema, try(each.value.env_data.credential.schema, ""))
+  schema                = try(var.environment_credentials[each.key].schema, try(each.value.credential_data.schema, ""))
 }
 
 #############################################
@@ -235,16 +314,16 @@ resource "dbtcloud_athena_credential" "credentials" {
 #############################################
 resource "dbtcloud_fabric_credential" "credentials_sql" {
   for_each = {
-    for item in local.all_environments :
-    "${item.project_key}_${item.env_key}" => item
-    if contains(local.available_env_cred_keys, "${item.project_key}_${item.env_key}") &&
-    try(local.env_cred_types["${item.project_key}_${item.env_key}"], "") == "fabric" &&
-    !try(local.env_cred_has_tenant["${item.project_key}_${item.env_key}"], false)
+    for item in local.all_credential_owners :
+    "${item.project_key}_${item.owner_key}" => item
+    if contains(local.available_env_cred_keys, "${item.project_key}_${item.owner_key}") &&
+    try(local.env_cred_types["${item.project_key}_${item.owner_key}"], "") == "fabric" &&
+    !try(local.env_cred_has_tenant["${item.project_key}_${item.owner_key}"], false)
   }
 
   project_id           = each.value.project_id
   adapter_type         = "fabric"
-  schema               = try(var.environment_credentials[each.key].schema, try(each.value.env_data.credential.schema, ""))
+  schema               = try(var.environment_credentials[each.key].schema, try(each.value.credential_data.schema, ""))
   user                 = try(var.environment_credentials[each.key].user, "")
   password             = try(var.environment_credentials[each.key].password, "")
   schema_authorization = try(var.environment_credentials[each.key].schema_authorization, null)
@@ -256,16 +335,16 @@ resource "dbtcloud_fabric_credential" "credentials_sql" {
 #############################################
 resource "dbtcloud_fabric_credential" "credentials_sp" {
   for_each = {
-    for item in local.all_environments :
-    "${item.project_key}_${item.env_key}" => item
-    if contains(local.available_env_cred_keys, "${item.project_key}_${item.env_key}") &&
-    try(local.env_cred_types["${item.project_key}_${item.env_key}"], "") == "fabric" &&
-    try(local.env_cred_has_tenant["${item.project_key}_${item.env_key}"], false)
+    for item in local.all_credential_owners :
+    "${item.project_key}_${item.owner_key}" => item
+    if contains(local.available_env_cred_keys, "${item.project_key}_${item.owner_key}") &&
+    try(local.env_cred_types["${item.project_key}_${item.owner_key}"], "") == "fabric" &&
+    try(local.env_cred_has_tenant["${item.project_key}_${item.owner_key}"], false)
   }
 
   project_id           = each.value.project_id
   adapter_type         = "fabric"
-  schema               = try(var.environment_credentials[each.key].schema, try(each.value.env_data.credential.schema, ""))
+  schema               = try(var.environment_credentials[each.key].schema, try(each.value.credential_data.schema, ""))
   tenant_id            = try(var.environment_credentials[each.key].tenant_id, "")
   client_id            = try(var.environment_credentials[each.key].client_id, "")
   client_secret        = try(var.environment_credentials[each.key].client_secret, "")
@@ -278,17 +357,17 @@ resource "dbtcloud_fabric_credential" "credentials_sp" {
 #############################################
 resource "dbtcloud_synapse_credential" "credentials_sql" {
   for_each = {
-    for item in local.all_environments :
-    "${item.project_key}_${item.env_key}" => item
-    if contains(local.available_env_cred_keys, "${item.project_key}_${item.env_key}") &&
-    try(local.env_cred_types["${item.project_key}_${item.env_key}"], "") == "synapse" &&
-    !try(local.env_cred_has_tenant["${item.project_key}_${item.env_key}"], false)
+    for item in local.all_credential_owners :
+    "${item.project_key}_${item.owner_key}" => item
+    if contains(local.available_env_cred_keys, "${item.project_key}_${item.owner_key}") &&
+    try(local.env_cred_types["${item.project_key}_${item.owner_key}"], "") == "synapse" &&
+    !try(local.env_cred_has_tenant["${item.project_key}_${item.owner_key}"], false)
   }
 
   project_id           = each.value.project_id
   adapter_type         = "synapse"
   authentication       = try(var.environment_credentials[each.key].authentication, "sql")
-  schema               = try(var.environment_credentials[each.key].schema, try(each.value.env_data.credential.schema, ""))
+  schema               = try(var.environment_credentials[each.key].schema, try(each.value.credential_data.schema, ""))
   user                 = try(var.environment_credentials[each.key].user, "")
   password             = try(var.environment_credentials[each.key].password, "")
   schema_authorization = try(var.environment_credentials[each.key].schema_authorization, null)
@@ -300,17 +379,17 @@ resource "dbtcloud_synapse_credential" "credentials_sql" {
 #############################################
 resource "dbtcloud_synapse_credential" "credentials_sp" {
   for_each = {
-    for item in local.all_environments :
-    "${item.project_key}_${item.env_key}" => item
-    if contains(local.available_env_cred_keys, "${item.project_key}_${item.env_key}") &&
-    try(local.env_cred_types["${item.project_key}_${item.env_key}"], "") == "synapse" &&
-    try(local.env_cred_has_tenant["${item.project_key}_${item.env_key}"], false)
+    for item in local.all_credential_owners :
+    "${item.project_key}_${item.owner_key}" => item
+    if contains(local.available_env_cred_keys, "${item.project_key}_${item.owner_key}") &&
+    try(local.env_cred_types["${item.project_key}_${item.owner_key}"], "") == "synapse" &&
+    try(local.env_cred_has_tenant["${item.project_key}_${item.owner_key}"], false)
   }
 
   project_id           = each.value.project_id
   adapter_type         = "synapse"
   authentication       = try(var.environment_credentials[each.key].authentication, "ServicePrincipal")
-  schema               = try(var.environment_credentials[each.key].schema, try(each.value.env_data.credential.schema, ""))
+  schema               = try(var.environment_credentials[each.key].schema, try(each.value.credential_data.schema, ""))
   tenant_id            = try(var.environment_credentials[each.key].tenant_id, "")
   client_id            = try(var.environment_credentials[each.key].client_id, "")
   client_secret        = try(var.environment_credentials[each.key].client_secret, "")
@@ -322,15 +401,15 @@ resource "dbtcloud_synapse_credential" "credentials_sp" {
 #############################################
 resource "dbtcloud_starburst_credential" "credentials" {
   for_each = {
-    for item in local.all_environments :
-    "${item.project_key}_${item.env_key}" => item
-    if contains(local.available_env_cred_keys, "${item.project_key}_${item.env_key}") &&
-    contains(["starburst", "trino"], try(local.env_cred_types["${item.project_key}_${item.env_key}"], ""))
+    for item in local.all_credential_owners :
+    "${item.project_key}_${item.owner_key}" => item
+    if contains(local.available_env_cred_keys, "${item.project_key}_${item.owner_key}") &&
+    contains(["starburst", "trino"], try(local.env_cred_types["${item.project_key}_${item.owner_key}"], ""))
   }
 
   project_id = each.value.project_id
-  database   = try(var.environment_credentials[each.key].catalog, try(each.value.env_data.credential.catalog, ""))
-  schema     = try(var.environment_credentials[each.key].schema, try(each.value.env_data.credential.schema, ""))
+  database   = try(var.environment_credentials[each.key].catalog, try(each.value.credential_data.catalog, ""))
+  schema     = try(var.environment_credentials[each.key].schema, try(each.value.credential_data.schema, ""))
   user       = try(var.environment_credentials[each.key].user, "")
   password   = try(var.environment_credentials[each.key].password, "")
 }
@@ -340,14 +419,14 @@ resource "dbtcloud_starburst_credential" "credentials" {
 #############################################
 resource "dbtcloud_spark_credential" "credentials" {
   for_each = {
-    for item in local.all_environments :
-    "${item.project_key}_${item.env_key}" => item
-    if contains(local.available_env_cred_keys, "${item.project_key}_${item.env_key}") &&
-    contains(["spark", "apache_spark"], try(local.env_cred_types["${item.project_key}_${item.env_key}"], ""))
+    for item in local.all_credential_owners :
+    "${item.project_key}_${item.owner_key}" => item
+    if contains(local.available_env_cred_keys, "${item.project_key}_${item.owner_key}") &&
+    contains(["spark", "apache_spark"], try(local.env_cred_types["${item.project_key}_${item.owner_key}"], ""))
   }
 
   project_id = each.value.project_id
-  schema     = try(var.environment_credentials[each.key].schema, try(each.value.env_data.credential.schema, ""))
+  schema     = try(var.environment_credentials[each.key].schema, try(each.value.credential_data.schema, ""))
   token      = try(var.environment_credentials[each.key].token, "")
 }
 
@@ -356,14 +435,14 @@ resource "dbtcloud_spark_credential" "credentials" {
 #############################################
 resource "dbtcloud_teradata_credential" "credentials" {
   for_each = {
-    for item in local.all_environments :
-    "${item.project_key}_${item.env_key}" => item
-    if contains(local.available_env_cred_keys, "${item.project_key}_${item.env_key}") &&
-    try(local.env_cred_types["${item.project_key}_${item.env_key}"], "") == "teradata"
+    for item in local.all_credential_owners :
+    "${item.project_key}_${item.owner_key}" => item
+    if contains(local.available_env_cred_keys, "${item.project_key}_${item.owner_key}") &&
+    try(local.env_cred_types["${item.project_key}_${item.owner_key}"], "") == "teradata"
   }
 
   project_id = each.value.project_id
-  schema     = try(var.environment_credentials[each.key].schema, try(each.value.env_data.credential.schema, ""))
+  schema     = try(var.environment_credentials[each.key].schema, try(each.value.credential_data.schema, ""))
   user       = try(var.environment_credentials[each.key].user, "")
   password   = try(var.environment_credentials[each.key].password, "")
   threads    = try(var.environment_credentials[each.key].num_threads, null)
@@ -383,24 +462,9 @@ resource "dbtcloud_environment" "environments" {
   project_id    = each.value.project_id
   name          = each.value.env_data.name
   type          = each.value.env_data.type
-  connection_id = local.resolve_connection_id["${each.value.project_key}_${each.value.env_key}"]
+  connection_id = local.resolve_primary_profile_id[each.key] != null ? null : local.resolve_connection_id["${each.value.project_key}_${each.value.env_key}"]
 
-  # Look up credential_id from the appropriate credential resource based on type
-  # Use try() to handle environments without credentials (returns null)
-  credential_id = try(coalesce(
-    try(dbtcloud_databricks_credential.credentials[each.key].credential_id, null),
-    try(dbtcloud_snowflake_credential.credentials[each.key].credential_id, null),
-    try(dbtcloud_bigquery_credential.credentials[each.key].credential_id, null),
-    try(dbtcloud_postgres_credential.credentials[each.key].credential_id, null),
-    try(dbtcloud_athena_credential.credentials[each.key].credential_id, null),
-    try(dbtcloud_fabric_credential.credentials_sql[each.key].credential_id, null),
-    try(dbtcloud_fabric_credential.credentials_sp[each.key].credential_id, null),
-    try(dbtcloud_synapse_credential.credentials_sql[each.key].credential_id, null),
-    try(dbtcloud_synapse_credential.credentials_sp[each.key].credential_id, null),
-    try(dbtcloud_starburst_credential.credentials[each.key].credential_id, null),
-    try(dbtcloud_spark_credential.credentials[each.key].credential_id, null),
-    try(dbtcloud_teradata_credential.credentials[each.key].credential_id, null),
-  ), null)
+  credential_id = local.resolve_primary_profile_id[each.key] != null ? null : local.resolve_environment_credential_id[each.key]
 
   # Optional fields
   dbt_version                = try(each.value.env_data.dbt_version, null)
@@ -410,10 +474,15 @@ resource "dbtcloud_environment" "environments" {
   # Do NOT infer from the environment name.
   deployment_type = try(each.value.env_data.deployment_type, null)
   # Note: target_name is not a valid argument for dbtcloud_environment resource
-  use_custom_branch = try(each.value.env_data.custom_branch, null) != null
+  use_custom_branch  = try(each.value.env_data.custom_branch, null) != null
+  primary_profile_id = local.resolve_primary_profile_id[each.key]
 
   # Extended attributes (project-scoped JSON overrides)
-  extended_attributes_id = try(each.value.env_data.extended_attributes_key, null) != null && each.value.env_data.extended_attributes_key != "" ? lookup(local.resolve_extended_attributes_id, "${each.value.project_key}_${each.value.env_data.extended_attributes_key}", null) : null
+  extended_attributes_id = local.resolve_primary_profile_id[each.key] != null ? null : (
+    try(each.value.env_data.extended_attributes_key, null) != null && each.value.env_data.extended_attributes_key != "" ?
+    lookup(local.resolve_extended_attributes_id, "${each.value.project_key}_${each.value.env_data.extended_attributes_key}", null) :
+    null
+  )
 
   resource_metadata = {
     source_project_id  = lookup(local.source_project_ids_by_key, each.value.project_key, null)
@@ -434,33 +503,24 @@ resource "dbtcloud_environment" "protected_environments" {
     "${item.project_key}_${item.env_key}" => item
   }
 
-  project_id    = each.value.project_id
-  name          = each.value.env_data.name
-  type          = each.value.env_data.type
-  connection_id = local.resolve_connection_id["${each.value.project_key}_${each.value.env_key}"] # Look up credential_id from the appropriate credential resource based on type
-  # Use try() to handle environments without credentials (returns null)
-  credential_id = try(coalesce(
-    try(dbtcloud_databricks_credential.credentials[each.key].credential_id, null),
-    try(dbtcloud_snowflake_credential.credentials[each.key].credential_id, null),
-    try(dbtcloud_bigquery_credential.credentials[each.key].credential_id, null),
-    try(dbtcloud_postgres_credential.credentials[each.key].credential_id, null),
-    try(dbtcloud_athena_credential.credentials[each.key].credential_id, null),
-    try(dbtcloud_fabric_credential.credentials_sql[each.key].credential_id, null),
-    try(dbtcloud_fabric_credential.credentials_sp[each.key].credential_id, null),
-    try(dbtcloud_synapse_credential.credentials_sql[each.key].credential_id, null),
-    try(dbtcloud_synapse_credential.credentials_sp[each.key].credential_id, null),
-    try(dbtcloud_starburst_credential.credentials[each.key].credential_id, null),
-    try(dbtcloud_spark_credential.credentials[each.key].credential_id, null),
-    try(dbtcloud_teradata_credential.credentials[each.key].credential_id, null),
-  ), null) # Optional fields
+  project_id                 = each.value.project_id
+  name                       = each.value.env_data.name
+  type                       = each.value.env_data.type
+  connection_id              = local.resolve_primary_profile_id[each.key] != null ? null : local.resolve_connection_id["${each.value.project_key}_${each.value.env_key}"]
+  credential_id              = local.resolve_primary_profile_id[each.key] != null ? null : local.resolve_environment_credential_id[each.key]
   dbt_version                = try(each.value.env_data.dbt_version, null)
   enable_model_query_history = try(each.value.env_data.enable_model_query_history, null)
   custom_branch              = try(each.value.env_data.custom_branch, null)
   deployment_type            = try(each.value.env_data.deployment_type, null)
   use_custom_branch          = try(each.value.env_data.custom_branch, null) != null
+  primary_profile_id         = local.resolve_primary_profile_id[each.key]
 
   # Extended attributes (project-scoped JSON overrides)
-  extended_attributes_id = try(each.value.env_data.extended_attributes_key, null) != null && each.value.env_data.extended_attributes_key != "" ? lookup(local.resolve_extended_attributes_id, "${each.value.project_key}_${each.value.env_data.extended_attributes_key}", null) : null
+  extended_attributes_id = local.resolve_primary_profile_id[each.key] != null ? null : (
+    try(each.value.env_data.extended_attributes_key, null) != null && each.value.env_data.extended_attributes_key != "" ?
+    lookup(local.resolve_extended_attributes_id, "${each.value.project_key}_${each.value.env_data.extended_attributes_key}", null) :
+    null
+  )
 
   resource_metadata = {
     source_project_id  = lookup(local.source_project_ids_by_key, each.value.project_key, null)

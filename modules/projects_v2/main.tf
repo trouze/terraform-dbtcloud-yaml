@@ -57,10 +57,16 @@ locals {
   # Extract LOOKUP placeholders from connection references
   lookup_connections = toset([
     for conn_ref in flatten([
-      for project in var.projects : [
-        for env in project.environments :
-        env.connection if can(regex("^LOOKUP:", tostring(env.connection)))
-      ]
+      for project in var.projects : concat(
+        [
+          for env in project.environments :
+          env.connection if can(regex("^LOOKUP:", tostring(env.connection)))
+        ],
+        [
+          for profile in try(project.profiles, []) :
+          profile.connection_key if can(regex("^LOOKUP:", tostring(profile.connection_key)))
+        ]
+      )
     ]) :
     conn_ref if startswith(tostring(conn_ref), "LOOKUP:")
   ])

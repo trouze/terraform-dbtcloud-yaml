@@ -1130,6 +1130,7 @@ def _create_destroy_protection_panel(
     type_labels = {
         "PRJ": "Project",
         "ENV": "Environment",
+        "PRF": "Profile",
         "JOB": "Job",
         "JCTG": "Job Completion Trigger",
         "JEVO": "Env Var Job Override",
@@ -1150,6 +1151,7 @@ def _create_destroy_protection_panel(
     tf_type_map = {
         "PRJ": "dbtcloud_project",
         "ENV": "dbtcloud_environment",
+        "PRF": "dbtcloud_profile",
         "JOB": "dbtcloud_job",
         "JCTG": "dbtcloud_job_completion_trigger",
         "JEVO": "dbtcloud_environment_variable_job_override",
@@ -1432,6 +1434,7 @@ def _create_destroy_protection_panel(
                         "REP": ("dbtcloud_repository", "repositories", "protected_repositories"),
                         "PREP": ("dbtcloud_project_repository", "project_repositories", "protected_project_repositories"),
                         "ENV": ("dbtcloud_environment", "environments", "protected_environments"),
+                        "PRF": ("dbtcloud_profile", "profiles", "protected_profiles"),
                         "JOB": ("dbtcloud_job", "jobs", "protected_jobs"),
                         "JCTG": ("dbtcloud_job_completion_trigger", "job_completion_triggers", "protected_job_completion_triggers"),
                         "JEVO": ("dbtcloud_environment_variable_job_override", "environment_variable_job_overrides", "protected_environment_variable_job_overrides"),

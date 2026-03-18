@@ -34,6 +34,7 @@ from importer.web.utils.protection_manager import (
     CascadeResource,
     RESOURCE_TYPE_MAP,
     EXTENDED_RESOURCE_TYPE_MAP,
+    TYPE_LABELS,
 )
 
 
@@ -238,6 +239,19 @@ class TestGetResourceAddress:
         address = get_resource_address("EXTATTR", "my_project_snowflake_config", protected=False)
         expected = 'module.dbt_cloud.module.projects_v2[0].dbtcloud_extended_attributes.extended_attrs["my_project_snowflake_config"]'
         assert address == expected
+
+    def test_profile_resource_maps_and_addresses(self):
+        """Profiles are available to protection workflows and address resolution."""
+        assert RESOURCE_TYPE_MAP["PRF"] == ("dbtcloud_profile", "profiles", "protected_profiles")
+        assert EXTENDED_RESOURCE_TYPE_MAP["PRF"] == ("dbtcloud_profile", "profiles", "protected_profiles")
+        assert TYPE_LABELS["PRF"] == "Profile"
+
+        assert get_resource_address("PRF", "my_project_prod_profile", protected=False) == (
+            'module.dbt_cloud.module.projects_v2[0].dbtcloud_profile.profiles["my_project_prod_profile"]'
+        )
+        assert get_resource_address("PRF", "my_project_prod_profile", protected=True) == (
+            'module.dbt_cloud.module.projects_v2[0].dbtcloud_profile.protected_profiles["my_project_prod_profile"]'
+        )
     
     def test_custom_module_name(self):
         """Test address generation with custom module name."""

@@ -260,6 +260,57 @@ class TestComputeTargetIntent:
         project_keys = [p["key"] for p in result.output_config.get("projects", [])]
         assert "sse_mlp_fs" not in project_keys
 
+    def test_profile_references_keep_global_connections(self, tmp_path: Path):
+        """Project profiles should preserve referenced global connections in output_config."""
+        import yaml
+
+        tfstate_path = tmp_path / "terraform.tfstate"
+        tfstate_path.write_text(json.dumps({"version": 4, "resources": []}))
+
+        source_config = {
+            "version": 1,
+            "globals": {
+                "connections": [
+                    {"key": "snowflake_prod", "name": "Snowflake Prod"},
+                    {"key": "unused_connection", "name": "Unused Connection"},
+                ],
+                "repositories": [],
+            },
+            "projects": [
+                {
+                    "key": "project_1",
+                    "name": "Project 1",
+                    "environments": [],
+                    "profiles": [
+                        {
+                            "key": "prod",
+                            "connection_key": "snowflake_prod",
+                            "credentials_key": "prod",
+                        }
+                    ],
+                }
+            ],
+        }
+        source_path = tmp_path / "source.yml"
+        with open(source_path, "w") as f:
+            yaml.dump(source_config, f, default_flow_style=False, sort_keys=False)
+
+        result = compute_target_intent(
+            tfstate_path=tfstate_path,
+            source_focus_yaml=str(source_path),
+            baseline_yaml=None,
+            target_report_items=None,
+            adopt_rows=[],
+            removal_keys=set(),
+            included_globals={"connections", "repositories"},
+        )
+
+        kept_connections = [
+            item["key"]
+            for item in (result.output_config.get("globals", {}) or {}).get("connections", [])
+        ]
+        assert kept_connections == ["snowflake_prod"]
+
     def test_orphan_not_flagged_without_target_fetch(
         self,
         sample_tfstate_11_projects: Path,

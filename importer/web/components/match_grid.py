@@ -70,7 +70,7 @@ NAME_KEYED_TYPES = {"VAR", "JEVO"}
 # Derived from ENTITY_PARENT_TYPES hierarchy: types with PRJ as a (direct/indirect) parent
 # CRD is excluded because it has its own environment-based matching (target_crd_by_env)
 # REP is excluded because it has its own repository-based matching (target_repo_by_remote_url)
-PROJECT_SCOPED_TYPES = {"ENV", "JOB", "VAR", "JEVO", "EXTATTR"}
+PROJECT_SCOPED_TYPES = {"ENV", "JOB", "VAR", "JEVO", "EXTATTR", "PRF"}
 
 
 def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> None:
@@ -2896,6 +2896,8 @@ MATCH_GRID_TYPE_LABELS = {
     "VAR": "EnvVar",
     "JOB": "Job",
     "JEVO": "EnvVar Ovr",
+    "EXTATTR": "Extended Attrs",
+    "PRF": "Profiles",
     "JCTG": "Job Trigger",
     "PREP": "Repo Link",
 }

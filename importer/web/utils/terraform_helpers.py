@@ -24,6 +24,8 @@ if TYPE_CHECKING:
     from importer.web.state import AppState
     from importer.web.utils.protection_intent import ProtectionIntentManager
 
+from importer.web.env_manager import load_target_credentials, resolve_project_env_path
+
 logger = logging.getLogger(__name__)
 
 # Module prefix for Terraform resource addresses.
@@ -200,6 +202,18 @@ def get_terraform_env(state: "AppState") -> dict[str, str]:
     account_id = state.target_credentials.account_id or ""
     host_url = state.target_credentials.host_url or ""
     token_type = getattr(state.target_credentials, "token_type", "")
+
+    # Fall back to the project's target.env when the in-memory state has not
+    # persisted the target credentials yet. This keeps plan-only workflows
+    # working after a restart as long as the credential file exists.
+    if not api_token:
+        project_env_path = resolve_project_env_path(str(_project_root(state)), role="target")
+        if project_env_path:
+            file_creds = load_target_credentials(project_env_path)
+            api_token = file_creds.get("api_token") or api_token
+            account_id = file_creds.get("account_id") or account_id
+            host_url = file_creds.get("host_url") or host_url
+            token_type = file_creds.get("token_type") or token_type
 
     # Normalize host URL
     base_host = (host_url or "https://cloud.getdbt.com").rstrip("/")

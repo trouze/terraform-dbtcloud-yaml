@@ -56,6 +56,82 @@ class SchemaValidationTest(unittest.TestCase):
         """Validate the importer-oriented v2 fixture against v2 schema."""
         self.assert_schema_valid("test/fixtures/v2_full/dbt-config.yml", "v2")
 
+    def test_v2_schema_accepts_profiles_and_primary_profile_key(self) -> None:
+        """Profiles and environment primary_profile_key are accepted by v2 schema."""
+        payload = {
+            "version": 2,
+            "account": {
+                "name": "Test Account",
+                "host_url": "https://cloud.getdbt.com",
+            },
+            "globals": {
+                "groups": [],
+                "service_tokens": [],
+                "connections": [
+                    {
+                        "key": "snowflake_prod",
+                        "name": "Snowflake Prod",
+                        "type": "snowflake",
+                    }
+                ],
+                "notifications": [],
+                "repositories": [],
+            },
+            "projects": [
+                {
+                    "key": "analytics",
+                    "name": "Analytics",
+                    "repository": {
+                        "remote_url": "https://github.com/dbt-labs/jaffle-shop.git",
+                    },
+                    "environments": [
+                        {
+                            "key": "production",
+                            "name": "Production",
+                            "type": "deployment",
+                            "connection": "snowflake_prod",
+                            "credential": {
+                                "token_name": "warehouse_token",
+                                "schema": "analytics",
+                            },
+                            "dbt_version": "1.9.0",
+                            "primary_profile_key": "prod_profile",
+                        }
+                    ],
+                    "jobs": [],
+                    "profiles": [
+                        {
+                            "key": "prod_profile",
+                            "connection_key": "snowflake_prod",
+                            "credentials_key": "production",
+                            "credential": {
+                                "credential_type": "snowflake",
+                                "schema": "analytics",
+                                "user": "dbt_user",
+                                "auth_type": "password",
+                                "num_threads": 4,
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+
+        errors = sorted(
+            self.validators["v2"].iter_errors(payload),
+            key=lambda err: list(err.path),
+        )
+
+        if errors:
+            formatted = "\n".join(
+                f"- {'.'.join(str(p) for p in err.path)} -> {err.message}"
+                for err in errors
+            )
+            self.fail(
+                "Schema validation failed for inline profile payload against v2:\n"
+                f"{formatted}"
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

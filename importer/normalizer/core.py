@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 from ..models import (
@@ -16,6 +18,7 @@ from ..models import (
     Notification,
     OAuthConfiguration,
     PrivateLinkEndpoint,
+    Profile,
     Project,
     Repository,
     ServiceToken,
@@ -24,6 +27,27 @@ from ..models import (
 from . import MappingConfig, NormalizationContext
 
 log = logging.getLogger(__name__)
+
+
+def _dbg_a7dab6(hypothesis_id: str, location: str, message: str, data: dict[str, Any]) -> None:
+    payload = {
+        "sessionId": "a7dab6",
+        "runId": "post-fix",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(
+            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-a7dab6.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    except Exception:
+        return
 
 
 # Field mapping from dbt Cloud API connection_details.config to Terraform provider field names.
@@ -168,23 +192,32 @@ def _map_connection_details_to_terraform(
     if not connection_type or not connection_details:
         return {}
     
+    # Extract config from connection_details (this is where provider-specific fields live)
+    config = connection_details.get("config", {})
+    if not config:
+        field_values: Dict[str, Any] = {}
+        fields = connection_details.get("fields", {})
+        if isinstance(fields, dict):
+            for field_name, field_payload in fields.items():
+                if isinstance(field_payload, dict) and "value" in field_payload:
+                    field_values[field_name] = field_payload.get("value")
+        config = field_values or connection_details
+
+    inferred_connection_type = str(config.get("type") or connection_type or "")
+    if not inferred_connection_type:
+        return {}
+
     # Normalize connection type (handle variants like 'databricks_spark')
-    conn_type_lower = connection_type.lower()
+    conn_type_lower = inferred_connection_type.lower()
     for known_type in CONNECTION_FIELD_MAPPING:
         if known_type in conn_type_lower:
             conn_type_lower = known_type
             break
-    
+
     field_mapping = CONNECTION_FIELD_MAPPING.get(conn_type_lower, {})
     if not field_mapping:
-        log.debug(f"No field mapping defined for connection type '{connection_type}'")
+        log.debug(f"No field mapping defined for connection type '{inferred_connection_type}'")
         return {}
-    
-    # Extract config from connection_details (this is where provider-specific fields live)
-    config = connection_details.get("config", {})
-    if not config:
-        # Fallback: check if fields are at the top level of connection_details
-        config = connection_details
     
     result = {}
     for api_field, tf_field in field_mapping.items():
@@ -462,9 +495,30 @@ def _align_repository_keys_to_projects(v2_data: Dict[str, Any]) -> None:
 
 def _normalize_account(snapshot: AccountSnapshot, config: MappingConfig) -> Dict[str, Any]:
     """Normalize account-level metadata."""
+    resolved_host_url = (
+        getattr(snapshot, "host_url", None)
+        or (
+            getattr(snapshot, "metadata", {}).get("host_url")
+            if isinstance(getattr(snapshot, "metadata", {}), dict)
+            else None
+        )
+        or "https://cloud.getdbt.com"
+    )
+    # region agent log
+    _dbg_a7dab6(
+        "H4",
+        "normalizer/core.py:_normalize_account",
+        "resolved account host_url during normalization",
+        {
+            "account_id": snapshot.account_id,
+            "resolved_host_url": resolved_host_url,
+            "snapshot_has_host_url": bool(getattr(snapshot, "host_url", None)),
+        },
+    )
+    # endregion
     account_data = {
         "name": snapshot.account_name or f"Account {snapshot.account_id}",
-        "host_url": "https://cloud.getdbt.com",  # Default, should be in metadata
+        "host_url": resolved_host_url,
     }
     
     if not config.should_strip_source_ids():
@@ -512,10 +566,23 @@ def _normalize_connections(
         # Register connection key mapping for environment lookups
         context.register_connection_key(key, normalized_key)
         
+        normalized_type = conn.type or "unknown"
+        connection_details = conn.details.get("connection_details")
+        if normalized_type == "adapter" and isinstance(connection_details, dict):
+            candidate_type = (
+                connection_details.get("config", {}) or {}
+            ).get("type")
+            if not candidate_type:
+                field_type = (connection_details.get("fields", {}) or {}).get("type")
+                if isinstance(field_type, dict):
+                    candidate_type = field_type.get("value")
+            if candidate_type:
+                normalized_type = str(candidate_type)
+
         conn_data = {
             "key": normalized_key,
             "name": conn.name or key,
-            "type": conn.type or "unknown",
+            "type": normalized_type,
         }
         
         # Optionally preserve source ID
@@ -543,15 +610,14 @@ def _normalize_connections(
         # We merge both so fields missing from include_related (for example BigQuery
         # private_key_id in some API responses) are backfilled from top-level config.
         provider_config: Dict[str, Any] = {}
-        connection_details = conn.details.get("connection_details")
         if connection_details and isinstance(connection_details, dict):
             provider_config.update(
-                _map_connection_details_to_terraform(conn.type, connection_details)
+                _map_connection_details_to_terraform(normalized_type, connection_details)
             )
         details_config = conn.details.get("config")
         if details_config and isinstance(details_config, dict):
             fallback_provider_config = _map_connection_details_to_terraform(
-                conn.type, {"config": details_config}
+                normalized_type, {"config": details_config}
             )
             for field, value in fallback_provider_config.items():
                 provider_config.setdefault(field, value)
@@ -884,7 +950,7 @@ def _normalize_account_features(
     config: MappingConfig,
     context: NormalizationContext,
 ) -> Dict[str, Any]:
-    """Normalize account features to v2 format (singleton)."""
+    """Normalize account features to v2 format (singleton). Aligns with provider schema."""
     result: Dict[str, Any] = {}
     if features.advanced_ci is not None:
         result["advanced_ci"] = features.advanced_ci
@@ -892,6 +958,14 @@ def _normalize_account_features(
         result["partial_parsing"] = features.partial_parsing
     if features.repo_caching is not None:
         result["repo_caching"] = features.repo_caching
+    if features.ai_features is not None:
+        result["ai_features"] = features.ai_features
+    if features.catalog_ingestion is not None:
+        result["catalog_ingestion"] = features.catalog_ingestion
+    if features.explorer_account_ui is not None:
+        result["explorer_account_ui"] = features.explorer_account_ui
+    if features.fusion_migration_permissions is not None:
+        result["fusion_migration_permissions"] = features.fusion_migration_permissions
     return result
 
 
@@ -1145,6 +1219,10 @@ def _normalize_projects(
         # Normalize extended attributes
         if config.is_resource_included("extended_attributes"):
             project_data["extended_attributes"] = _normalize_extended_attributes(project, config, context)
+
+        # Normalize profiles
+        if config.is_resource_included("profiles"):
+            project_data["profiles"] = _normalize_profiles(project, config, context)
         
         # Normalize jobs
         if config.is_resource_included("jobs"):
@@ -1198,6 +1276,11 @@ def _normalize_environments(
     result = []
     exclude_keys = config.get_exclude_keys("environments")
     exclude_ids = config.get_exclude_ids("environments")
+    profile_key_by_id = {
+        profile.id: profile.key
+        for profile in getattr(project, "profiles", []) or []
+        if getattr(profile, "id", None) is not None
+    }
     
     for env in project.environments:
         element_id = _get_element_id(env)
@@ -1253,6 +1336,11 @@ def _normalize_environments(
         env_data["enable_model_query_history"] = env.enable_model_query_history
         env_data["deployment_type"] = env.deployment_type or None
         env_data["extended_attributes_key"] = getattr(env, "extended_attributes_key", None) or None
+        env_data["primary_profile_key"] = (
+            getattr(env, "primary_profile_key", None)
+            or profile_key_by_id.get(getattr(env, "primary_profile_id", None))
+            or None
+        )
         if not config.should_strip_source_ids() and env.id:
             env_data["id"] = env.id
         
@@ -1284,6 +1372,98 @@ def _normalize_extended_attributes(
         if getattr(ext, "protected", False):
             item["protected"] = True
         result.append(item)
+    return result
+
+
+def _normalize_profiles(
+    project: Project,
+    config: MappingConfig,
+    context: NormalizationContext,
+) -> List[Dict[str, Any]]:
+    """Normalize profiles for a project."""
+    result = []
+    exclude_keys = config.get_exclude_keys("profiles")
+    exclude_ids = config.get_exclude_ids("profiles")
+    env_keys = {env.key for env in getattr(project, "environments", []) or [] if getattr(env, "key", None)}
+    env_key_by_credential_id = {
+        getattr(getattr(env, "credential", None), "id", None): getattr(env, "key", None)
+        for env in getattr(project, "environments", []) or []
+        if getattr(getattr(env, "credential", None), "id", None) and getattr(env, "key", None)
+    }
+    credential_key_mismatches: list[dict[str, Any]] = []
+
+    for prof in getattr(project, "profiles", []) or []:
+        element_id = _get_element_id(prof)
+        if prof.key in exclude_keys:
+            context.add_exclusion("profile", prof.key, "Excluded by key filter", element_id)
+            continue
+        if element_id and element_id in exclude_ids:
+            context.add_exclusion("profile", prof.key, "Excluded by element ID filter", element_id)
+            continue
+        if not _should_include(prof, config):
+            context.add_exclusion("profile", prof.key, "Inactive", element_id)
+            continue
+
+        if element_id:
+            context.register_element(element_id, f"{project.key}_{prof.key}")
+
+        connection_key = context.resolve_connection_key(prof.connection_key) or prof.connection_key
+        matched_env_key = env_key_by_credential_id.get(getattr(prof, "credentials_id", None))
+        profile_credentials_key = prof.credentials_key
+        if (
+            profile_credentials_key
+            and profile_credentials_key not in env_keys
+            and getattr(prof, "credentials_id", None)
+        ):
+            credential_key_mismatches.append(
+                {
+                    "profile_key": prof.key,
+                    "credentials_key": profile_credentials_key,
+                    "credentials_id": prof.credentials_id,
+                    "matched_env_key": matched_env_key,
+                }
+            )
+
+        profile_data: Dict[str, Any] = {
+            "key": prof.key,
+            "connection_key": connection_key,
+            "credentials_key": prof.credentials_key,
+        }
+        if prof.extended_attributes_key:
+            profile_data["extended_attributes_key"] = prof.extended_attributes_key
+        if getattr(prof, "credential", None) is not None and matched_env_key is None:
+            profile_data["credential"] = _build_credential_dict(
+                prof.credential,
+                include_source_id=not config.should_strip_source_ids(),
+            )
+        if not config.should_strip_source_ids():
+            if prof.id:
+                profile_data["id"] = prof.id
+            if prof.connection_id:
+                profile_data["connection_id"] = prof.connection_id
+            if prof.credentials_id:
+                profile_data["credentials_id"] = prof.credentials_id
+            if prof.extended_attributes_id:
+                profile_data["extended_attributes_id"] = prof.extended_attributes_id
+
+        result.append(profile_data)
+
+    # region agent log
+    if credential_key_mismatches:
+        _dbg_a7dab6(
+            "H8",
+            "normalizer/core.py:_normalize_profiles",
+            "profile credential keys missing matching environment keys",
+            {
+                "project_key": project.key,
+                "environment_key_count": len(env_keys),
+                "profile_count": len(getattr(project, "profiles", []) or []),
+                "mismatch_count": len(credential_key_mismatches),
+                "mismatches": credential_key_mismatches[:20],
+            },
+        )
+    # endregion
+
     return result
 
 

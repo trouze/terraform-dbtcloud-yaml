@@ -49,6 +49,21 @@ locals {
       dbtcloud_extended_attributes.protected_extended_attrs["${item.project_key}_${item.ext_key}"].extended_attributes_id
     }
   )
+
+  source_extended_attributes_id_to_target_id = merge(
+    {
+      for item in local.unprotected_extended_attributes :
+      tostring(try(item.ext_data.id, null)) =>
+      dbtcloud_extended_attributes.extended_attrs["${item.project_key}_${item.ext_key}"].extended_attributes_id
+      if try(item.ext_data.id, null) != null
+    },
+    {
+      for item in local.protected_extended_attributes :
+      tostring(try(item.ext_data.id, null)) =>
+      dbtcloud_extended_attributes.protected_extended_attrs["${item.project_key}_${item.ext_key}"].extended_attributes_id
+      if try(item.ext_data.id, null) != null
+    }
+  )
 }
 
 #############################################

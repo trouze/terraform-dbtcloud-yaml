@@ -1,7 +1,7 @@
 ---
 name: profile-resource-rollout
 overview: |
-  Update the stale provider branch to current `origin/main` while preserving custom fixes, then deliver end-to-end support for `dbtcloud_profile` and all other identified missing provider resource types using a plan-execute-judge multi-agent swarm: a central orchestrator agent owns the dependency matrix, merge sequencing, and per-stream judging while independent subagent/worktree streams implement one resource group each under strict TDD.
+  Deliver end-to-end support for `dbtcloud_profile` on the current `importer` branch using the already-merged S3-S9 work as the canonical base. Treat the stale profile worktree as read-only reference material only. Validation for this S2 pass is restricted to the migration web app on `PS Sandbox`, with Terraform limited to generate/plan flows only (no apply or destroy).
 todos:
   - id: S0-bootstrap
     content: "S0 (Orchestrator): Bootstrap control branch, worktree registry, resource matrix doc, and per-stream judge criteria."
@@ -11,7 +11,7 @@ todos:
     status: completed
   - id: S2-profile
     content: "S2 (Profile): TDD-first full-stack profile support — fetch/model/schema/maps/UI/adopt/protect/destroy/explore."
-    status: pending
+    status: completed
   - id: S3-quick-wins
     content: "S3 (Quick Wins): Close JCTG + JEVO map gaps across protection/hierarchy/UI maps."
     status: completed
@@ -162,10 +162,28 @@ go test ./...                  # must pass (skip acceptance tests)
 
 ### S2 — Profile (Foundation Stream)
 
-**Worktree:** `worktrees/feature/profile`
+**Execution mode:** implement directly on `importer` (Option A)
+**Reference only:** `worktrees/feature/profile`
 **Type code:** `PRF`
 **Provider resource:** `dbtcloud_profile` (import format: `project_id:profile_id`)
 **Scope:** project-scoped resource — parent is `PRJ`, depth 2
+
+**Validation guardrails for this session:**
+
+- Use the stale `worktrees/feature/profile` branch only as a donor for snippets or schema ideas; do not revive it as the implementation branch.
+- Browser validation must use the migration web app with the `PS Sandbox` project selected before any fetch/scope/match/deploy checks.
+- Terraform validation for S2 is **plan-only**: generate files, run validation/plan, inspect output. Do **not** run apply or destroy.
+
+**Implementation status (2026-03-09):**
+
+- Core S2 profile support is now implemented directly on `importer` across models, fetcher, normalizer, schema, Terraform modules, adoption/protection maps, and resource metadata plumbing.
+- Remaining PRF UI/reporting gaps identified during the crash recovery pass were closed in scope/mapping filters, fetch counts, progress tree, entity table, target matcher, deploy/destroy labels, YAML stats, and report outputs.
+- Validation completed under the `PS Sandbox` rule with Terraform kept non-destructive:
+  - targeted regression suite passed (`212 passed`)
+  - browser verification confirmed live source fetch/profile counts (`Profiles: 125`) and scope selection summary (`Profile (PRF): 125/125`)
+  - no `terraform apply` or destroy actions were executed
+- Browser validation exposed one last deploy-summary omission for `Profiles`; that summary path was patched immediately and locked with a contract test. Final deploy-summary math was also confirmed against the generated PS Sandbox YAML (`profiles=125`, total resources `893`).
+- If the app session reloads or the server restarts, re-select `PS Sandbox` and re-load credentials before continuing.
 
 **Dependency model:**
 
@@ -173,6 +191,7 @@ go test ./...                  # must pass (skip acceptance tests)
 - `PRF` depends on `CRD` (credentials_id, required)
 - `PRF` depends on `EXTATTR` (extended_attributes_id, optional, linked)
 - `ENV.primary_profile_id` references `PRF` (deployment environments only)
+- Preserve existing environment connection/credential normalization so Terraform can still materialize credential resources, but suppress `connection_id` / `credential_id` / `extended_attributes_id` on the `dbtcloud_environment` resource whenever `primary_profile_id` is set.
 
 **TDD — write failing tests first, then implement:**
 
@@ -184,6 +203,7 @@ Red phase tests to write:
 - `importer/web/tests/test_resource_metadata_contract.py` — `test_prf_in_all_maps`
 - `importer/web/tests/test_match_grid.py` — `test_prf_type_filter_visible`
 - `importer/web/tests/test_adoption_imports.py` — `test_prf_import_address`
+- `test/schema_validation_test.py` or equivalent schema gate — profile YAML accepted with `projects[].profiles[]` and `environments[].primary_profile_key`
 
 **Files to modify (in PRD 41.02 checklist order):**
 
@@ -192,8 +212,10 @@ Red phase tests to write:
 - [importer/element_ids.py](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/element_ids.py) — Register `PRF` with `parent_project_id`, `connection_id`, `extended_attributes_key`
 - [schemas/v2.json](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/schemas/v2.json) — Add `Profile` `$def`; add `profiles` array to project schema
 - [importer/normalizer/core.py](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/normalizer/core.py) — Normalize profiles per-project
-- [importer/yaml_converter.py](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/yaml_converter.py) — Read/write profiles
+- [importer/yaml_converter.py](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/yaml_converter.py) — Confirm no additional secret-loading path is needed when profiles reuse environment credential resources
 - [modules/projects_v2/](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/modules/projects_v2/) — Add `profiles.tf` with protected/unprotected blocks
+- [modules/projects_v2/environments.tf](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/modules/projects_v2/environments.tf) — Add `primary_profile_id` resolution and suppress direct connection/credential/extended-attributes args when profile-backed
+- [modules/projects_v2/outputs.tf](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/modules/projects_v2/outputs.tf) — Expose `profile_ids`
 - [importer/web/utils/terraform_state_reader.py](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/utils/terraform_state_reader.py) — `TF_TYPE_TO_CODE["dbtcloud_profile"] = "PRF"`
 - [importer/web/utils/protection_manager.py](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/utils/protection_manager.py) — `RESOURCE_TYPE_MAP["PRF"]`, `EXTENDED_RESOURCE_TYPE_MAP["PRF"]`, `TYPE_LABELS["PRF"]`, all 5 secondary maps
 - [importer/web/components/hierarchy_index.py](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/components/hierarchy_index.py) — `ENTITY_PARENT_TYPES["PRF"] = ["PRJ"]`, `TYPE_DEPTH["PRF"] = 2`, `TYPE_SORT_ORDER["PRF"] = 26`, `get_linked_entities` for PRF/EXTATTR
@@ -203,9 +225,15 @@ Red phase tests to write:
 - [importer/web/pages/scope.py](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/scope.py) — Same 5 maps
 - [importer/web/pages/deploy.py](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/deploy.py) — 3 `type_labels` dicts
 - [importer/web/pages/fetch_source.py](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/fetch_source.py) — `resource_counts["profiles"]`, terminal summary line
+- [importer/web/pages/fetch_target.py](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/fetch_target.py) — `resource_counts["profiles"]`, terminal summary line
+- [importer/web/components/progress_tree.py](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/components/progress_tree.py) — project resource label for `profiles`
 - [importer/web/pages/explore_source.py](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/explore_source.py) — Ensure `apply_element_ids` path includes PRF
 - [importer/web/pages/explore_target.py](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/explore_target.py) — Same pattern
 - [importer/web/pages/destroy.py](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/pages/destroy.py) and removal_management.py — `type_labels["PRF"]`, tf_type_map
+- [importer/web/components/entity_table.py](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/components/entity_table.py) — PRF grid extraction and default columns
+- [importer/reporter.py](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/reporter.py) — profile counts + detail sections
+- [importer/web/components/match_grid.py](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/components/match_grid.py) — type filter label for `PRF`
+- [importer/web/components/target_matcher.py](file:///Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/importer/web/components/target_matcher.py) — label for `PRF`
 - `test/fixtures/` and `importer/web/tests/fixtures/` — Add PRF YAML, state, protection-intent fixtures
 
 **Test command:**
@@ -324,6 +352,7 @@ Orchestrator evaluates each stream against this rubric before approving merge.
 - `primary_profile_id` on ENV never emitted alongside `connection_id`/`credential_id`/`extended_attributes_id`
 - Browser snapshot confirms profile appears in match grid type filter
 - `profiles.tf` module exists with protected/unprotected blocks
+- Browser validation stays on `PS Sandbox` and reaches `terraform plan` only; no apply/destroy evidence is accepted for S2 completion
 
 **Judge verdict output:**
 

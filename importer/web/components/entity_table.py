@@ -251,8 +251,9 @@ def _load_full_data_for_type(state: AppState, type_code: str, is_target: bool = 
         for project in snapshot.get("projects", []):
             # Exclude nested arrays for cleaner export
             proj_data = {k: v for k, v in project.items() 
-                        if k not in ("environments", "jobs", "environment_variables")}
+                        if k not in ("environments", "profiles", "jobs", "environment_variables")}
             proj_data["environment_count"] = len(project.get("environments", []))
+            proj_data["profile_count"] = len(project.get("profiles", []))
             proj_data["job_count"] = len(project.get("jobs", []))
             proj_data["env_var_count"] = len(project.get("environment_variables", []))
             results.append(proj_data)
@@ -265,6 +266,15 @@ def _load_full_data_for_type(state: AppState, type_code: str, is_target: bool = 
                 env["project_name"] = project_name
                 env["project_key"] = project_key
                 results.append(env)
+
+    elif type_code == "PRF":
+        for project in snapshot.get("projects", []):
+            project_name = project.get("name")
+            project_key = project.get("key")
+            for profile in project.get("profiles", []):
+                profile["project_name"] = project_name
+                profile["project_key"] = project_key
+                results.append(profile)
     
     elif type_code == "JOB":
         for project in snapshot.get("projects", []):
@@ -390,9 +400,10 @@ RESOURCE_TYPES = {
     "PLE": {"name": "PrivateLink", "code": "PRVLNK", "icon": "lock", "color": "#14B8A6", "sort_order": "16"},
     "PRJ": {"name": "Project", "code": "PRJCT", "icon": "folder", "color": "#F59E0B", "sort_order": "30"},
     "ENV": {"name": "Environment", "code": "ENV", "icon": "layers", "color": "#06B6D4", "sort_order": "40"},
-    "VAR": {"name": "Env Variable", "code": "ENVVAR", "icon": "code", "color": "#A855F7", "sort_order": "41"},
+    "PRF": {"name": "Profile", "code": "PRF", "icon": "badge", "color": "#0891B2", "sort_order": "41"},
+    "VAR": {"name": "Env Variable", "code": "ENVVAR", "icon": "code", "color": "#A855F7", "sort_order": "42"},
     "JOB": {"name": "Job", "code": "JOB", "icon": "schedule", "color": "#EF4444", "sort_order": "50"},
-    "EXTATTR": {"name": "Extended Attributes", "code": "EXTATTR", "icon": "tune", "color": "#7C3AED", "sort_order": "42"},
+    "EXTATTR": {"name": "Extended Attributes", "code": "EXTATTR", "icon": "tune", "color": "#7C3AED", "sort_order": "43"},
     "ACFT": {"name": "Account Features", "code": "ACFT", "icon": "settings", "color": "#6366F1", "sort_order": "05"},
     "IPRST": {"name": "IP Restrictions", "code": "IPRST", "icon": "security", "color": "#DC2626", "sort_order": "06"},
     "OAUTH": {"name": "OAuth Configuration", "code": "OAUTH", "icon": "vpn_key", "color": "#D97706", "sort_order": "07"},
@@ -416,6 +427,7 @@ DEFAULT_COLUMNS_BY_TYPE = {
     "PLE": ["line_item_number", "name", "id", "type", "state", "cidr_range"],
     "PRJ": ["line_item_number", "name", "id", "state", "created_at", "description"],
     "ENV": ["line_item_number", "name", "id", "type", "dbt_version", "project_name", "deployment_type"],
+    "PRF": ["line_item_number", "name", "id", "project_name", "connection_key", "credentials_key", "extended_attributes_key", "protected"],
     "VAR": ["line_item_number", "name", "project_name", "type", "display_value"],
     "JOB": ["line_item_number", "name", "id", "state", "project_name", "environment_id", "schedule_type", "triggers"],
     "EXTATTR": ["line_item_number", "name", "id", "state", "project_name", "key", "protected"],
@@ -1098,6 +1110,7 @@ SUMMARY_FIELDS = {
     "WEB": ["id", "name", "active", "http_status_code", "event_types"],
     "PLE": ["id", "name", "type", "state", "cidr_range"],
     "EXTATTR": ["id", "key", "project_id", "state", "protected"],
+    "PRF": ["id", "key", "project_id", "connection_id", "credentials_id", "extended_attributes_id", "protected"],
 }
 
 

@@ -44,6 +44,7 @@ def generate_summary_report(snapshot: AccountSnapshot) -> str:
 
     # Calculate aggregated counts across all projects
     total_envs = sum(len(p.environments) for p in snapshot.projects)
+    total_profiles = sum(len(p.profiles) for p in snapshot.projects)
     total_jobs = sum(len(p.jobs) for p in snapshot.projects)
     total_ext_attr = sum(len(p.extended_attributes) for p in snapshot.projects)
     total_env_vars = 0
@@ -68,6 +69,7 @@ def generate_summary_report(snapshot: AccountSnapshot) -> str:
             "### Aggregate Counts",
             "",
             f"- **Total Environments:** {total_envs}",
+            f"- **Total Profiles:** {total_profiles}",
             f"- **Total Jobs:** {total_jobs}",
             f"- **Total Extended Attributes (EXTATTR):** {total_ext_attr}",
             f"- **Total Environment Variables:** {total_env_vars}",
@@ -86,6 +88,7 @@ def generate_summary_report(snapshot: AccountSnapshot) -> str:
     # Per-project breakdown
     for project in sorted(snapshot.projects, key=lambda p: p.name):
         project_envs = len(project.environments)
+        project_profiles = len(project.profiles)
         project_jobs = len(project.jobs)
         project_ext_attr = len(project.extended_attributes)
         
@@ -108,6 +111,7 @@ def generate_summary_report(snapshot: AccountSnapshot) -> str:
                 f"### {project.name} (PRJ ID: {project.id})",
                 "",
                 f"- **Environments:** {project_envs}",
+                f"- **Profiles:** {project_profiles}",
                 f"- **Jobs:** {project_jobs}",
                 f"- **Extended Attributes (EXTATTR):** {project_ext_attr}",
                 f"- **Environment Variables:** {project_vars}",
@@ -389,6 +393,24 @@ def generate_detailed_report(snapshot: AccountSnapshot) -> str:
                 ext_attrs = getattr(eat, "extended_attributes", {}) or {}
                 payload_keys = ", ".join(sorted(ext_attrs.keys())) if isinstance(ext_attrs, dict) else "—"
                 lines.append(f"| `{eat_key}` | {eat_id} | {eat_state} | {payload_keys} |")
+            lines.append("")
+            lines.append("")
+
+        # Profiles
+        if project.profiles:
+            lines.append("#### Profiles")
+            lines.append("")
+            lines.append("| Key | ID | Connection Key | Credentials Key | Extended Attributes Key |")
+            lines.append("|-----|----|----------------|-----------------|-------------------------|")
+            for profile in project.profiles:
+                profile_key = getattr(profile, "key", "N/A")
+                profile_id = getattr(profile, "id", "N/A")
+                connection_key = getattr(profile, "connection_key", "N/A")
+                credentials_key = getattr(profile, "credentials_key", "N/A")
+                extattr_key = getattr(profile, "extended_attributes_key", None) or "—"
+                lines.append(
+                    f"| `{profile_key}` | {profile_id} | `{connection_key}` | `{credentials_key}` | `{extattr_key}` |"
+                )
             lines.append("")
             lines.append("")
 

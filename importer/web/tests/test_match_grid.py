@@ -44,6 +44,10 @@ class TestMatchGridTypeLabels:
         for code in ("JEVO", "JCTG", "PREP"):
             assert code in MATCH_GRID_TYPE_LABELS
 
+    def test_type_labels_include_profiles(self):
+        """Type filter includes profiles after PRF rollout."""
+        assert MATCH_GRID_TYPE_LABELS["PRF"] == "Profiles"
+
 
 # --- build_grid_data with removal_keys (unadopt on load) ---
 

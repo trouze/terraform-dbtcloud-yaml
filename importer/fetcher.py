@@ -32,6 +32,7 @@ from .models import (
     Notification,
     OAuthConfiguration,
     PrivateLinkEndpoint,
+    Profile,
     Project,
     Repository,
     SemanticLayerConfiguration,
@@ -47,6 +48,111 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 # Transient network errors that should trigger retry
 TRANSIENT_ERRORS: Tuple[type, ...] = (OSError, ConnectionError, TimeoutError)
+
+
+def _dbg_a7dab6(hypothesis_id: str, location: str, message: str, data: dict[str, Any]) -> None:
+    payload = {
+        "sessionId": "a7dab6",
+        "runId": "verify",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(
+            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-a7dab6.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    except Exception:
+        return
+
+
+def _merge_project_connections_into_globals(
+    project_items: list[dict[str, Any]],
+    existing_connections: Any,
+) -> dict[str, Connection]:
+    """Promote project-level connection payloads into the global connection list."""
+    # #region agent log
+    _dbg_a7dab6(
+        "A",
+        "fetcher.py:_merge_project_connections_into_globals",
+        "entered project connection merge helper",
+        {
+            "existing_connections_type": type(existing_connections).__name__,
+            "project_count": len(project_items or []),
+            "existing_connection_count": (
+                len(existing_connections)
+                if hasattr(existing_connections, "__len__")
+                else None
+            ),
+            "existing_connection_sample": (
+                list(existing_connections.keys())[:5]
+                if isinstance(existing_connections, dict)
+                else [type(item).__name__ for item in list(existing_connections or [])[:5]]
+            ),
+        },
+    )
+    # #endregion
+    if isinstance(existing_connections, dict):
+        merged = dict(existing_connections)
+    else:
+        merged = {
+            str(conn.key): conn
+            for conn in list(existing_connections or [])
+            if isinstance(conn, Connection) and getattr(conn, "key", None)
+        }
+    seen_ids = {
+        conn.id
+        for conn in merged.values()
+        if isinstance(conn, Connection) and conn.id is not None
+    }
+    seen_keys = {
+        conn.key
+        for conn in merged.values()
+        if isinstance(conn, Connection) and getattr(conn, "key", None)
+    }
+
+    for project in project_items:
+        if not isinstance(project, dict):
+            continue
+        project_metadata = project.get("metadata") or {}
+        project_connection = project.get("connection")
+        if not (project_connection and isinstance(project_connection, dict)):
+            project_connection = project_metadata.get("connection")
+        if not (project_connection and isinstance(project_connection, dict)):
+            continue
+
+        connection_id = project_connection.get("id") or project.get("connection_id") or project_metadata.get("connection_id")
+        connection_key = (
+            project_connection.get("key")
+            or project.get("connection_key")
+            or project_metadata.get("connection_key")
+            or (f"connection_{connection_id}" if connection_id is not None else None)
+        )
+        dedupe_id = int(connection_id) if isinstance(connection_id, int) else None
+        dedupe_key = str(connection_key or "")
+        if (dedupe_id is not None and dedupe_id in seen_ids) or (dedupe_key and dedupe_key in seen_keys):
+            continue
+
+        merged[dedupe_key] = Connection(
+            key=dedupe_key,
+            id=dedupe_id,
+            name=project_connection.get("name"),
+            type=project_connection.get("type"),
+            details=project_connection.get("details") or {},
+        )
+        if dedupe_id is not None:
+            seen_ids.add(dedupe_id)
+        if dedupe_key:
+            seen_keys.add(dedupe_key)
+
+    return merged
+
+
 def _safe_credential_error_summary(exc: Exception) -> str:
     """Return a concise credential fetch error summary for debug logs."""
     text = str(exc).strip()
@@ -273,6 +379,65 @@ def fetch_account_snapshot(
     # Fetch projects list once (sequential) so we can display totals / submit work
     project_items = list(client.paginate("/projects/"))
     total_projects = len(project_items)
+    # #region agent log
+    _dbg_a7dab6(
+        "A",
+        "fetcher.py:fetch_account_snapshot",
+        "pre-merge globals connections shape before project connection promotion",
+        {
+            "project_count": total_projects,
+            "globals_connections_type": type(globals_model.connections).__name__,
+            "globals_connections_count": (
+                len(globals_model.connections)
+                if hasattr(globals_model.connections, "__len__")
+                else None
+            ),
+            "globals_connection_sample": (
+                list(globals_model.connections.keys())[:5]
+                if isinstance(globals_model.connections, dict)
+                else [type(item).__name__ for item in list(globals_model.connections or [])[:5]]
+            ),
+        },
+    )
+    # #endregion
+    globals_model.connections = _merge_project_connections_into_globals(project_items, globals_model.connections)
+    # region agent log
+    _dbg_a7dab6(
+        "H7",
+        "fetcher.py:fetch_account_snapshot",
+        "merged project-level connections into globals connection list",
+        {
+            "project_count": total_projects,
+            "global_connections_after_merge": len(globals_model.connections or []),
+            "connection_key_samples": (
+                list(globals_model.connections.keys())[:30]
+                if isinstance(globals_model.connections, dict)
+                else [conn.key for conn in list(globals_model.connections or [])[:30]]
+            ),
+        },
+    )
+    # endregion
+    # #region agent log
+    _dbg_a7dab6(
+        "E",
+        "fetcher.py:fetch_account_snapshot",
+        "project connection merge completed successfully",
+        {
+            "project_count": total_projects,
+            "globals_connections_type_after_merge": type(globals_model.connections).__name__,
+            "globals_connections_count_after_merge": (
+                len(globals_model.connections)
+                if hasattr(globals_model.connections, "__len__")
+                else None
+            ),
+            "globals_connection_sample_after_merge": (
+                list(globals_model.connections.keys())[:10]
+                if isinstance(globals_model.connections, dict)
+                else []
+            ),
+        },
+    )
+    # #endregion
     # Flat, non-nested concurrency to avoid deadlocks: submit env/jobs/envvars tasks per project,
     # then submit overrides tasks for all jobs, then assemble.
     # All fetch functions include retry logic for transient network errors.
@@ -344,6 +509,20 @@ def fetch_account_snapshot(
             finally:
                 c.close()
         return _fetch_with_retry(f"job_overrides(project={project_id}, job={job_id})", _do_fetch)
+
+    def _fetch_project_profiles_raw(project_id: int) -> list[dict[str, Any]]:
+        def _do_fetch() -> list[dict[str, Any]]:
+            c = DbtCloudClient.from_settings(settings)
+            try:
+                path = f"/projects/{project_id}/profiles/"
+                payload = c.get(path, version="v3")
+                data = payload.get("data")
+                if isinstance(data, list):
+                    return data
+                return []
+            finally:
+                c.close()
+        return _fetch_with_retry(f"profiles(project={project_id})", _do_fetch)
 
     def _fetch_extended_attributes_raw(
         project_id: int,
@@ -424,6 +603,7 @@ def fetch_account_snapshot(
     # Submit all work and assemble projects as they become ready, so the UI can
     # show incremental project/env/job progress even when fetch is parallel.
     env_raw_by_project: dict[int, list[dict[str, Any]]] = {}
+    profiles_raw_by_project: dict[int, list[dict[str, Any]]] = {}
     jobs_raw_by_project: dict[int, list[dict[str, Any]]] = {}
     envvars_raw_by_project: dict[int, dict[str, Any]] = {}
     overrides_raw_by_job: dict[tuple[int, int], dict[str, Any]] = {}
@@ -444,6 +624,7 @@ def fetch_account_snapshot(
         for item in project_items:
             progress.on_resource_item("projects", slug(item.get("name", "project")))
         progress.on_resource_start("environments")
+        progress.on_resource_start("profiles")
         progress.on_resource_start("extended_attributes")
         progress.on_resource_start("credentials")
         progress.on_resource_start("jobs")
@@ -459,12 +640,13 @@ def fetch_account_snapshot(
             project_name_by_id[project_id] = item.get("name", "")
             project_key_by_id[project_id] = slug(item.get("name", f"project_{project_id}"))
             project_done_flags[project_id] = {
-                "env": False, "jobs": False, "envvars": False,
+                "env": False, "profiles": False, "jobs": False, "envvars": False,
                 "overrides": 0, "overrides_done": 0,
                 "creds": 0, "creds_done": 0,
             }
 
             pending[ex.submit(_fetch_project_environments_raw, project_id)] = ("env", project_id, None)
+            pending[ex.submit(_fetch_project_profiles_raw, project_id)] = ("profiles", project_id, None)
             pending[ex.submit(_fetch_project_jobs_raw, project_id)] = ("jobs", project_id, None)
             pending[ex.submit(_fetch_project_env_vars_raw, project_id)] = ("envvars", project_id, None)
 
@@ -472,6 +654,7 @@ def fetch_account_snapshot(
 
         completed_projects = 0
         env_total = 0
+        profiles_total = 0
         extended_attributes_total = 0
         creds_total = 0
         jobs_total = 0
@@ -573,8 +756,29 @@ def fetch_account_snapshot(
                                     "environment_name": env_item.get("name"),
                                     "project_id": pid,
                                 }
-                            project_done_flags[pid]["creds"] += 1
-                            pending[ex.submit(_fetch_credential_details_raw, pid, cred_id, conn_type)] = ("cred", pid, cred_id)
+                                project_done_flags[pid]["creds"] += 1
+                                pending[ex.submit(_fetch_credential_details_raw, pid, cred_id, conn_type)] = ("cred", pid, cred_id)
+                elif kind == "profiles":
+                    profiles_raw_by_project[pid] = result if isinstance(result, list) else []
+                    project_done_flags[pid]["profiles"] = True
+                    if progress:
+                        profiles_total += len(profiles_raw_by_project[pid])
+                        for _ in range(len(profiles_raw_by_project[pid])):
+                            progress.on_resource_item("profiles", f"{pid}")
+                    for prof_item in profiles_raw_by_project[pid]:
+                        cred_id = prof_item.get("credentials_id")
+                        if cred_id and isinstance(cred_id, int) and cred_id != 0:
+                            conn_id = prof_item.get("connection_id")
+                            conn_type = _get_connection_type(globals_model.connections, conn_id)
+                            cred_key = (pid, cred_id)
+                            if cred_key not in credential_context_by_cred:
+                                credential_context_by_cred[cred_key] = {
+                                    "profile_id": prof_item.get("id"),
+                                    "profile_key": prof_item.get("key"),
+                                    "project_id": pid,
+                                }
+                                project_done_flags[pid]["creds"] += 1
+                                pending[ex.submit(_fetch_credential_details_raw, pid, cred_id, conn_type)] = ("cred", pid, cred_id)
                 elif kind == "jobs":
                     jobs_raw_by_project[pid] = result
                     project_done_flags[pid]["jobs"] = True
@@ -628,6 +832,7 @@ def fetch_account_snapshot(
                 if (
                     pid not in assembled_by_id
                     and flags["env"]
+                    and flags["profiles"]
                     and flags["jobs"]
                     and flags["envvars"]
                     and flags["overrides_done"] >= flags["overrides"]
@@ -657,11 +862,16 @@ def fetch_account_snapshot(
                     )
                     project_id = int(project.id or 0)
 
-                    # Extended attributes: collect unique IDs from environments and fetch in parallel
+                    # Extended attributes: collect unique IDs from environments and profiles and fetch in parallel
                     env_items = env_raw_by_project.get(project_id, [])
+                    profile_items = profiles_raw_by_project.get(project_id, [])
                     ext_attr_ids = set()
                     for env_item in env_items:
                         eid = env_item.get("extended_attributes_id")
+                        if isinstance(eid, int) and eid != 0:
+                            ext_attr_ids.add(eid)
+                    for prof_item in profile_items:
+                        eid = prof_item.get("extended_attributes_id")
                         if isinstance(eid, int) and eid != 0:
                             ext_attr_ids.add(eid)
                     extended_attributes_list: list[ExtendedAttributes] = []
@@ -710,8 +920,15 @@ def fetch_account_snapshot(
                             )
                     project.extended_attributes = extended_attributes_list
 
+                    profile_key_by_id = {
+                        prof_item.get("id"): prof_item.get("key", f"profile_{prof_item.get('id', '')}")
+                        for prof_item in profile_items
+                        if prof_item.get("id")
+                    }
+
                     # Environments
                     environments: list[Environment] = []
+                    credential_key_by_source_id: dict[int, str] = {}
                     for env_item in env_items:
                         env_key = slug(env_item["name"])
                         connection_id = env_item.get("connection_id")
@@ -724,6 +941,7 @@ def fetch_account_snapshot(
                         if credentials_id:
                             # Credentials were fetched in parallel when environments were received
                             credential_details = credentials_raw_by_cred.get((project_id, credentials_id), {})
+                            credential_key_by_source_id.setdefault(credentials_id, env_key)
                         
                         # Build credential with all available details
                         credential = _build_credential_from_api_data(
@@ -732,6 +950,9 @@ def fetch_account_snapshot(
 
                         ext_attr_id = env_item.get("extended_attributes_id")
                         ext_attr_key = ext_attr_id_to_key.get(ext_attr_id) if isinstance(ext_attr_id, int) else None
+                        primary_profile_id = env_item.get("primary_profile_id")
+                        if primary_profile_id is None and isinstance(env_item.get("primary_profile"), dict):
+                            primary_profile_id = env_item["primary_profile"].get("id")
                         
                         environments.append(
                             Environment(
@@ -744,6 +965,8 @@ def fetch_account_snapshot(
                                 credential=credential,
                                 extended_attributes_key=ext_attr_key,
                                 extended_attributes_id=ext_attr_id if isinstance(ext_attr_id, int) and ext_attr_id else None,
+                                primary_profile_key=profile_key_by_id.get(primary_profile_id) if isinstance(primary_profile_id, int) else None,
+                                primary_profile_id=primary_profile_id if isinstance(primary_profile_id, int) and primary_profile_id else None,
                                 dbt_version=env_item.get("dbt_version"),
                                 custom_branch=env_item.get("custom_branch"),
                                 enable_model_query_history=env_item.get("enable_model_query_history"),
@@ -829,6 +1052,75 @@ def fetch_account_snapshot(
                             )
                     project.environment_variables = env_vars
 
+                    profiles: list[Profile] = []
+                    standalone_profile_credentials: list[dict[str, Any]] = []
+                    for prof_item in profile_items:
+                        profile_id = prof_item.get("id")
+                        connection_id = prof_item.get("connection_id")
+                        credentials_id = prof_item.get("credentials_id")
+                        extended_attributes_id = prof_item.get("extended_attributes_id")
+                        profile_key = prof_item.get("key", f"profile_{profile_id or ''}")
+                        resolved_credentials_key = (
+                            credential_key_by_source_id.get(credentials_id, f"cred_{credentials_id}")
+                            if isinstance(credentials_id, int) and credentials_id
+                            else ""
+                        )
+                        connection_type = _get_connection_type(globals_model.connections, connection_id)
+                        credential_details = (
+                            credentials_raw_by_cred.get((project_id, credentials_id), {}) or {}
+                            if isinstance(credentials_id, int) and credentials_id
+                            else {}
+                        )
+                        profile_credential = (
+                            _build_credential_from_api_data({}, credential_details, connection_type)
+                            if isinstance(credentials_id, int) and credentials_id
+                            else None
+                        )
+                        if (
+                            isinstance(credentials_id, int)
+                            and credentials_id
+                            and credentials_id not in credential_key_by_source_id
+                        ):
+                            standalone_profile_credentials.append(
+                                {
+                                    "profile_key": profile_key,
+                                    "credentials_id": credentials_id,
+                                    "credentials_key": resolved_credentials_key,
+                                    "connection_id": connection_id,
+                                    "credential_type": getattr(profile_credential, "credential_type", None),
+                                    "detail_keys": sorted(list(credential_details.keys()))[:12],
+                                }
+                            )
+                        profiles.append(
+                            Profile(
+                                key=profile_key,
+                                id=profile_id,
+                                connection_key=_find_connection_key(globals_model.connections, connection_id) or "",
+                                connection_id=connection_id if isinstance(connection_id, int) and connection_id else None,
+                                credentials_key=resolved_credentials_key,
+                                credentials_id=credentials_id if isinstance(credentials_id, int) and credentials_id else None,
+                                credential=profile_credential,
+                                extended_attributes_key=ext_attr_id_to_key.get(extended_attributes_id) if isinstance(extended_attributes_id, int) else None,
+                                extended_attributes_id=extended_attributes_id if isinstance(extended_attributes_id, int) and extended_attributes_id else None,
+                                metadata=prof_item,
+                            )
+                        )
+                    project.profiles = profiles
+                    # #region agent log
+                    if standalone_profile_credentials:
+                        _dbg_a7dab6(
+                            "H10",
+                            "fetcher.py:fetch_account_snapshot",
+                            "standalone profile credentials assembled without environment mapping",
+                            {
+                                "project_id": project_id,
+                                "project_key": project.key,
+                                "count": len(standalone_profile_credentials),
+                                "credentials": standalone_profile_credentials[:20],
+                            },
+                        )
+                    # #endregion
+
                     project.lineage_integrations = list(
                         _fetch_lineage_integrations(client, project_id, progress=None)
                     )
@@ -847,6 +1139,7 @@ def fetch_account_snapshot(
         # Mark these resources done after all projects completed
         if progress:
             progress.on_resource_done("environments", env_total)
+            progress.on_resource_done("profiles", profiles_total)
             progress.on_resource_done("extended_attributes", extended_attributes_total)
             progress.on_resource_done("credentials", creds_total)
             progress.on_resource_done("jobs", jobs_total)
@@ -861,6 +1154,7 @@ def fetch_account_snapshot(
     return AccountSnapshot(
         account_id=client.settings.account_id,
         account_name=account_name,
+        host_url=getattr(client.settings, "host_url", None),
         globals=globals_model,
         projects=projects,
         fetch_warnings=credential_fetch_warnings,
@@ -1349,18 +1643,31 @@ def _fetch_account_features(
     client: DbtCloudClient,
     progress: Optional[FetchProgressCallback] = None,
 ) -> Optional[AccountFeatures]:
-    """Fetch account feature flags (private API). Returns None if unavailable."""
+    """
+    Fetch account feature flags from the same endpoint as the Terraform provider.
+    Uses GET {host}/api/private/accounts/{account_id}/features/. Returns None if
+    the private API is not available (e.g. 403/404); fails gracefully until a
+    public API exists.
+    """
     log.info("Fetching account features (private API)")
     if progress:
         progress.on_resource_start("account_features")
     try:
-        resp = client.get(f"/private/accounts/{client.settings.account_id}/features/")
+        path = f"/private/accounts/{client.settings.account_id}/features/"
+        resp = client.get_at_api_root(path)
         data = resp.get("data", resp) if isinstance(resp, dict) else {}
+        if not isinstance(data, dict):
+            data = {}
+        # Provider/API use kebab-case and ai_features; map to our model
         features = AccountFeatures(
-            advanced_ci=data.get("advanced_ci"),
-            partial_parsing=data.get("partial_parsing"),
-            repo_caching=data.get("repo_caching"),
-            metadata=data if isinstance(data, dict) else {},
+            advanced_ci=data.get("advanced-ci"),
+            partial_parsing=data.get("partial-parsing"),
+            repo_caching=data.get("repo-caching"),
+            ai_features=data.get("ai_features"),
+            catalog_ingestion=data.get("catalog-ingestion"),
+            explorer_account_ui=data.get("explorer-account-ui"),
+            fusion_migration_permissions=data.get("fusion-migration-permissions"),
+            metadata=data,
         )
         if progress:
             progress.on_resource_done("account_features", 1)

@@ -26,6 +26,7 @@ RESOURCE_TYPES = {
     "PLE": {"name": "PrivateLink", "code": "PRVLNK", "icon": "lock", "color": "#14B8A6"},
     "PRJ": {"name": "Project", "code": "PRJCT", "icon": "folder", "color": "#F59E0B"},
     "ENV": {"name": "Environment", "code": "ENV", "icon": "layers", "color": "#06B6D4"},
+    "PRF": {"name": "Profile", "code": "PRF", "icon": "badge", "color": "#0891B2"},
     "EXTATTR": {"name": "Extended Attributes", "code": "EXTATTR", "icon": "tune", "color": "#0EA5E9"},
     "CRD": {"name": "Credential", "code": "CRED", "icon": "vpn_key", "color": "#78716C"},
     "VAR": {"name": "Env Variable", "code": "ENVVAR", "icon": "code", "color": "#A855F7"},
@@ -41,6 +42,27 @@ RESOURCE_TYPES = {
     "SLCFG": {"name": "Semantic Layer Config", "code": "SLCFG", "icon": "layers", "color": "#EC4899"},
     "SLSTM": {"name": "SL Credential Mapping", "code": "SLSTM", "icon": "link", "color": "#F43F5E"},
 }
+
+
+def _dbg_a7dab6(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    payload = {
+        "sessionId": "a7dab6",
+        "runId": "pre-fix",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(__import__("time").time() * 1000),
+    }
+    try:
+        with open(
+            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-a7dab6.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    except Exception:
+        return
 
 
 def create_scope_page(
@@ -553,7 +575,7 @@ def _get_filtered_items(report_items: list, type_filter: str) -> list:
 TYPE_CODE_MAP = {
     "ACC": "ACCNT", "CON": "CONN", "REP": "REPO", "TOK": "SRVTKN",
     "GRP": "GRP", "NOT": "NOTIFY", "WEB": "WBHK", "PLE": "PRVLNK",
-    "PRJ": "PRJCT", "ENV": "ENV", "CRD": "CRED", "VAR": "ENVVAR", "JOB": "JOB",
+    "PRJ": "PRJCT", "ENV": "ENV", "PRF": "PRF", "CRD": "CRED", "VAR": "ENVVAR", "JOB": "JOB",
     "JCTG": "JCTG", "JEVO": "JEVO",
     "EXTATTR": "EXTATTR",
     "ACFT": "ACFT", "IPRST": "IPRST", "LNGI": "LNGI", "OAUTH": "OAUTH",
@@ -932,6 +954,7 @@ def _create_action_panel(
                 "PLE": ("privatelink_endpoints", "PrivateLink Endpoints"),
                 "PRJ": ("projects", "Projects"),
                 "ENV": ("environments", "Environments"),
+                "PRF": ("profiles", "Profiles"),
                 "EXTATTR": ("extended_attributes", "Extended Attributes"),
                 "JOB": ("jobs", "Jobs"),
                 "JCTG": ("job_completion_triggers", "Job Triggers"),
@@ -1271,6 +1294,7 @@ def _get_effective_selection(
     selection_manager: SelectionManager,
     report_items: list,
     state: AppState,
+    hierarchy_index: Optional[HierarchyIndex] = None,
 ) -> tuple[set, dict]:
     """Get effective selection after applying scope and resource filters.
     
@@ -1297,7 +1321,7 @@ def _get_effective_selection(
     type_to_filter = {
         "CON": "connections", "REP": "repositories", "TOK": "service_tokens",
         "GRP": "groups", "NOT": "notifications", "WEB": "webhooks",
-        "PLE": "privatelink_endpoints", "PRJ": "projects", "ENV": "environments",
+        "PLE": "privatelink_endpoints", "PRJ": "projects", "ENV": "environments", "PRF": "profiles",
         "EXTATTR": "extended_attributes", "VAR": "environment_variables", "JOB": "jobs",
         "JCTG": "job_completion_triggers", "JEVO": "environment_variable_job_overrides",
         "ACFT": "account_features", "IPRST": "ip_restrictions", "LNGI": "lineage_integrations",
@@ -1310,6 +1334,7 @@ def _get_effective_selection(
         "raw_selected": len(selected_ids),
         "scope_excluded": 0,
         "resource_excluded": 0,
+        "dependency_added": 0,
     }
     
     for mapping_id in selected_ids:
@@ -1348,6 +1373,24 @@ def _get_effective_selection(
         
         effective_ids.add(mapping_id)
     
+    if hierarchy_index is not None and effective_ids:
+        expanded_ids = set(effective_ids)
+        dependency_ids = set()
+        to_visit = list(effective_ids)
+        while to_visit:
+            mapping_id = to_visit.pop()
+            for linked_id in hierarchy_index.get_linked_entities(mapping_id):
+                if linked_id in expanded_ids:
+                    continue
+                linked_entity = hierarchy_index.get_entity(linked_id)
+                if not linked_entity or linked_entity.get("element_type_code") == "ACC":
+                    continue
+                expanded_ids.add(linked_id)
+                dependency_ids.add(linked_id)
+                to_visit.append(linked_id)
+        effective_ids = expanded_ids
+        filter_stats["dependency_added"] = len(dependency_ids)
+    
     filter_stats["effective_count"] = len(effective_ids)
     return effective_ids, filter_stats
 
@@ -1362,8 +1405,12 @@ def _create_summary_stats(
     """Create summary statistics display with dependency warnings."""
     
     # Get effective selection after filters
-    effective_ids, filter_stats = _get_effective_selection(selection_manager, report_items, state)
-    has_filters = filter_stats["scope_excluded"] > 0 or filter_stats["resource_excluded"] > 0
+    effective_ids, filter_stats = _get_effective_selection(selection_manager, report_items, state, hierarchy_index)
+    has_filters = (
+        filter_stats["scope_excluded"] > 0
+        or filter_stats["resource_excluded"] > 0
+        or filter_stats["dependency_added"] > 0
+    )
     
     # Overall count - show raw and filtered if different
     with ui.row().classes("w-full justify-between items-center"):
@@ -1384,6 +1431,8 @@ def _create_summary_stats(
                 ui.label(f"• Scope filter: -{filter_stats['scope_excluded']}")
             if filter_stats["resource_excluded"] > 0:
                 ui.label(f"• Resource filter: -{filter_stats['resource_excluded']}")
+            if filter_stats["dependency_added"] > 0:
+                ui.label(f"• Linked dependencies: +{filter_stats['dependency_added']}")
     
     # Progress bar
     if counts['total'] > 0:
@@ -1483,7 +1532,114 @@ async def _run_normalize(
     
     try:
         # Get effective selection after applying scope and resource filters
-        effective_ids, filter_stats = _get_effective_selection(selection_manager, report_items, state)
+        hierarchy_index = HierarchyIndex(report_items)
+        effective_ids, filter_stats = _get_effective_selection(
+            selection_manager, report_items, state, hierarchy_index
+        )
+
+        item_by_id = {
+            item.get("element_mapping_id"): item
+            for item in report_items
+            if item.get("element_mapping_id")
+        }
+        selected_connections_by_id = {
+            int(item.get("dbt_id"))
+            for mapping_id, item in item_by_id.items()
+            if mapping_id in effective_ids
+            and item.get("element_type_code") == "CON"
+            and item.get("dbt_id") is not None
+        }
+        selected_connections_by_key = {
+            str(item.get("key"))
+            for mapping_id, item in item_by_id.items()
+            if mapping_id in effective_ids
+            and item.get("element_type_code") == "CON"
+            and item.get("key")
+        }
+        selected_extattrs = {
+            str(item.get("key"))
+            for mapping_id, item in item_by_id.items()
+            if mapping_id in effective_ids
+            and item.get("element_type_code") == "EXTATTR"
+            and item.get("key")
+        }
+        selected_credentials_by_id = {
+            int(item.get("dbt_id"))
+            for mapping_id, item in item_by_id.items()
+            if mapping_id in effective_ids
+            and item.get("element_type_code") == "CRD"
+            and item.get("dbt_id") is not None
+        }
+        selected_profiles = []
+        missing_connection = 0
+        missing_extattr = 0
+        missing_credential = 0
+        for mapping_id, item in item_by_id.items():
+            if mapping_id not in effective_ids or item.get("element_type_code") != "PRF":
+                continue
+            project_key = str(item.get("project_key") or "")
+            ext_key = str(item.get("extended_attributes_key") or "")
+            ext_lookup_key = f"{project_key}_{ext_key}" if project_key and ext_key else ""
+            connection_id = item.get("connection_id")
+            credentials_id = item.get("credentials_id")
+            connection_selected = (
+                connection_id in selected_connections_by_id
+                if connection_id is not None
+                else False
+            ) or (str(item.get("connection_key") or "") in selected_connections_by_key)
+            extattr_selected = (ext_lookup_key in selected_extattrs) if ext_lookup_key else True
+            credential_selected = (
+                credentials_id in selected_credentials_by_id
+                if credentials_id is not None
+                else True
+            )
+            if not connection_selected:
+                missing_connection += 1
+            if not extattr_selected:
+                missing_extattr += 1
+            if not credential_selected:
+                missing_credential += 1
+            selected_profiles.append(
+                {
+                    "mapping_id": mapping_id,
+                    "project_key": project_key,
+                    "profile_key": str(item.get("profile_key") or item.get("key") or ""),
+                    "connection_key": str(item.get("connection_key") or ""),
+                    "connection_id": connection_id,
+                    "connection_selected": connection_selected,
+                    "credentials_id": credentials_id,
+                    "credential_selected": credential_selected,
+                    "extended_attributes_key": ext_key,
+                    "extended_attributes_id": item.get("extended_attributes_id"),
+                    "extended_attributes_selected": extattr_selected,
+                }
+            )
+        # region agent log
+        _dbg_a7dab6(
+            "H1",
+            "scope.py:_run_normalize",
+            "effective selection dependency coverage for selected profiles",
+            {
+                "scope_mode": state.map.scope_mode,
+                "raw_selected": len(selection_manager.get_selected_ids()),
+                "effective_selected": len(effective_ids),
+                "filter_stats": filter_stats,
+                "selected_type_counts": {
+                    type_code: sum(
+                        1
+                        for mapping_id in effective_ids
+                        if item_by_id.get(mapping_id, {}).get("element_type_code") == type_code
+                    )
+                    for type_code in ("PRJ", "PRF", "CON", "CRD", "EXTATTR", "ENV")
+                },
+                "selected_profile_count": len(selected_profiles),
+                "missing_connection_count": missing_connection,
+                "missing_credential_count": missing_credential,
+                "missing_extattr_count": missing_extattr,
+                "selected_profiles": selected_profiles[:25],
+            },
+        )
+        # endregion
         
         # Build exclusion map by type (mapping_id -> type_code)
         item_type_map = {
@@ -1606,6 +1762,7 @@ def _do_normalize(
         "PLE": "privatelink_endpoints",
         "PRJ": "projects",
         "ENV": "environments",
+        "PRF": "profiles",
         "EXTATTR": "extended_attributes",
         "JOB": "jobs",
         "JCTG": "job_completion_triggers",

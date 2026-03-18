@@ -56,6 +56,7 @@ TF_TYPE_TO_CODE = {
     "dbtcloud_project_repository": "PREP",
     "dbtcloud_job_completion_trigger": "JCTG",
     "dbtcloud_extended_attributes": "EXTATTR",
+    "dbtcloud_profile": "PRF",
     # Account-level resources
     "dbtcloud_account_features": "ACFT",
     "dbtcloud_ip_restrictions_rule": "IPRST",

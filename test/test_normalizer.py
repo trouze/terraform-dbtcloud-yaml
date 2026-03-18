@@ -178,6 +178,18 @@ def test_minimal_normalization(minimal_snapshot_dict, default_mapping_config):
     assert result["projects"] == []
 
 
+def test_normalization_preserves_account_host_url(minimal_snapshot_dict, default_mapping_config):
+    """Target/account host should flow into normalized YAML when provided."""
+    minimal_snapshot_dict["host_url"] = "https://do446.eu1.dbt.com"
+
+    snapshot = AccountSnapshot(**minimal_snapshot_dict)
+    context = NormalizationContext(default_mapping_config)
+
+    result = normalize_snapshot(snapshot, default_mapping_config, context)
+
+    assert result["account"]["host_url"] == "https://do446.eu1.dbt.com"
+
+
 def test_full_normalization_with_all_resources(full_snapshot_dict, default_mapping_config):
     """Test normalizing a full snapshot with all resource types."""
     snapshot = AccountSnapshot(**full_snapshot_dict)
@@ -224,6 +236,58 @@ def test_full_normalization_with_all_resources(full_snapshot_dict, default_mappi
     var = project["environment_variables"][0]
     assert var["name"] == "DBT_ENV_VAR_TEST"
     assert var["environment_values"]["production"] == "prod_value"
+
+
+def test_profile_normalization_uses_primary_profile_key(full_snapshot_dict, default_mapping_config):
+    """Deployment environments that reference profiles emit profiles + primary_profile_key."""
+    snapshot_dict = json.loads(json.dumps(full_snapshot_dict))
+    project = snapshot_dict["projects"][0]
+    project["profiles"] = [
+        {
+            "key": "prod_profile",
+            "id": 900,
+            "connection_key": "snowflake_prod",
+            "connection_id": 100,
+            "credentials_key": "production",
+            "credentials_id": 901,
+            "credential": {
+                "id": 901,
+                "credential_type": "snowflake",
+                "schema": "analytics",
+                "user": "dbt_user",
+                "auth_type": "password",
+                "num_threads": 4,
+            },
+            "extended_attributes_key": "ext_attrs_1",
+            "extended_attributes_id": 700,
+            "element_mapping_id": "PRF_001",
+            "include_in_conversion": True,
+        }
+    ]
+    project["environments"][0]["primary_profile_id"] = 900
+
+    snapshot = AccountSnapshot(**snapshot_dict)
+    context = NormalizationContext(default_mapping_config)
+
+    result = normalize_snapshot(snapshot, default_mapping_config, context)
+
+    normalized_project = result["projects"][0]
+    assert normalized_project["profiles"] == [
+        {
+            "key": "prod_profile",
+            "connection_key": "snowflake_prod",
+            "credentials_key": "production",
+            "credential": {
+                "schema": "analytics",
+                "credential_type": "snowflake",
+                "user": "dbt_user",
+                "auth_type": "password",
+                "num_threads": 4,
+            },
+            "extended_attributes_key": "ext_attrs_1",
+        }
+    ]
+    assert normalized_project["environments"][0]["primary_profile_key"] == "prod_profile"
 
 
 def test_scope_filtering_specific_projects(full_snapshot_dict):
@@ -529,6 +593,53 @@ def test_bigquery_connection_maps_private_key_id_from_details_config(default_map
     assert provider_config["private_key_id"] == "8efdff6229f48bfc1047e7259e8d0d968ef55a78"
     # private_key is sensitive/masked and should not be propagated into provider_config
     assert "private_key" not in provider_config
+
+
+def test_adapter_connection_maps_field_values_and_normalizes_type(default_mapping_config):
+    """Adapter connections should infer provider type from connection_details.fields."""
+    snapshot_dict = {
+        "account_id": 12345,
+        "account_name": "Test Account",
+        "globals": {
+            "connections": {
+                "connection_203604": {
+                    "key": "connection_203604",
+                    "id": 203604,
+                    "name": "Databricks",
+                    "type": "adapter",
+                    "details": {
+                        "connection_details": {
+                            "fields": {
+                                "type": {"value": "databricks"},
+                                "host": {"value": "dbc-88636ef1-59c4.cloud.databricks.com"},
+                                "http_path": {"value": "/sql/1.0/warehouses/b633a121c93855a0"},
+                                "catalog": {"value": ""},
+                            }
+                        }
+                    },
+                    "include_in_conversion": True,
+                }
+            },
+            "repositories": {},
+            "service_tokens": {},
+            "groups": {},
+            "notifications": {},
+            "webhooks": {},
+            "privatelink_endpoints": {},
+        },
+        "projects": [],
+    }
+
+    snapshot = AccountSnapshot(**snapshot_dict)
+    context = NormalizationContext(default_mapping_config)
+    result = normalize_snapshot(snapshot, default_mapping_config, context)
+
+    connection = result["globals"]["connections"][0]
+    assert connection["type"] == "databricks"
+    provider_config = connection.get("provider_config", {})
+    assert provider_config["host"] == "dbc-88636ef1-59c4.cloud.databricks.com"
+    assert provider_config["http_path"] == "/sql/1.0/warehouses/b633a121c93855a0"
+    assert "catalog" not in provider_config
 
 
 def test_bigquery_mapped_private_key_id_wins_over_module_dummy(default_mapping_config):

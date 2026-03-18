@@ -199,3 +199,18 @@ count reconciliation review:
 
 - Updated fetch thread defaults in `importer/web/state.py` to `100` for both
   source and target fetch state, matching fetch-page runtime/UI defaults.
+
+### 2026-03-09
+**S2 profile rollout completed on importer branch**
+
+- Completed end-to-end `dbtcloud_profile` support on `importer` across:
+  - importer models/fetcher/normalizer/schema
+  - Terraform module wiring in `modules/projects_v2/`
+  - protection/import/state maps
+  - migration UI/reporting surfaces (scope, mapping, fetch counts, progress tree, entity table, target matcher, deploy/destroy labels, YAML summaries)
+- Added focused regression coverage for profile contracts and summary visibility.
+- Validation:
+  - `PYTHONPATH="$PWD" uv run pytest importer/web/tests/test_resource_metadata_contract.py importer/web/tests/test_match_grid.py test/test_normalizer.py test/test_hierarchy_index.py test/schema_validation_test.py importer/web/tests/test_protection_manager.py importer/web/tests/test_adoption_imports.py -q` -> `212 passed`
+  - Browser verification on `PS Sandbox` confirmed live source fetch/profile counts (`Profiles: 125`) and scope selection summary (`Profile (PRF): 125/125`)
+  - Terraform remained non-destructive for this pass: generate/inspect only, no apply/destroy
+- Browser testing exposed one remaining deploy-summary omission for `Profiles`; fixed in `importer/web/pages/deploy.py` and locked with a contract test.

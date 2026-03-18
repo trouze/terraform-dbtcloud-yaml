@@ -61,6 +61,269 @@ def _resolve_tf_dir_for_project(state: AppState, tf_dir: Optional[str]) -> Path:
     return candidate.resolve()
 
 
+def _build_environment_credentials_from_state(state: AppState) -> dict[str, dict[str, Any]]:
+    """Build Terraform environment credential input from workflow state."""
+    from importer.yaml_converter import ENVIRONMENT_CREDENTIAL_FIELDS
+
+    selected_env_ids = set(state.env_credentials.selected_env_ids or set())
+    result: dict[str, dict[str, Any]] = {}
+
+    for env_id, config in state.env_credentials.env_configs.items():
+        if selected_env_ids and env_id not in selected_env_ids:
+            continue
+        if not config.project_id or config.env_type == "development":
+            continue
+
+        raw_values = dict(config.credential_values or {})
+        if not raw_values:
+            continue
+
+        filtered_values = {
+            field: value
+            for field, value in raw_values.items()
+            if field in ENVIRONMENT_CREDENTIAL_FIELDS and value not in (None, "")
+        }
+        if not filtered_values.get("credential_type"):
+            continue
+
+        auth_type = filtered_values.get("auth_type", "")
+        if auth_type == "keypair":
+            filtered_values.pop("password", None)
+        elif auth_type == "password":
+            filtered_values.pop("private_key", None)
+            filtered_values.pop("private_key_passphrase", None)
+
+        if (
+            filtered_values.get("credential_type") == "snowflake"
+            and "schema" not in filtered_values
+        ):
+            filtered_values["schema"] = raw_values.get("schema") or "dummy_schema"
+
+        filtered_values = _apply_dummy_profile_credential_defaults(filtered_values)
+
+        result[f"{config.project_id}_{env_id}"] = filtered_values
+
+    return result
+
+
+def _apply_dummy_profile_credential_defaults(values: dict[str, Any]) -> dict[str, Any]:
+    """Fill required provider fields for standalone profile credentials."""
+    credential_type = str(values.get("credential_type") or "").lower()
+    result = dict(values)
+
+    if credential_type == "snowflake":
+        result.setdefault("auth_type", result.get("auth_type") or "password")
+        result.setdefault("schema", result.get("schema") or "dummy_schema")
+        result.setdefault("user", result.get("user") or "dummy_user")
+        if result.get("auth_type") == "keypair":
+            result.setdefault("private_key", result.get("private_key") or "dummy_private_key")
+            result.pop("password", None)
+        else:
+            result.setdefault("password", result.get("password") or "dummy_password")
+            result.pop("private_key", None)
+            result.pop("private_key_passphrase", None)
+        result.setdefault("num_threads", result.get("num_threads") or 4)
+    elif credential_type == "databricks":
+        result.setdefault("schema", result.get("schema") or "dummy_schema")
+        result.setdefault("token", result.get("token") or "dummy_token")
+    elif credential_type == "bigquery":
+        result.setdefault("dataset", result.get("dataset") or result.get("schema") or "dummy_dataset")
+        result.setdefault("num_threads", result.get("num_threads") or 4)
+    elif credential_type in {"postgres", "redshift"}:
+        result.setdefault("username", result.get("username") or "dummy_user")
+        result.setdefault(
+            "default_schema",
+            result.get("default_schema") or result.get("schema") or "dummy_schema",
+        )
+        result.setdefault("password", result.get("password") or "dummy_password")
+        if credential_type == "redshift":
+            result.setdefault("num_threads", result.get("num_threads") or 4)
+            result.setdefault("target_name", result.get("target_name") or "redshift")
+        else:
+            result.setdefault("target_name", result.get("target_name") or "postgres")
+    elif credential_type == "athena":
+        result.setdefault("schema", result.get("schema") or "dummy_schema")
+        result.setdefault("aws_access_key_id", result.get("aws_access_key_id") or "dummy_access_key")
+        result.setdefault(
+            "aws_secret_access_key",
+            result.get("aws_secret_access_key") or "dummy_secret_key",
+        )
+    elif credential_type in {"fabric", "synapse"}:
+        result.setdefault("schema", result.get("schema") or "dummy_schema")
+        if result.get("tenant_id"):
+            result.setdefault("client_id", result.get("client_id") or "dummy_client_id")
+            result.setdefault("client_secret", result.get("client_secret") or "dummy_client_secret")
+        else:
+            result.setdefault("user", result.get("user") or "dummy_user")
+            result.setdefault("password", result.get("password") or "dummy_password")
+            result.setdefault(
+                "authentication",
+                result.get("authentication") or ("sql" if credential_type == "synapse" else None),
+            )
+    elif credential_type in {"starburst", "trino"}:
+        result.setdefault("schema", result.get("schema") or "dummy_schema")
+        result.setdefault("catalog", result.get("catalog") or "dummy_catalog")
+        result.setdefault("user", result.get("user") or "dummy_user")
+        result.setdefault("password", result.get("password") or "dummy_password")
+    elif credential_type in {"spark", "apache_spark"}:
+        result.setdefault("schema", result.get("schema") or "dummy_schema")
+        result.setdefault("token", result.get("token") or "dummy_token")
+    elif credential_type == "teradata":
+        result.setdefault("schema", result.get("schema") or "dummy_schema")
+        result.setdefault("user", result.get("user") or "dummy_user")
+        result.setdefault("password", result.get("password") or "dummy_password")
+        result.setdefault("num_threads", result.get("num_threads") or 4)
+
+    return result
+
+
+def _build_profile_credentials_from_yaml(yaml_file: str) -> dict[str, dict[str, Any]]:
+    """Build Terraform credential input for standalone profile-owned credentials."""
+    from importer.yaml_converter import ENVIRONMENT_CREDENTIAL_FIELDS
+    import yaml as yaml_lib
+
+    data = yaml_lib.safe_load(Path(yaml_file).read_text(encoding="utf-8")) or {}
+    result: dict[str, dict[str, Any]] = {}
+
+    for project in data.get("projects", []) or []:
+        if not isinstance(project, dict):
+            continue
+        project_key = str(project.get("key") or "")
+        env_credential_ids = {
+            env.get("credential", {}).get("id")
+            for env in project.get("environments", []) or []
+            if isinstance(env, dict) and isinstance(env.get("credential"), dict)
+        }
+        for profile in project.get("profiles", []) or []:
+            if not isinstance(profile, dict):
+                continue
+            credential = profile.get("credential")
+            if not isinstance(credential, dict):
+                continue
+            credential_id = credential.get("id") or profile.get("credentials_id")
+            if credential_id in env_credential_ids:
+                continue
+            profile_key = str(profile.get("key") or "")
+            filtered_values = {
+                field: value
+                for field, value in credential.items()
+                if field in ENVIRONMENT_CREDENTIAL_FIELDS and value not in (None, "")
+            }
+            if not filtered_values.get("credential_type"):
+                continue
+            result[f"{project_key}_{profile_key}"] = _apply_dummy_profile_credential_defaults(
+                filtered_values
+            )
+
+    return result
+
+
+def _summarize_profile_credential_key_mismatches(yaml_file: str) -> dict[str, Any]:
+    """Inspect generated YAML for profiles whose credential keys don't match project env keys."""
+    try:
+        import yaml as yaml_lib
+
+        data = yaml_lib.safe_load(Path(yaml_file).read_text(encoding="utf-8")) or {}
+        mismatches: list[dict[str, Any]] = []
+        for project in data.get("projects", []) or []:
+            if not isinstance(project, dict):
+                continue
+            project_key = str(project.get("key") or "")
+            env_keys = {
+                str(env.get("key") or "")
+                for env in project.get("environments", []) or []
+                if isinstance(env, dict) and env.get("key")
+            }
+            for profile in project.get("profiles", []) or []:
+                if not isinstance(profile, dict):
+                    continue
+                credentials_key = str(profile.get("credentials_key") or "")
+                if credentials_key and credentials_key not in env_keys:
+                    mismatches.append(
+                        {
+                            "project_key": project_key,
+                            "profile_key": str(profile.get("key") or ""),
+                            "credentials_key": credentials_key,
+                            "credentials_id": profile.get("credentials_id"),
+                        }
+                    )
+        return {
+            "project_count": len(data.get("projects", []) or []),
+            "mismatch_count": len(mismatches),
+            "mismatches": mismatches[:20],
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def _summarize_profile_extended_attribute_inputs(yaml_file: str) -> dict[str, Any]:
+    """Inspect generated YAML for optional profile extended-attribute references."""
+    try:
+        import yaml as yaml_lib
+
+        data = yaml_lib.safe_load(Path(yaml_file).read_text(encoding="utf-8")) or {}
+        project_summaries: list[dict[str, Any]] = []
+        omitted_count = 0
+        keyed_count = 0
+        id_only_count = 0
+
+        for project in data.get("projects", []) or []:
+            if not isinstance(project, dict):
+                continue
+            project_key = str(project.get("key") or "")
+            available_ext_keys = {
+                str(ext.get("key") or "")
+                for ext in project.get("extended_attributes", []) or []
+                if isinstance(ext, dict) and ext.get("key")
+            }
+            missing_references: list[dict[str, Any]] = []
+            omitted_profiles: list[str] = []
+            for profile in project.get("profiles", []) or []:
+                if not isinstance(profile, dict):
+                    continue
+                profile_key = str(profile.get("key") or "")
+                ext_key = profile.get("extended_attributes_key")
+                ext_id = profile.get("extended_attributes_id")
+                if ext_key not in (None, ""):
+                    keyed_count += 1
+                    if str(ext_key) not in available_ext_keys:
+                        missing_references.append(
+                            {
+                                "profile_key": profile_key,
+                                "extended_attributes_key": ext_key,
+                                "extended_attributes_id": ext_id,
+                            }
+                        )
+                elif ext_id not in (None, ""):
+                    id_only_count += 1
+                else:
+                    omitted_count += 1
+                    if len(omitted_profiles) < 10:
+                        omitted_profiles.append(profile_key)
+
+            if missing_references or omitted_profiles:
+                project_summaries.append(
+                    {
+                        "project_key": project_key,
+                        "available_ext_keys": sorted(available_ext_keys)[:20],
+                        "missing_reference_count": len(missing_references),
+                        "missing_references": missing_references[:10],
+                        "omitted_profile_count": len(omitted_profiles),
+                        "omitted_profile_sample": omitted_profiles,
+                    }
+                )
+
+        return {
+            "project_count": len(project_summaries),
+            "keyed_count": keyed_count,
+            "id_only_count": id_only_count,
+            "omitted_count": omitted_count,
+            "projects": project_summaries[:25],
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> None:
     """Write one NDJSON debug record for deploy runtime analysis."""
     payload = {
@@ -75,6 +338,27 @@ def _dbg_db419a(hypothesis_id: str, location: str, message: str, data: dict) -> 
     try:
         with open(
             "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-db419a.log",
+            "a",
+            encoding="utf-8",
+        ) as f:
+            f.write(json.dumps(payload, ensure_ascii=True) + "\n")
+    except Exception:
+        return
+
+
+def _dbg_a7dab6(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    payload = {
+        "sessionId": "a7dab6",
+        "runId": "pre-fix",
+        "hypothesisId": hypothesis_id,
+        "location": location,
+        "message": message,
+        "data": data,
+        "timestamp": int(time.time() * 1000),
+    }
+    try:
+        with open(
+            "/Users/operator/Documents/git/dbt-labs/terraform-dbtcloud-yaml/.cursor/debug-a7dab6.log",
             "a",
             encoding="utf-8",
         ) as f:
@@ -602,7 +886,7 @@ def _create_deployment_summary(state: AppState) -> None:
                 with ui.column().classes("gap-2 flex-grow"):
                     # Project resources row
                     project_stats = {k: v for k, v in stats.items() 
-                                  if k in ["projects", "environments", "jobs", "environment_variables"] and v > 0}
+                                  if k in ["projects", "environments", "profiles", "jobs", "environment_variables"] and v > 0}
                     
                     if project_stats:
                         with ui.row().classes("items-center gap-2"):
@@ -813,6 +1097,7 @@ def _create_protected_resources_panel(
     type_labels = {
         "PRJ": "Projects",
         "ENV": "Environments",
+        "PRF": "Profiles",
         "JOB": "Jobs",
         "JCTG": "Job Triggers",
         "JEVO": "Env Var Job Overrides",
@@ -920,6 +1205,7 @@ def _create_import_section(
                 type_labels = {
                     "PRJ": "Projects",
                     "ENV": "Environments",
+                    "PRF": "Profiles",
                     "JOB": "Jobs",
                     "JCTG": "Job Triggers",
                     "JEVO": "Env Var Job Overrides",
@@ -1897,6 +2183,38 @@ async def _run_generate(
                 # Use persisted target intent (computed on Match page)
                 terminal.info("  Using persisted target intent from Match page")
                 target_intent = persisted_intent
+                current_target_host = (getattr(state.target_credentials, "host_url", None) or "").rstrip("/")
+                persisted_account = (
+                    target_intent.output_config.setdefault("account", {})
+                    if isinstance(target_intent.output_config, dict)
+                    else {}
+                )
+                persisted_target_host = str(persisted_account.get("host_url") or "").rstrip("/")
+                # region agent log
+                _dbg_a7dab6(
+                    "H5",
+                    "deploy.py:generate_files_and_plan",
+                    "persisted target intent host snapshot before deploy regeneration",
+                    {
+                        "persisted_account_host_url": persisted_account.get("host_url"),
+                        "current_target_credentials_host_url": getattr(state.target_credentials, "host_url", None),
+                        "using_persisted_output_config": True,
+                    },
+                )
+                # endregion
+                if current_target_host and persisted_target_host != current_target_host:
+                    persisted_account["host_url"] = current_target_host
+                    # region agent log
+                    _dbg_a7dab6(
+                        "H5",
+                        "deploy.py:generate_files_and_plan",
+                        "synchronized persisted target intent host_url from current target credentials",
+                        {
+                            "previous_persisted_host_url": persisted_target_host,
+                            "updated_persisted_host_url": current_target_host,
+                        },
+                    )
+                    # endregion
 
                 # Re-validate: check TF state hasn't changed since intent was computed
                 tf_state_keys = get_tf_state_project_keys(tfstate_path)
@@ -2139,6 +2457,37 @@ async def _run_generate(
                             terminal.info(f"  Loaded {len(adopt_rows)} adopt rows from mapping file (protected_keys: {len(protected_keys)})")
                 except Exception as e:
                     terminal.warning(f"  Failed to load mapping file: {e}")
+
+        adopt_type_counts: dict[str, int] = {}
+        adopt_profile_rows: list[dict[str, Any]] = []
+        for row in adopt_rows:
+            source_type = str(row.get("source_type") or "")
+            adopt_type_counts[source_type] = adopt_type_counts.get(source_type, 0) + 1
+            if source_type == "PRF":
+                adopt_profile_rows.append(
+                    {
+                        "source_key": str(row.get("source_key") or ""),
+                        "source_name": str(row.get("source_name") or ""),
+                        "project_name": str(row.get("project_name") or ""),
+                        "target_id": row.get("target_id"),
+                        "drift_status": str(row.get("drift_status") or ""),
+                        "protected": bool(row.get("protected", False)),
+                    }
+                )
+        # region agent log
+        _dbg_a7dab6(
+            "H2",
+            "deploy.py:generate_files_and_plan",
+            "final adopt_rows snapshot before adoption overrides",
+            {
+                "reconcile_adopt_rows_count": len(getattr(state.deploy, "reconcile_adopt_rows", []) or []),
+                "confirmed_mappings_count": len(getattr(state.map, "confirmed_mappings", []) or []),
+                "final_adopt_rows_count": len(adopt_rows),
+                "adopt_type_counts": adopt_type_counts,
+                "profile_rows": adopt_profile_rows[:25],
+            },
+        )
+        # endregion
         
         if adopt_rows:
             terminal.info(f"Applying {len(adopt_rows)} adoption override(s) to YAML...")
@@ -2240,6 +2589,121 @@ async def _run_generate(
             
             with open(yaml_output_path, "r") as f:
                 yaml_config = yaml_strip.safe_load(f)
+            # region agent log
+            try:
+                projects = yaml_config.get("projects") or []
+                global_connections = {
+                    str(item.get("key") or "")
+                    for item in (yaml_config.get("globals", {}) or {}).get("connections", []) or []
+                    if isinstance(item, dict) and item.get("key")
+                }
+                profile_count = 0
+                connection_covered = 0
+                credential_covered = 0
+                extattr_covered = 0
+                sample_profiles = []
+                missing_connection_profiles = []
+                missing_credential_profiles = []
+                missing_extattr_profiles = []
+                for project in projects:
+                    if not isinstance(project, dict):
+                        continue
+                    project_key = str(project.get("key") or "")
+                    project_env_count = len(project.get("environments") or [])
+                    project_extattrs = {
+                        str(item.get("key") or item.get("extended_attributes_key") or "")
+                        for item in (project.get("extended_attributes") or [])
+                        if isinstance(item, dict)
+                    }
+                    project_env_credential_keys = {
+                        str(item.get("credential", {}).get("key") or item.get("credentials_key") or "")
+                        for item in (project.get("environments") or [])
+                        if isinstance(item, dict)
+                    }
+                    for profile in project.get("profiles") or []:
+                        if not isinstance(profile, dict):
+                            continue
+                        profile_count += 1
+                        connection_key = str(profile.get("connection_key") or "")
+                        credentials_key = str(profile.get("credentials_key") or "")
+                        extattr_key = str(profile.get("extended_attributes_key") or "")
+                        connection_ok = (
+                            not connection_key
+                            or connection_key.startswith("LOOKUP:")
+                            or connection_key in global_connections
+                            or connection_key.isdigit()
+                        )
+                        credential_ok = not credentials_key or credentials_key in project_env_credential_keys
+                        extattr_ok = not extattr_key or extattr_key in project_extattrs
+                        connection_covered += 1 if connection_ok else 0
+                        credential_covered += 1 if credential_ok else 0
+                        extattr_covered += 1 if extattr_ok else 0
+                        if not connection_ok and len(missing_connection_profiles) < 20:
+                            missing_connection_profiles.append(
+                                {
+                                    "project_key": project_key,
+                                    "profile_key": str(profile.get("key") or ""),
+                                    "connection_key": connection_key,
+                                    "project_env_count": project_env_count,
+                                }
+                            )
+                        if not credential_ok and len(missing_credential_profiles) < 20:
+                            missing_credential_profiles.append(
+                                {
+                                    "project_key": project_key,
+                                    "profile_key": str(profile.get("key") or ""),
+                                    "credentials_key": credentials_key,
+                                    "credentials_id": profile.get("credentials_id"),
+                                    "project_env_count": project_env_count,
+                                }
+                            )
+                        if not extattr_ok and len(missing_extattr_profiles) < 20:
+                            missing_extattr_profiles.append(
+                                {
+                                    "project_key": project_key,
+                                    "profile_key": str(profile.get("key") or ""),
+                                    "extended_attributes_key": extattr_key,
+                                    "extended_attributes_id": profile.get("extended_attributes_id"),
+                                }
+                            )
+                        if len(sample_profiles) < 20:
+                            sample_profiles.append(
+                                {
+                                    "project_key": project_key,
+                                    "profile_key": str(profile.get("key") or ""),
+                                    "connection_key": connection_key,
+                                    "connection_ok": connection_ok,
+                                    "credentials_key": credentials_key,
+                                    "credential_ok": credential_ok,
+                                    "extended_attributes_key": extattr_key,
+                                    "extattr_ok": extattr_ok,
+                                }
+                            )
+                _dbg_a7dab6(
+                    "H6",
+                    "deploy.py:generate_files_and_plan",
+                    "final generated YAML profile dependency coverage summary",
+                    {
+                        "project_count": len(projects),
+                        "profile_count": profile_count,
+                        "global_connection_count": len(global_connections),
+                        "profile_connection_covered": connection_covered,
+                        "profile_credential_covered": credential_covered,
+                        "profile_extattr_covered": extattr_covered,
+                        "missing_connection_profiles": missing_connection_profiles,
+                        "missing_credential_profiles": missing_credential_profiles,
+                        "missing_extattr_profiles": missing_extattr_profiles,
+                        "sample_profiles": sample_profiles,
+                    },
+                )
+            except Exception as e:
+                _dbg_a7dab6(
+                    "H6",
+                    "deploy.py:generate_files_and_plan",
+                    "failed to summarize generated YAML profile dependency coverage",
+                    {"error": str(e)},
+                )
+            # endregion
             
             # Build set of repo keys that are in TF state (these have correct values
             # from _apply_tf_state_repo_values and should not be stripped)
@@ -2477,14 +2941,39 @@ async def _run_generate(
         
         converter = YamlToTerraformConverter()
         target_env_path = resolve_project_env_path(state.project_path, "target")
+        environment_credentials = _build_environment_credentials_from_state(state)
+        environment_credentials.update(
+            _build_profile_credentials_from_yaml(yaml_file)
+        )
         await asyncio.to_thread(
             converter.convert,
             yaml_file,
             str(output_path),
             target_env_path,
+            None,
+            None,
+            None,
+            None,
+            environment_credentials,
         )
         
         log_generate_step("converter_complete", {"yaml_file": yaml_file})
+        # region agent log
+        _dbg_a7dab6(
+            "H9",
+            "deploy.py:generate_files_and_plan",
+            "generated YAML profile credential key mismatches",
+            _summarize_profile_credential_key_mismatches(str(output_path / "dbt-cloud-config.yml")),
+        )
+        # endregion
+        # region agent log
+        _dbg_a7dab6(
+            "H13",
+            "deploy.py:generate_files_and_plan",
+            "generated YAML profile extended attribute inputs",
+            _summarize_profile_extended_attribute_inputs(str(output_path / "dbt-cloud-config.yml")),
+        )
+        # endregion
 
         # Write gitlab probe result to auto.tfvars so the module gate opens
         if gitlab_deploy_token_kept:

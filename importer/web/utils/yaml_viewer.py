@@ -64,15 +64,18 @@ def get_yaml_stats(yaml_path: str) -> Dict[str, int]:
     stats["projects"] = len(projects)
 
     environments = 0
+    profiles = 0
     jobs = 0
     env_vars = 0
 
     for project in projects:
         environments += len(project.get("environments", []))
+        profiles += len(project.get("profiles", []))
         jobs += len(project.get("jobs", []))
         env_vars += len(project.get("environment_variables", []))
 
     stats["environments"] = environments
+    stats["profiles"] = profiles
     stats["jobs"] = jobs
     stats["environment_variables"] = env_vars
 
@@ -692,7 +695,7 @@ def create_migration_summary_card(
 
             project_resources = {
                 k: v for k, v in stats.items()
-                if k in ["projects", "environments", "jobs", "environment_variables"]
+                if k in ["projects", "environments", "profiles", "jobs", "environment_variables"]
                 and v > 0
             }
 

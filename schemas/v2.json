@@ -222,6 +222,77 @@
       "required": ["token_name", "schema"],
       "additionalProperties": false
     },
+    "profileCredential": {
+      "type": "object",
+      "description": "Standalone profile credential configuration used to materialize profile-owned credentials.",
+      "properties": {
+        "id": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "credential_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "schema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "num_threads": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "token_name": {
+          "type": ["string", "null"],
+          "minLength": 1
+        },
+        "catalog": {
+          "type": ["string", "null"],
+          "default": null
+        },
+        "auth_type": {
+          "type": ["string", "null"]
+        },
+        "user": {
+          "type": ["string", "null"]
+        },
+        "warehouse": {
+          "type": ["string", "null"]
+        },
+        "role": {
+          "type": ["string", "null"]
+        },
+        "database": {
+          "type": ["string", "null"]
+        },
+        "dataset": {
+          "type": ["string", "null"]
+        },
+        "default_schema": {
+          "type": ["string", "null"]
+        },
+        "username": {
+          "type": ["string", "null"]
+        },
+        "target_name": {
+          "type": ["string", "null"]
+        },
+        "tenant_id": {
+          "type": ["string", "null"]
+        },
+        "client_id": {
+          "type": ["string", "null"]
+        },
+        "schema_authorization": {
+          "type": ["string", "null"]
+        },
+        "authentication": {
+          "type": ["string", "null"]
+        }
+      },
+      "required": ["credential_type", "schema"],
+      "additionalProperties": false
+    },
     "extendedAttributes": {
       "type": "object",
       "description": "Extended attributes for environment-level connection overrides (flexible JSON config).",
@@ -308,6 +379,14 @@
             { "type": "null" }
           ],
           "description": "Key of extended attributes (defined in project.extended_attributes) to use for this environment.",
+          "default": null
+        },
+        "primary_profile_key": {
+          "oneOf": [
+            { "$ref": "#/$defs/slug" },
+            { "type": "null" }
+          ],
+          "description": "Key of a project profile to use as the environment's primary profile.",
           "default": null
         },
         "id": {
@@ -537,6 +616,50 @@
       "required": ["name", "environment_values"],
       "additionalProperties": false
     },
+    "profile": {
+      "type": "object",
+      "description": "Profile linking a connection and credentials for use in deployment environments.",
+      "properties": {
+        "key": { "$ref": "#/$defs/slug" },
+        "protected": {
+          "type": ["boolean", "null"],
+          "description": "If true, Terraform will prevent this resource from being destroyed (lifecycle.prevent_destroy = true)",
+          "default": false
+        },
+        "connection_key": { "$ref": "#/$defs/slug" },
+        "credentials_key": { "$ref": "#/$defs/slug" },
+        "credential": { "$ref": "#/$defs/profileCredential" },
+        "extended_attributes_key": {
+          "oneOf": [
+            { "$ref": "#/$defs/slug" },
+            { "type": "null" }
+          ],
+          "default": null
+        },
+        "id": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Optional source profile ID for migration metadata."
+        },
+        "connection_id": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Optional source connection ID for migration metadata."
+        },
+        "credentials_id": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Optional source credential ID for migration metadata."
+        },
+        "extended_attributes_id": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "description": "Optional source extended attributes ID for migration metadata."
+        }
+      },
+      "required": ["key", "connection_key", "credentials_key"],
+      "additionalProperties": false
+    },
     "project": {
       "type": "object",
       "properties": {
@@ -564,6 +687,12 @@
           "type": "array",
           "description": "Extended attributes for environment-level connection overrides (referenced by environment.extended_attributes_key).",
           "items": { "$ref": "#/$defs/extendedAttributes" },
+          "default": []
+        },
+        "profiles": {
+          "type": "array",
+          "description": "Profiles linking connection and credentials for deployment environments.",
+          "items": { "$ref": "#/$defs/profile" },
           "default": []
         },
         "environment_variables": {

@@ -1,0 +1,40 @@
+{
+  "plugins": {
+    "glean": {
+      "enabled": true
+    },
+    "slack": {
+      "enabled": true
+    },
+    "atlassian": {
+      "enabled": true
+    },
+    "snowflake-cursor-plugin": {
+      "enabled": true
+    },
+    "hex": {
+      "enabled": true
+    },
+    "databricks-skills": {
+      "enabled": true
+    },
+    "zapier": {
+      "enabled": true
+    },
+    "runlayer": {
+      "enabled": true
+    },
+    "1password": {
+      "enabled": true
+    },
+    "continual-learning": {
+      "enabled": true
+    },
+    "deploy-on-aws": {
+      "enabled": true
+    },
+    "cursor-team-kit": {
+      "enabled": true
+    }
+  }
+}

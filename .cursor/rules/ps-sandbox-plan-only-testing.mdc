@@ -1,0 +1,13 @@
+---
+description: Restrict migration app testing to PS Sandbox and plan-only flows
+alwaysApply: true
+---
+
+# PS Sandbox Plan-Only Testing
+
+For migration web app validation in this repo:
+
+- Use the `PS Sandbox` project only when selecting a project in the application.
+- Treat browser and workflow validation as plan-only unless the user explicitly authorizes destructive actions with the required approval token.
+- Do not run deploy/apply or destroy while validating profile rollout work unless the user explicitly changes this instruction.
+- If existing app state points at a different project, switch back to `PS Sandbox` before continuing.

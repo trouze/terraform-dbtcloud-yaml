@@ -41,6 +41,7 @@ RESOURCE_TYPE_MAP = {
     "REP": ("dbtcloud_repository", "repositories", "protected_repositories"),
     "PREP": ("dbtcloud_project_repository", "project_repositories", "protected_project_repositories"),
     "EXTATTR": ("dbtcloud_extended_attributes", "extended_attrs", "protected_extended_attrs"),
+    "PRF": ("dbtcloud_profile", "profiles", "protected_profiles"),
     "VAR": ("dbtcloud_environment_variable", "environment_variables", "protected_environment_variables"),
     # Global resources — protected variants with lifecycle.prevent_destroy
     "GRP": ("dbtcloud_group", "groups", "protected_groups"),
@@ -198,6 +199,18 @@ def extract_protected_resources(yaml_config: dict) -> list[ProtectedResource]:
                     protected=True,
                 ))
 
+        # Check profiles
+        for prof in project.get("profiles", []):
+            prof_key = prof.get("key", "")
+            composite_key = f"{project_key}_{prof_key}"
+            if prof.get("protected", False):
+                protected.append(ProtectedResource(
+                    resource_key=composite_key,
+                    resource_type="PRF",
+                    name=prof_key,
+                    protected=True,
+                ))
+
         # Check environment variables
         for env_var in project.get("environment_variables", []):
             env_var_name = env_var.get("name", "")
@@ -289,6 +302,11 @@ def detect_protection_changes(
                 ext_key = ext.get("key", "")
                 composite_key = f"{project_key}_{ext_key}"
                 result[("EXTATTR", composite_key)] = (ext_key, ext.get("protected", False))
+
+            for prof in project.get("profiles", []):
+                prof_key = prof.get("key", "")
+                composite_key = f"{project_key}_{prof_key}"
+                result[("PRF", composite_key)] = (prof_key, prof.get("protected", False))
 
         globals_config = yaml_config.get("globals", {})
         for repo in globals_config.get("repositories", []):
@@ -454,6 +472,16 @@ def generate_moved_blocks_from_state(
             var_key = var.get("key", "") or var.get("name", "")
             composite_key = f"{project_key}_{var_key}"
             yaml_protection[("VAR", composite_key)] = var.get("protected", False)  # Default False, not project_protected
+
+        for ext in project.get("extended_attributes", []):
+            ext_key = ext.get("key", "")
+            composite_key = f"{project_key}_{ext_key}"
+            yaml_protection[("EXTATTR", composite_key)] = ext.get("protected", False)
+
+        for prof in project.get("profiles", []):
+            prof_key = prof.get("key", "")
+            composite_key = f"{project_key}_{prof_key}"
+            yaml_protection[("PRF", composite_key)] = prof.get("protected", False)
     
     # Process repositories - PREP inherits protection from REP
     # NOTE: YAML repo keys are like "dbt_ep_bt_data_ops_db" but Terraform uses "bt_data_ops_db"
@@ -502,6 +530,8 @@ def generate_moved_blocks_from_state(
         "dbtcloud_repository": ("REP", "repositories", "protected_repositories"),
         "dbtcloud_project_repository": ("PREP", "project_repositories", "protected_project_repositories"),
         "dbtcloud_environment_variable": ("VAR", "environment_variables", "protected_environment_variables"),
+        "dbtcloud_extended_attributes": ("EXTATTR", "extended_attrs", "protected_extended_attrs"),
+        "dbtcloud_profile": ("PRF", "profiles", "protected_profiles"),
     }
     
     for resource in resources:
@@ -816,6 +846,7 @@ TYPE_LABELS = {
     "CON": "Connection",
     "VAR": "Env Variable",
     "CRD": "Credential",
+    "PRF": "Profile",
     "TOK": "Service Token",
     "GRP": "Group",
     "NOT": "Notification",
@@ -1147,6 +1178,7 @@ EXTENDED_RESOURCE_TYPE_MAP = {
     "PRJ": ("dbtcloud_project", "projects", "protected_projects"),
     "REP": ("dbtcloud_repository", "repositories", "protected_repositories"),
     "PREP": ("dbtcloud_project_repository", "project_repositories", "protected_project_repositories"),
+    "PRF": ("dbtcloud_profile", "profiles", "protected_profiles"),
     "ENV": ("dbtcloud_environment", "environments", "protected_environments"),
     "JOB": ("dbtcloud_job", "jobs", "protected_jobs"),
     "JCTG": ("dbtcloud_job_completion_trigger", "job_completion_triggers", "protected_job_completion_triggers"),
