@@ -1,14 +1,14 @@
-variable "project_id" {
-  description = "The ID of the project to which jobs belong"
-  type        = string
-}
-
-variable "job_ids" {
-  description = "Map of Env Name _ Job Name as key : Job ID"
+variable "projects" {
+  description = "List of project configurations. Env var job overrides are read from project.environments[].jobs[].env_var_overrides or project.jobs[].env_var_overrides."
   type        = any
 }
 
-variable "environments_data" {
-  description = "List of environment configurations, including credentials, overrides"
-  type = any
+variable "project_ids" {
+  description = "Map of project key to dbt Cloud project ID"
+  type        = map(string)
+}
+
+variable "job_ids" {
+  description = "Map of composite key (project_key_job_key) to dbt Cloud job ID (from jobs module)"
+  type        = map(string)
 }

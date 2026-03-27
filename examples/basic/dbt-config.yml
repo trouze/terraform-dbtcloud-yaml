@@ -1,77 +1,84 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/trouze/dbt-terraform-modules-yaml/refs/heads/main/schemas/v1.json
-project:
-  name: Training Sandbox
-  repository:
-    remote_url: "your-org/group/repo"
-    gitlab_project_id: 1234
-    pull_request_url_template: "https://gitlab.com/your-org/group/repo/-/merge_requests/new?merge_request%5Bsource_branch%5D={{source}}&merge_request%5Btarget_branch%5D={{destination}}"
-  environments:
-    - name: Prod
-      credential:
-        token_name: dbtcloud_databricks_token_dbt_svcprincipal_ucpr
-        catalog: training
-        schema: default
-      connection_id: 12345678
-      deployment_type: production
-      type: deployment
-      custom_branch: main
-      jobs:
-        - name: Production Job
-          execute_steps: 
-            - dbt compile
-          triggers:
-            github_webhook: false
-            git_provider_webhook: false
-            schedule: false
-            on_merge: false
-          description: Production deployment job
-          num_threads: 4
-          schedule_days: [0, 1, 2, 3, 4, 5, 6]
-          schedule_hours: [0]
-          schedule_type: days_of_week
-        - name: Prod CI Job
-          execute_steps:
-            - dbt clone --select state:modified+,config.materialized:incremental,state:old
-            - dbt build --select state:modified+
-          triggers:
-            github_webhook: false
-            git_provider_webhook: true
-            schedule: false
-            on_merge: false
-          description: Prod CI job to test changed models..
-          num_threads: 4
-          deferring_environment: Prod
-    - name: QA
-      credential:
-        token_name: dbtcloud_databricks_token_dbt_svcprincipal_ucnp
-        catalog: training
-        schema: default
-      connection_id: 12345678
-      deployment_type: staging
-      type: deployment
-      custom_branch: staging
-      jobs:
-        - name: Staging Job
-          execute_steps: 
-            - dbt clone --full-refresh
-            - dbt build
-          triggers:
-            github_webhook: false
-            git_provider_webhook: false
-            schedule: false
-            on_merge: false
-          description: Staging deployment job
-          num_threads: 4
-          schedule_days: [0, 1, 2, 3, 4, 5, 6]
-          schedule_hours: [0]
-          schedule_type: days_of_week
-          deferring_environment: Prod
-    - name: Development
-      connection_id: 12345678
-      type: development
-      custom_branch: staging
-  environment_variables:
-    - name: DBT_DATABRICKS_WORKSPACE
-      environment_values:
-        - env: project
-          value: ucnp
+# yaml-language-server: $schema=https://raw.githubusercontent.com/trouze/terraform-dbtcloud-yaml/refs/heads/main/schemas/v1.json
+
+##############################################################################
+# dbt Cloud Terraform YAML — Minimal Starter
+#
+# Fill in the placeholder values (search for YOUR_) and run:
+#   terraform init && terraform apply
+#
+# For a full reference of every supported field see:
+#   https://github.com/trouze/terraform-dbtcloud-yaml/blob/main/docs/configuration/yaml-schema.md
+##############################################################################
+
+###########################
+# Warehouse connection
+# Shared across environments in this project.
+# Supported types: databricks | snowflake | bigquery | postgres | redshift
+###########################
+
+global_connections:
+  - name: YOUR_CONNECTION_NAME          # e.g. "Databricks Production"
+    key: prod_connection                 # referenced by environments below
+    type: databricks                     # change to your warehouse type
+    host: YOUR_HOST                      # e.g. adb-1234567890.1.azuredatabricks.net
+    http_path: YOUR_HTTP_PATH            # e.g. /sql/1.0/warehouses/abc123
+    catalog: YOUR_CATALOG                # e.g. main
+    protected: true                      # prevents accidental deletion
+
+  # --- Snowflake alternative ---
+  # - name: YOUR_CONNECTION_NAME
+  #   key: prod_connection
+  #   type: snowflake
+  #   account: xy12345.us-east-1
+  #   database: ANALYTICS
+  #   warehouse: TRANSFORMING
+  #   role: TRANSFORMER
+
+###########################
+# Projects
+###########################
+
+projects:
+  - name: YOUR_PROJECT_NAME             # e.g. "Analytics"
+    key: analytics                       # short identifier used in credential keys
+
+    repository:
+      remote_url: "YOUR_ORG/YOUR_REPO"  # e.g. "acme/analytics"
+      github_installation_id: YOUR_GITHUB_APP_ID   # GitHub App installation ID
+      # For GitLab, replace the two lines above with:
+      # remote_url: "your-org/group/repo"
+      # gitlab_project_id: 1234
+
+    environments:
+      - name: Production
+        key: prod
+        connection_key: prod_connection   # matches global_connections[].key
+        deployment_type: production
+        type: deployment
+        custom_branch: main
+        protected: true
+        credential:
+          credential_type: databricks
+          catalog: YOUR_CATALOG           # e.g. main
+          schema: YOUR_SCHEMA             # e.g. analytics
+          # token supplied via var.environment_credentials["analytics_prod"]
+
+      - name: Development
+        key: dev
+        connection_key: prod_connection
+        type: development
+
+    jobs:
+      - name: Daily Build
+        key: daily_build
+        environment_key: prod
+        execute_steps:
+          - dbt build
+        triggers:
+          schedule: true
+          github_webhook: false
+          git_provider_webhook: false
+          on_merge: false
+        schedule_type: days_of_week
+        schedule_days: [1, 2, 3, 4, 5]   # Mon–Fri (0=Sun, 6=Sat)
+        schedule_hours: [6]               # 6 AM UTC

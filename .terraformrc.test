@@ -1,0 +1,17 @@
+# Terraform CLI config for running tests locally.
+# Removes the dev_overrides that point to a local provider build,
+# allowing terraform test to use the provider from .terraform/providers/.
+#
+# Usage:
+#   TF_CLI_CONFIG_FILE=.terraformrc.test terraform test
+#   TF_CLI_CONFIG_FILE=/path/to/repo/.terraformrc.test terraform -chdir=modules/project test
+
+provider_installation {
+  filesystem_mirror {
+    path    = "/Users/tylerrouze/dev/terraform-dbtcloud-yaml/.terraform/providers"
+    include = ["registry.terraform.io/dbt-labs/dbtcloud"]
+  }
+  direct {
+    exclude = ["registry.terraform.io/dbt-labs/dbtcloud"]
+  }
+}

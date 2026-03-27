@@ -1,15 +1,27 @@
-variable "project_id" {
-  description = "The ID of the project to which environments belong"
-  type        = string
+variable "projects" {
+  description = "List of project configurations. Each project may have an 'environments' list."
+  type        = any
 }
 
-variable "environments_data" {
-  description = "List of environment configurations, including credentials"
-  type = any
+variable "project_ids" {
+  description = "Map of project key to dbt Cloud project ID"
+  type        = map(string)
 }
 
 variable "credential_ids" {
-  description = "A map of environment names to their corresponding credential IDs"
-  type = map(string)
-  default = {}
+  description = "Map of composite key (project_key_env_key) to credential ID (from credentials module)"
+  type        = map(string)
+  default     = {}
+}
+
+variable "global_connection_ids" {
+  description = "Map of global connection key to connection ID (from global_connections module). Used when YAML environments reference connections by key."
+  type        = map(string)
+  default     = {}
+}
+
+variable "extended_attribute_ids" {
+  description = "Map of composite key (project_key_ea_key) to extended_attributes resource ID (from extended_attributes module)"
+  type        = map(string)
+  default     = {}
 }

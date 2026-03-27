@@ -42,9 +42,9 @@ Feature requests are welcome! Please include:
 
 3. **Test your changes**
    ```bash
-   terraform init
-   terraform validate
-   terraform plan
+   make fmt      # auto-format
+   make test     # run tests with mock providers (no credentials needed)
+   make lint     # run tflint
    ```
 
 4. **Commit with clear messages**
@@ -61,22 +61,31 @@ Feature requests are welcome! Please include:
 
 ### Prerequisites
 
-- Terraform >= 1.0
+- Terraform >= 1.7 (use [tfenv](https://github.com/tfutils/tfenv) or [asdf](https://asdf-vm.com/) — `.terraform-version` is provided)
+- [tflint](https://github.com/terraform-linters/tflint)
 - Git
-- A dbt Cloud account for testing
 
 ### Local Development
 
 ```bash
-git clone https://github.com/your-username/dbt-terraform-modules-yaml.git
-cd dbt-terraform-modules-yaml
+git clone https://github.com/your-username/terraform-dbtcloud-yaml.git
+cd terraform-dbtcloud-yaml
 
-# Set up your test environment
-cp examples/basic/terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars with your credentials
+terraform init -backend=false
+```
 
-terraform init
-terraform plan
+### Available Make Targets
+
+Run `make help` to see all targets:
+
+```
+make fmt           # Auto-format all Terraform files
+make fmt-check     # Check formatting without modifying (used in CI)
+make lint          # Run tflint on all modules
+make validate      # Run terraform validate
+make test          # Run terraform test with mock providers (no credentials needed)
+make docs          # Regenerate terraform-docs for all modules
+make pre-commit    # Run all pre-commit hooks on staged files
 ```
 
 ## Testing
@@ -84,14 +93,9 @@ terraform plan
 Before submitting a PR:
 
 ```bash
-# Validate syntax
-terraform validate
-
-# Format check
-terraform fmt -check -recursive
-
-# Plan to check for errors
-terraform plan
+make fmt-check   # verify formatting
+make test        # runs all tests against mock providers — no dbt Cloud credentials needed
+make lint        # check for linting issues
 ```
 
 ## Documentation

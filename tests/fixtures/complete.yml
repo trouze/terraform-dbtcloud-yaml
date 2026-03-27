@@ -1,0 +1,44 @@
+projects:
+  - name: Analytics
+    key: analytics
+    environments:
+      - name: Development
+        key: dev
+        type: development
+      - name: Production
+        key: prod
+        type: deployment
+        deployment_type: production
+        protected: true
+    jobs:
+      - name: CI Check
+        key: ci_check
+        environment_key: prod
+        execute_steps:
+          - dbt build --select state:modified+
+        triggers:
+          schedule: false
+          github_webhook: true
+          git_provider_webhook: false
+          on_merge: false
+      - name: Daily Run
+        key: daily_run
+        environment_key: prod
+        execute_steps:
+          - dbt build
+        triggers:
+          schedule: true
+          github_webhook: false
+          git_provider_webhook: false
+          on_merge: false
+        schedule_cron: "0 6 * * 1-5"
+
+  - name: Finance
+    key: finance
+    protected: true
+    environments:
+      - name: Production
+        key: prod
+        type: deployment
+        deployment_type: production
+        protected: true

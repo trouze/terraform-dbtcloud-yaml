@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  pull_request:
+    paths:
+      - "**.tf"
+      - "tests/**"
+      - "schemas/**"
+      - ".github/workflows/ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "**.tf"
+      - "tests/**"
+      - "schemas/**"
+
+jobs:
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version_file: .terraform-version
+
+      - name: Cache Terraform providers
+        uses: actions/cache@v4
+        with:
+          path: .terraform
+          key: terraform-${{ hashFiles('.terraform.lock.hcl') }}
+          restore-keys: terraform-
+
+      - name: Format check
+        run: terraform fmt -check -recursive
+
+      - name: Init
+        run: terraform init -backend=false
+
+      - name: Set up tflint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: latest
+
+      - name: Lint
+        run: |
+          tflint --init
+          tflint --recursive
+
+      - name: Test (mock providers)
+        run: terraform test

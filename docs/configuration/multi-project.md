@@ -152,24 +152,23 @@ jobs:
       fail-fast: false  # Continue even if one fails
     
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
+        uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.6.0
-      
+          terraform_version: "~1"
+
       - name: Terraform Init
         run: terraform init
-      
+
       - name: Deploy ${{ matrix.project }}
         env:
           TF_VAR_dbt_account_id: ${{ secrets.DBT_ACCOUNT_ID }}
-          TF_VAR_dbt_api_token: ${{ secrets.DBT_API_TOKEN }}
+          TF_VAR_dbt_token: ${{ secrets.DBT_TOKEN }}
           TF_VAR_dbt_pat: ${{ secrets.DBT_PAT }}
-          TF_VAR_dbt_host_url: https://cloud.getdbt.com/api
-          TF_VAR_yaml_file_path: ./configs/${{ matrix.project }}.yml
-          TF_VAR_token_map: ${{ secrets.TOKEN_MAP }}
+          TF_VAR_dbt_host_url: "https://cloud.getdbt.com"
+          TF_VAR_environment_credentials: ${{ secrets.ENVIRONMENT_CREDENTIALS }}
         run: |
           terraform plan -out=tfplan
           terraform apply tfplan
@@ -186,10 +185,10 @@ stages:
   stage: deploy
   variables:
     TF_VAR_dbt_account_id: $DBT_ACCOUNT_ID
-    TF_VAR_dbt_api_token: $DBT_API_TOKEN
+    TF_VAR_dbt_token: $DBT_TOKEN
     TF_VAR_dbt_pat: $DBT_PAT
-    TF_VAR_dbt_host_url: "https://cloud.getdbt.com/api"
-    TF_VAR_token_map: $TOKEN_MAP
+    TF_VAR_dbt_host_url: "https://cloud.getdbt.com"
+    TF_VAR_environment_credentials: $ENVIRONMENT_CREDENTIALS
   script:
     - terraform init
     - terraform plan -out=tfplan
@@ -286,16 +285,19 @@ Use consistent naming across projects:
 
 ```yaml
 # finance.yml
-project:
-  name: "finance-analytics"
+projects:
+  - name: finance-analytics
+    key: finance
 
-# marketing.yml  
-project:
-  name: "marketing-analytics"
+# marketing.yml
+projects:
+  - name: marketing-analytics
+    key: marketing
 
 # operations.yml
-project:
-  name: "operations-analytics"
+projects:
+  - name: operations-analytics
+    key: operations
 ```
 
 ### 2. Shared Variables
@@ -400,15 +402,15 @@ provider "dbtcloud" {
 }
 
 module "dbt_cloud" {
-  source = "git::https://github.com/trouze/terraform-dbtcloud-yaml.git"
-  
-  dbt_account_id = var.dbt_account_id
-  dbt_token      = var.dbt_api_token
-  dbt_pat        = var.dbt_pat
-  dbt_host_url   = var.dbt_host_url
-  yaml_file      = var.yaml_file_path
-  token_map      = var.token_map
-  target_name    = var.target_name
+  source = "github.com/trouze/terraform-dbtcloud-yaml"
+
+  dbt_account_id          = var.dbt_account_id
+  dbt_token               = var.dbt_token
+  dbt_pat                 = var.dbt_pat
+  dbt_host_url            = var.dbt_host_url
+  yaml_file               = var.yaml_file
+  environment_credentials = var.environment_credentials
+  target_name             = var.target_name
 }
 ```
 
@@ -430,7 +432,7 @@ jobs:
     outputs:
       projects: ${{ steps.filter.outputs.changes }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       
       - uses: dorny/paths-filter@v2
         id: filter
@@ -453,10 +455,10 @@ jobs:
       fail-fast: false
     
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
+        uses: hashicorp/setup-terraform@v3
       
       - name: Terraform Init
         working-directory: terraform
@@ -466,11 +468,10 @@ jobs:
         working-directory: terraform
         env:
           TF_VAR_dbt_account_id: ${{ secrets.DBT_ACCOUNT_ID }}
-          TF_VAR_dbt_api_token: ${{ secrets.DBT_API_TOKEN }}
+          TF_VAR_dbt_token: ${{ secrets.DBT_TOKEN }}
           TF_VAR_dbt_pat: ${{ secrets.DBT_PAT }}
-          TF_VAR_dbt_host_url: https://cloud.getdbt.com/api
-          TF_VAR_yaml_file_path: ../configs/${{ matrix.project }}.yml
-          TF_VAR_token_map: ${{ secrets.TOKEN_MAP_${{ matrix.project | upper }} }}
+          TF_VAR_dbt_host_url: "https://cloud.getdbt.com"
+          TF_VAR_environment_credentials: ${{ secrets.ENVIRONMENT_CREDENTIALS }}
         run: |
           terraform workspace select -or-create ${{ matrix.project }}
           terraform plan -out=tfplan

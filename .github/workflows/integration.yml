@@ -1,0 +1,50 @@
+# integration.yml — runs Go/Terratest integration tests against a real dbt Cloud account.
+# Triggered manually only to avoid consuming sandbox API quota on every PR.
+# Requires secrets: DBT_CLOUD_ACCOUNT_ID, DBT_CLOUD_TOKEN
+
+name: Integration Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      host_url:
+        description: "dbt Cloud host URL (leave blank for https://cloud.getdbt.com)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.20"
+          cache-dependency-path: test/go.sum
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.7"
+          terraform_wrapper: false
+
+      - name: Go mod download
+        working-directory: test
+        run: go mod download
+
+      - name: Run integration tests
+        working-directory: test
+        env:
+          RUN_INTEGRATION_TESTS: "1"
+          DBT_CLOUD_ACCOUNT_ID: ${{ secrets.DBT_CLOUD_ACCOUNT_ID }}
+          DBT_CLOUD_TOKEN: ${{ secrets.DBT_CLOUD_TOKEN }}
+          DBT_CLOUD_HOST_URL: ${{ github.event.inputs.host_url }}
+        run: go test -v -timeout 30m -run Integration ./...

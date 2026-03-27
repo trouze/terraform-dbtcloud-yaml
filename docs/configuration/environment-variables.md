@@ -4,26 +4,27 @@ Learn how to manage credentials and configuration using environment variables.
 
 ## Overview
 
-This module uses Terraform's `TF_VAR_` prefix pattern to pass sensitive values without hardcoding them in `.tf` files. This approach works seamlessly in both local development (`.env` files) and CI/CD (GitHub Secrets, etc.).
+This module uses Terraform's `TF_VAR_` prefix pattern to pass sensitive values without hardcoding them in `.tf` files. This approach works seamlessly in both local development (`.env` files) and CI/CD (GitHub Secrets, GitLab masked variables, Azure key vault, etc.).
 
 ## Required Variables
 
-These variables must be set for the module to function:
-
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `TF_VAR_dbt_account_id` | Your dbt Cloud account ID | `12345` |
-| `TF_VAR_dbt_api_token` | dbt Cloud API token | `dbtc_xxxxx...` |
-| `TF_VAR_dbt_pat` | dbt Cloud Personal Access Token | `dbtc_xxxxx...` |
-| `TF_VAR_dbt_host_url` | dbt Cloud API endpoint | `https://cloud.getdbt.com/api` |
-| `TF_VAR_yaml_file_path` | Path to your YAML config | `./dbt-config.yml` |
+| `TF_VAR_dbt_account_id` | Numeric dbt Cloud account ID | `12345` |
+| `TF_VAR_dbt_token` | dbt Cloud API token | `dbtc_xxxxx...` |
+| `TF_VAR_dbt_host_url` | dbt Cloud host URL | `https://cloud.getdbt.com` |
 
 ## Optional Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `TF_VAR_token_map` | Map of database credential tokens | `{}` |
-| `TF_VAR_target_name` | dbt target name | `null` |
+| `TF_VAR_dbt_pat` | Personal access token (for GitHub App integration; can equal `dbt_token`) | `null` |
+| `TF_VAR_environment_credentials` | JSON map of environment credential objects | `{}` |
+| `TF_VAR_connection_credentials` | JSON map of global connection OAuth/key credentials | `{}` |
+| `TF_VAR_token_map` | Map of Databricks token names to values (legacy) | `{}` |
+| `TF_VAR_lineage_tokens` | Map of lineage integration tokens | `{}` |
+| `TF_VAR_oauth_client_secrets` | Map of OAuth configuration client secrets | `{}` |
+| `TF_VAR_target_name` | Default dbt target name | `""` |
 
 ---
 
@@ -33,63 +34,66 @@ These variables must be set for the module to function:
 
 The recommended approach for local development:
 
-#### Step 1: Create .env File
-
 ```bash
 # Create from example
 cp .env.example .env
 ```
 
-#### Step 2: Edit with Your Values
+Edit `.env` with your actual values (never commit this file):
 
 ```bash title=".env"
-# dbt Cloud Configuration
+# --- Required ---
 export TF_VAR_dbt_account_id=12345
-export TF_VAR_dbt_api_token=dbtc_xxxxxxxxxxxxx
-export TF_VAR_dbt_pat=dbtc_xxxxxxxxxxxxx
-export TF_VAR_dbt_host_url=https://cloud.getdbt.com/api
+export TF_VAR_dbt_token=dbtc_your_api_token
+export TF_VAR_dbt_host_url=https://cloud.getdbt.com
 
-# YAML Configuration Path
-export TF_VAR_yaml_file_path=./dbt-config.yml
+# --- Environment credentials (keyed by "{project_key}_{env_key}") ---
+export TF_VAR_environment_credentials='{
+  "analytics_prod": {
+    "credential_type": "databricks",
+    "token": "dapi...",
+    "catalog": "main",
+    "schema": "analytics"
+  }
+}'
 
-# Database Credentials (JSON format, single line)
-export TF_VAR_token_map='{"prod_databricks":"dapi123","dev_snowflake":"abc456"}'
+# --- Optional: Global connection OAuth credentials ---
+# export TF_VAR_connection_credentials='{"databricks_prod": {"client_id": "...", "client_secret": "..."}}'
+
+# --- Optional: Lineage integration tokens ---
+# export TF_VAR_lineage_tokens='{"analytics_tableau_prod": "..."}'
+
+# --- Optional: OAuth config client secrets ---
+# export TF_VAR_oauth_client_secrets='{"snowflake_oauth": "..."}'
 ```
 
-!!! warning "JSON Format for token_map"
-    The `token_map` must be valid single-line JSON. Use single quotes around the entire value.
-
-#### Step 3: Load Variables
+Then load and run:
 
 ```bash
-# Load into current shell
 source .env
-
-# Verify they're set
-echo $TF_VAR_dbt_account_id
-```
-
-#### Step 4: Run Terraform
-
-```bash
 terraform plan
 terraform apply
 ```
 
+!!! warning "JSON Format"
+    JSON blob variables must be valid single-line JSON when set via `export`. In `terraform.tfvars` you can use HCL map syntax instead (see below).
+
 ### Using terraform.tfvars (Alternative)
 
-If you prefer HCL syntax:
+If you prefer HCL syntax instead of JSON:
 
 ```hcl title="terraform.tfvars"
-dbt_account_id  = 12345
-dbt_api_token   = "dbtc_xxxxxxxxxxxxx"
-dbt_pat         = "dbtc_xxxxxxxxxxxxx"
-dbt_host_url    = "https://cloud.getdbt.com/api"
-yaml_file_path  = "./dbt-config.yml"
+dbt_account_id = 12345
+dbt_token      = "dbtc_your_api_token"
+dbt_host_url   = "https://cloud.getdbt.com"
 
-token_map = {
-  prod_databricks = "dapi123"
-  dev_snowflake   = "abc456"
+environment_credentials = {
+  analytics_prod = {
+    credential_type = "databricks"
+    token           = "dapi..."
+    catalog         = "main"
+    schema          = "analytics"
+  }
 }
 ```
 
@@ -105,146 +109,136 @@ token_map = {
 
 ## CI/CD Setup
 
+In CI/CD, set credentials as platform secrets — never in the workflow file itself.
+
 ### GitHub Actions
 
-Store secrets in GitHub Settings > Secrets and variables > Actions:
+Store in **Settings > Secrets and variables > Actions**:
 
-```yaml title=".github/workflows/deploy.yml"
-name: Deploy dbt Cloud
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-      
-      - name: Terraform Init
-        run: terraform init
-      
-      - name: Terraform Apply
-        env:
-          TF_VAR_dbt_account_id: ${{ secrets.DBT_ACCOUNT_ID }}
-          TF_VAR_dbt_api_token: ${{ secrets.DBT_API_TOKEN }}
-          TF_VAR_dbt_pat: ${{ secrets.DBT_PAT }}
-          TF_VAR_dbt_host_url: https://cloud.getdbt.com/api
-          TF_VAR_yaml_file_path: ./dbt-config.yml
-          TF_VAR_token_map: ${{ secrets.TOKEN_MAP }}
-        run: terraform apply -auto-approve
+```yaml title=".github/workflows/cd.yml"
+env:
+  TF_VAR_dbt_account_id: ${{ secrets.DBT_ACCOUNT_ID }}
+  TF_VAR_dbt_token: ${{ secrets.DBT_TOKEN }}
+  TF_VAR_dbt_pat: ${{ secrets.DBT_PAT }}
+  TF_VAR_dbt_host_url: "https://cloud.getdbt.com"
+  TF_VAR_environment_credentials: ${{ secrets.ENVIRONMENT_CREDENTIALS }}
+  TF_VAR_connection_credentials: ${{ secrets.CONNECTION_CREDENTIALS }}
+  TF_VAR_lineage_tokens: ${{ secrets.LINEAGE_TOKENS }}
+  TF_VAR_oauth_client_secrets: ${{ secrets.OAUTH_CLIENT_SECRETS }}
 ```
 
-**Required GitHub Secrets:**
-- `DBT_ACCOUNT_ID`
-- `DBT_API_TOKEN`
-- `DBT_PAT`
-- `TOKEN_MAP` (JSON string: `{"key":"value"}`)
+**Required secrets:** `DBT_ACCOUNT_ID`, `DBT_TOKEN`
+
+**Credential secrets (add as needed):** `ENVIRONMENT_CREDENTIALS`, `CONNECTION_CREDENTIALS`, `LINEAGE_TOKENS`, `OAUTH_CLIENT_SECRETS`
+
+Store each JSON blob as a single-line string in the secret value:
+```
+{"analytics_prod": {"credential_type": "databricks", "token": "dapi...", "catalog": "main", "schema": "analytics"}}
+```
+
+See the [CI/CD Guide](../guides/cicd.md) for complete workflow files.
 
 ### GitLab CI/CD
 
-Store in Settings > CI/CD > Variables (masked & protected):
+Store in **Settings > CI/CD > Variables** (mark as **Masked** and **Protected**):
 
 ```yaml title=".gitlab-ci.yml"
-deploy:
-  image: hashicorp/terraform:latest
-  stage: deploy
-  variables:
-    TF_VAR_dbt_account_id: $DBT_ACCOUNT_ID
-    TF_VAR_dbt_api_token: $DBT_API_TOKEN
-    TF_VAR_dbt_pat: $DBT_PAT
-    TF_VAR_dbt_host_url: "https://cloud.getdbt.com/api"
-    TF_VAR_yaml_file_path: "./dbt-config.yml"
-    TF_VAR_token_map: $TOKEN_MAP
-  script:
-    - terraform init
-    - terraform apply -auto-approve
-  only:
-    - main
+variables:
+  TF_VAR_dbt_account_id: $DBT_ACCOUNT_ID
+  TF_VAR_dbt_token: $DBT_TOKEN
+  TF_VAR_dbt_pat: $DBT_PAT
+  TF_VAR_dbt_host_url: "https://cloud.getdbt.com"
+  TF_VAR_environment_credentials: $ENVIRONMENT_CREDENTIALS
+  TF_VAR_connection_credentials: $CONNECTION_CREDENTIALS
 ```
 
 ### Azure DevOps
 
-Store in Pipelines > Library > Variable groups:
+Store in **Pipelines > Library > Variable groups** (mark as secret):
 
 ```yaml title="azure-pipelines.yml"
-trigger:
-  - main
-
-pool:
-  vmImage: 'ubuntu-latest'
-
-variables:
-  - group: dbt-cloud-credentials
-
-steps:
-  - task: TerraformInstaller@0
-    inputs:
-      terraformVersion: 'latest'
-  
-  - task: TerraformTaskV2@2
-    inputs:
-      command: 'init'
-  
-  - task: TerraformTaskV2@2
-    inputs:
-      command: 'apply'
-      environmentServiceNameAzureRM: 'terraform'
-    env:
-      TF_VAR_dbt_account_id: $(DBT_ACCOUNT_ID)
-      TF_VAR_dbt_api_token: $(DBT_API_TOKEN)
-      TF_VAR_dbt_pat: $(DBT_PAT)
-      TF_VAR_dbt_host_url: 'https://cloud.getdbt.com/api'
-      TF_VAR_yaml_file_path: './dbt-config.yml'
-      TF_VAR_token_map: $(TOKEN_MAP)
+env:
+  TF_VAR_dbt_account_id: $(DBT_ACCOUNT_ID)
+  TF_VAR_dbt_token: $(DBT_TOKEN)
+  TF_VAR_dbt_pat: $(DBT_PAT)
+  TF_VAR_dbt_host_url: 'https://cloud.getdbt.com'
+  TF_VAR_environment_credentials: $(ENVIRONMENT_CREDENTIALS)
 ```
 
 ---
 
-## Token Map Configuration
+## Credential Variable Reference
 
-The `token_map` variable maps credential names in your YAML to actual database tokens.
+### `environment_credentials`
 
-### How It Works
+Map of environment credential objects, keyed by `"{project_key}_{env_key}"`.
 
-**In your YAML:**
-
-```yaml
-environments:
-  - name: "Production"
-    credential:
-      token_name: "prod_databricks_token"  # ← This is the key
-      schema: "analytics"
-```
-
-**In your environment variables:**
+Each object must include `credential_type` and the type-specific fields:
 
 ```bash
-export TF_VAR_token_map='{"prod_databricks_token":"dapi_abc123xyz"}'
-#                         ↑ Must match              ↑ Actual token
-```
-
-### Multiple Credentials Example
-
-```bash
-# Multiple database credentials
-export TF_VAR_token_map='{
-  "prod_databricks": "dapi_prod123",
-  "dev_databricks": "dapi_dev456",
-  "staging_snowflake": "sf_stg789",
-  "prod_snowflake": "sf_prd012"
+export TF_VAR_environment_credentials='{
+  "analytics_prod": {
+    "credential_type": "databricks",
+    "token": "dapi...",
+    "catalog": "main",
+    "schema": "analytics"
+  },
+  "analytics_dev": {
+    "credential_type": "snowflake",
+    "auth_type": "password",
+    "user": "DBT_USER",
+    "password": "...",
+    "schema": "DEV_ANALYTICS",
+    "database": "ANALYTICS",
+    "warehouse": "TRANSFORMING"
+  }
 }'
 ```
 
-!!! tip "Token Security"
-    - **Never** commit actual tokens to Git
-    - Use environment-specific tokens (dev, staging, prod)
-    - Rotate tokens periodically
-    - Use service principals, not personal tokens
+The key `"analytics_prod"` maps to a project with `key: analytics` and an environment with `key: prod`.
+
+### `connection_credentials`
+
+Map of connection credential objects for global connections, keyed by `global_connections[].key`:
+
+```bash
+export TF_VAR_connection_credentials='{
+  "databricks_prod": {
+    "client_id": "...",
+    "client_secret": "..."
+  },
+  "snowflake_prod": {
+    "oauth_client_id": "...",
+    "oauth_client_secret": "..."
+  }
+}'
+```
+
+### `token_map`
+
+Legacy Databricks token map, keyed by `credential.token_name` in YAML:
+
+```bash
+export TF_VAR_token_map='{"my_databricks_token": "dapi_abc123"}'
+```
+
+This is the older pattern. Prefer `environment_credentials` for new setups.
+
+### `lineage_tokens`
+
+Tokens for Tableau/Looker lineage integrations, keyed by `"{project_key}_{integration_key}"`:
+
+```bash
+export TF_VAR_lineage_tokens='{"analytics_tableau_prod": "..."}'
+```
+
+### `oauth_client_secrets`
+
+Client secrets for OAuth configurations, keyed by `oauth_configurations[].key`:
+
+```bash
+export TF_VAR_oauth_client_secrets='{"snowflake_oauth": "..."}'
+```
 
 ---
 
@@ -256,67 +250,41 @@ export TF_VAR_token_map='{
 2. Look at the URL: `https://cloud.getdbt.com/accounts/{account_id}/`
 3. The number after `/accounts/` is your account ID
 
-### API Token & PAT
+### API Token
 
 1. Go to [https://cloud.getdbt.com/settings/profile](https://cloud.getdbt.com/settings/profile)
-2. Scroll to "API Access"
-3. Click "Create Token" or "Create Service Account Token"
-4. Copy the token (starts with `dbtc_`)
+2. Scroll to **API Access**
+3. Click **Create Token** or use an existing service account token
+4. Copy the token — it starts with `dbtc_`
 
 !!! info "Token vs PAT"
-    For this module, use the same token for both `dbt_api_token` and `dbt_pat`.
+    For most setups, use the same token for both `dbt_token` and `dbt_pat`. The PAT is only required separately if you're using GitHub App integration with a different auth token.
 
 ### Host URL
 
 | Region | Host URL |
 |--------|----------|
-| US (Multi-tenant) | `https://cloud.getdbt.com/api` |
-| EMEA (Multi-tenant) | `https://emea.dbt.com/api` |
-| AU (Multi-tenant) | `https://au.dbt.com/api` |
-| Single-tenant | `https://{your-account}.getdbt.com/api` |
-
-### Connection IDs
-
-1. In dbt Cloud: Admin > Connections
-2. Click on your connection
-3. Look at the URL: `/connections/{connection_id}`
-4. Or check the connection details page
+| US (Multi-tenant) | `https://cloud.getdbt.com` |
+| EMEA (Multi-tenant) | `https://emea.dbt.com` |
+| AU (Multi-tenant) | `https://au.dbt.com` |
+| Single-tenant | `https://{your-account}.getdbt.com` |
 
 ---
 
 ## Best Practices
 
-### Security
-
 ✅ **DO:**
-- Use `.env` for local development
-- Use CI/CD secrets for automation
+- Use CI/CD platform secrets for all automated workflows
+- Use `.env` for local development only — never in production
 - Add `.env` and `terraform.tfvars` to `.gitignore`
 - Use service account tokens, not personal tokens
-- Rotate credentials regularly
-- Use different tokens for dev/staging/prod
+- Rotate tokens regularly
 
 ❌ **DON'T:**
 - Commit credentials to Git
-- Share tokens in chat/email
+- Echo secret values in scripts or logs
 - Use production tokens in development
 - Hardcode credentials in `.tf` files
-
-### Organization
-
-```
-my-dbt-project/
-├── .env                  # Local credentials (gitignored)
-├── .env.example          # Template (committed)
-├── .gitignore            # Includes .env, *.tfvars
-├── main.tf               # No credentials here!
-├── variables.tf          # Variable definitions only
-├── dbt-config.yml        # References token_map keys
-└── configs/              # Multiple project configs
-    ├── finance.yml
-    ├── marketing.yml
-    └── operations.yml
-```
 
 ### Debugging
 
@@ -326,7 +294,7 @@ Check if variables are loaded:
 # After source .env
 env | grep TF_VAR
 
-# Or for a specific variable
+# Specific variable
 echo $TF_VAR_dbt_account_id
 ```
 
@@ -336,49 +304,35 @@ echo $TF_VAR_dbt_account_id
 
 ### "Error: No value for required variable"
 
-**Problem:** Terraform can't find the variable.
-
-**Solutions:**
 ```bash
-# Make sure to source .env
+# Make sure to source .env first
 source .env
-
-# Verify it's set
-echo $TF_VAR_dbt_account_id
+echo $TF_VAR_dbt_account_id   # Should print your account ID
 
 # Or pass directly
 terraform plan -var="dbt_account_id=12345"
 ```
 
-### "Invalid JSON for token_map"
+### "Invalid JSON for environment_credentials"
 
-**Problem:** `token_map` isn't valid JSON.
-
-**Solutions:**
 ```bash
-# ❌ Multi-line won't work
-export TF_VAR_token_map='{
+# ❌ Multi-line won't work in export
+export TF_VAR_environment_credentials='{
   "key": "value"
 }'
 
-# ✅ Single line
-export TF_VAR_token_map='{"key":"value"}'
+# ✅ Single line with single quotes
+export TF_VAR_environment_credentials='{"analytics_prod": {"credential_type": "databricks", "token": "dapi..."}}'
 
-# ✅ Or use terraform.tfvars
-token_map = {
-  key = "value"
-}
+# ✅ Or use terraform.tfvars with HCL syntax
 ```
 
-### "401 Unauthorized" from dbt Cloud
+### "401 Unauthorized"
 
-**Problem:** Invalid or expired API token.
-
-**Solutions:**
-- Regenerate token in dbt Cloud settings
+- Regenerate token at [dbt Cloud Profile](https://cloud.getdbt.com/settings/profile)
 - Verify token starts with `dbtc_`
-- Check you're using the right account
-- Ensure token has necessary permissions
+- Confirm you're using the correct account ID
+- Ensure the token has account-level permissions
 
 ---
 
@@ -386,23 +340,23 @@ token_map = {
 
 <div class="grid cards" markdown>
 
--   :material-file-yaml:{ .lg .middle } __YAML Schema__
+-   :material-file-yaml:{ .lg .middle } **YAML Schema**
 
     ---
 
-    Configure your dbt projects
+    Configure your dbt projects in YAML
 
     [:octicons-arrow-right-24: YAML Schema](yaml-schema.md)
 
--   :material-github-box:{ .lg .middle } __CI/CD Guide__
+-   :material-github-box:{ .lg .middle } **CI/CD Guide**
 
     ---
 
-    Automate deployments
+    Complete GitHub Actions workflow examples
 
     [:octicons-arrow-right-24: CI/CD Integration](../guides/cicd.md)
 
--   :material-lifebuoy:{ .lg .middle } __Troubleshooting__
+-   :material-lifebuoy:{ .lg .middle } **Troubleshooting**
 
     ---
 

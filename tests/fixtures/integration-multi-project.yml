@@ -1,0 +1,28 @@
+projects:
+  - name: TF Integration Alpha
+    key: tf_int_alpha
+    environments:
+      - name: Dev
+        key: dev
+        type: development
+    jobs:
+      - name: Nightly
+        key: nightly
+        environment_key: dev
+        execute_steps:
+          - dbt compile
+        triggers:
+          schedule: true
+          github_webhook: false
+          git_provider_webhook: false
+          on_merge: false
+        schedule_type: days_of_week
+        schedule_days: [1, 2, 3, 4, 5]
+        schedule_hours: [2]
+
+  - name: TF Integration Beta
+    key: tf_int_beta
+    environments:
+      - name: Dev
+        key: dev
+        type: development

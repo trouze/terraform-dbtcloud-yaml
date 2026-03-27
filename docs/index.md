@@ -1,211 +1,224 @@
 # terraform-dbtcloud-yaml
 
-[![Terraform Version](https://img.shields.io/badge/terraform-%3E%3D%201.0-blue?logo=terraform)](https://www.terraform.io) [![dbt Cloud Provider](https://img.shields.io/badge/dbt--cloud--provider-v1.3-blue)](https://registry.terraform.io/providers/dbt-labs/dbtcloud/latest) [![License](https://img.shields.io/badge/license-Apache%202.0-green)](https://github.com/trouze/terraform-dbtcloud-yaml/blob/main/LICENSE)
+[![Terraform Version](https://img.shields.io/badge/terraform-%3E%3D%201.0-blue?logo=terraform)](https://www.terraform.io) [![dbt Cloud Provider](https://img.shields.io/badge/dbt--cloud--provider-v1.8-blue)](https://registry.terraform.io/providers/dbt-labs/dbtcloud/latest) [![License](https://img.shields.io/badge/license-Apache%202.0-green)](https://github.com/trouze/terraform-dbtcloud-yaml/blob/main/LICENSE)
 
 Manage your entire dbt Cloud setup with infrastructure-as-code using Terraform and YAML. Define projects, repositories, environments, credentials, and jobs in a single, human-readable YAML file.
 
 ## Why This Project Exists
 
-Setting up dbt Cloud via Terraform requires writing complex HCL for every resource. This module simplifies that by letting you define your infrastructure in YAML - the language data teams already know. No need to learn Terraform syntax just to configure dbt.
+dbt engineers already know YAML. They write it every day for models, sources, and tests. But managing dbt Cloud infrastructure — projects, environments, jobs, credentials — means writing Terraform HCL, a completely different language with its own mental model.
+
+This module bridges that gap: you describe your dbt Cloud setup in YAML, and Terraform handles the rest. No HCL required for day-to-day changes.
 
 **Benefits:**
 
-- ✅ **YAML-based configuration** - intuitive for data engineers
-- ✅ **Infrastructure as Code** - version control your dbt setup
-- ✅ **Multi-provider Git support** - GitHub, GitLab, Azure DevOps, SSH
-- ✅ **Complete resource management** - projects, repos, environments, credentials, jobs
-- ✅ **Environment variable management** - set dbt variables alongside infrastructure
-- ✅ **Reusable modules** - standardize your dbt deployments
+- **YAML-based configuration** — intuitive for data engineers
+- **Infrastructure as Code** — version control your dbt Cloud setup
+- **Multi-project support** — manage multiple projects from one YAML or one per team
+- **Complete resource coverage** — projects, environments, jobs, global connections, service tokens, groups, notifications, IP restrictions, and more
+- **Safe by default** — `protected: true` prevents accidental `terraform destroy` on critical resources
+- **CI/CD ready** — GitHub Actions workflows included in the example
 
 ## Quick Start
 
-Get started in 3 simple steps:
+=== "Step 1: Create main.tf"
 
-## Quick Start
+    ```hcl
+    terraform {
+      required_providers {
+        dbtcloud = {
+          source  = "dbt-labs/dbtcloud"
+          version = "~> 1.8"
+        }
+      }
+    }
 
-Get started in 3 simple steps:
+    module "dbt_cloud" {
+      source = "github.com/trouze/terraform-dbtcloud-yaml"
 
-=== "Step 1: Clone the Example"
-
-    ```bash
-    # Clone or copy the basic example
-    git clone https://github.com/trouze/terraform-dbtcloud-yaml.git
-    cd terraform-dbtcloud-yaml/examples/basic
-
-    # Or copy to your own directory
-    cp -r examples/basic my-dbt-setup
-    cd my-dbt-setup
+      dbt_account_id          = var.dbt_account_id
+      dbt_token               = var.dbt_token
+      dbt_host_url            = var.dbt_host_url
+      yaml_file               = "${path.module}/dbt-config.yml"
+      environment_credentials = var.environment_credentials
+    }
     ```
 
-=== "Step 2: Configure Credentials"
+=== "Step 2: Create dbt-config.yml"
+
+    ```yaml
+    projects:
+      - name: Analytics
+        key: analytics
+        repository:
+          remote_url: "your-org/your-repo"
+          github_installation_id: 1234567
+
+        environments:
+          - name: Production
+            key: prod
+            type: deployment
+            deployment_type: production
+            connection_key: databricks_prod   # references global_connections[].key
+            credential:
+              credential_type: databricks
+              catalog: main
+              schema: analytics
+
+        jobs:
+          - name: Daily Build
+            key: daily_build
+            environment_key: prod
+            execute_steps:
+              - dbt build
+            triggers:
+              schedule: true
+            schedule_type: every_day
+            schedule_hours: [6]
+    ```
+
+=== "Step 3: Set credentials"
 
     ```bash
-    # Create .env file from example
-    cp .env.example .env
+    # In CI/CD, set these as GitHub Secrets (never hardcode values here)
+    # For local dev, export them before running terraform
 
-    # Edit with your dbt Cloud credentials
     export TF_VAR_dbt_account_id=12345
-    export TF_VAR_dbt_api_token=dbtc_xxxxx
-    export TF_VAR_dbt_pat=dbtc_xxxxx
-    export TF_VAR_dbt_host_url=https://cloud.getdbt.com/api
-    export TF_VAR_yaml_file_path=./dbt-config.yml
+    export TF_VAR_dbt_token=dbtc_your_api_token
+    export TF_VAR_dbt_host_url=https://cloud.getdbt.com
+
+    # Environment credentials — JSON blob keyed by "{project_key}_{env_key}"
+    export TF_VAR_environment_credentials='{
+      "analytics_prod": {
+        "credential_type": "databricks",
+        "token": "dapi...",
+        "catalog": "main",
+        "schema": "analytics"
+      }
+    }'
     ```
 
-=== "Step 3: Deploy"
+=== "Step 4: Deploy"
 
     ```bash
-    # Load credentials
-    source .env
-
-    # Initialize and deploy
     terraform init
     terraform plan
     terraform apply
     ```
 
 !!! success "That's it!"
-    Your dbt Cloud project is now managed with infrastructure-as-code!
+    Your dbt Cloud project is now managed as code.
 
 ## Features
 
-### YAML Configuration
+### Supported Resources
 
-Define everything in one file:
+| Scope | Resources |
+|-------|-----------|
+| Account | Projects, global connections, service tokens, groups, user groups, notifications, OAuth configurations, IP restrictions, account features |
+| Project | Repository, environments, credentials (14 warehouse types), jobs, environment variables, extended attributes, profiles, lineage integrations, project artefacts, semantic layer |
+
+### Credential Types
+
+Databricks, Snowflake (password + keypair), BigQuery, Postgres, Redshift, Athena, Fabric, Synapse, Starburst, Trino, Spark, Teradata — all managed from YAML.
+
+### Multi-Project
+
+Manage multiple dbt Cloud projects from one YAML file:
 
 ```yaml
-project:
-  name: "my-dbt-project"
-  repository:
-    remote_url: "https://github.com/myorg/myrepo.git"
-    git_clone_strategy: "github_app"
-    github_installation_id: 123456
-
-  environments:
-    - name: "Production"
-      type: "deployment"
-      connection_id: 1
-      jobs:
-        - name: "daily_run"
-          execute_steps:
-            - "dbt run"
-          triggers:
-            schedule: true
-            schedule_hours: [6]
+projects:
+  - name: Finance Analytics
+    key: finance
+    ...
+  - name: Marketing Analytics
+    key: marketing
+    ...
 ```
 
-### Multi-Provider Git Support
+Or one YAML file per team using `yaml_file` variable:
 
-Automatically configures your Git provider:
+```bash
+terraform apply -var="yaml_file=./configs/finance.yml"
+```
 
-- **GitHub** with GitHub App
-- **GitLab** with Deploy Token
-- **Azure DevOps** with Azure AD
-- **SSH** Deploy Key (universal)
+### Credential Keys
 
-### Secure Credentials
+Sensitive values are never in the YAML. They're passed as Terraform variables and matched by key:
 
-- Keep secrets in `.env` or GitHub Secrets
-- Never commit sensitive values
-- Support for database credentials as environment variables
+| Variable | Key format | Matches in YAML |
+|---|---|---|
+| `environment_credentials` | `"project_key_env_key"` | Environment `credential:` block |
+| `connection_credentials` | `"connection_key"` | `global_connections[].key` |
+| `token_map` | `"token_name"` | `credential.token_name` (legacy Databricks) |
+| `lineage_tokens` | `"project_key_integration_key"` | `lineage_integrations[].key` composite |
+| `oauth_client_secrets` | `"oauth_config_key"` | `oauth_configurations[].key` |
 
-## Use Cases
+### Protection Lifecycle
 
-<div class="grid cards" markdown>
+Set `protected: true` on any resource to prevent accidental deletion:
 
--   :material-rocket-launch:{ .lg .middle } **Single dbt Project**
-
-    ---
-
-    Get started quickly with a single project
-
-    ```bash
-    terraform apply
-    ```
-
--   :material-git:{ .lg .middle } **Multiple Projects**
-
-    ---
-
-    Run multiple dbt projects in parallel CI/CD
-
-    ```bash
-    # Run each project separately
-    for config in configs/*.yml; do
-      terraform plan -var="yaml_file_path=$config"
-    done
-    ```
-
--   :material-github:{ .lg .middle } **CI/CD Pipeline**
-
-    ---
-
-    Automate deployments with GitHub Actions
-
-    ```yaml
-    # GitHub Actions example
-    - env:
-        TF_VAR_dbt_account_id: ${{ secrets.DBT_ACCOUNT_ID }}
-        TF_VAR_dbt_api_token: ${{ secrets.DBT_API_TOKEN }}
-      run: terraform apply
-    ```
-
-</div>
+```yaml
+environments:
+  - name: Production
+    key: prod
+    protected: true   # terraform destroy will fail for this resource
+```
 
 ## Requirements
 
 - Terraform >= 1.0
-- dbt Cloud account
+- dbt Cloud account with admin access
 - dbt Cloud API token
-- Git repository for your dbt models
 
 ## What's Next?
 
 <div class="grid cards" markdown>
 
--   :material-rocket-launch:{ .lg .middle } **Getting Started**
+-   :material-rocket-launch:{ .lg .middle } **Quick Start**
 
     ---
 
-    Follow the quick start guide to deploy your first dbt Cloud project
+    Deploy your first dbt Cloud project in minutes
 
     [:octicons-arrow-right-24: Quick Start](getting-started/quickstart.md)
 
--   :material-file-document:{ .lg .middle } **Configuration**
+-   :material-file-document:{ .lg .middle } **YAML Schema**
 
     ---
 
-    Learn about YAML schema and configuration options
+    Full reference for every field in `dbt-config.yml`
 
-    [:octicons-arrow-right-24: Configuration](configuration/yaml-schema.md)
+    [:octicons-arrow-right-24: YAML Schema](configuration/yaml-schema.md)
+
+-   :material-github-box:{ .lg .middle } **CI/CD Guide**
+
+    ---
+
+    GitHub Actions workflows for plan on PR and apply on merge
+
+    [:octicons-arrow-right-24: CI/CD Guide](guides/cicd.md)
 
 -   :material-book-open-variant:{ .lg .middle } **Examples**
 
     ---
 
-    Explore real-world examples and use cases
+    Real-world configuration examples
 
     [:octicons-arrow-right-24: Examples](getting-started/examples.md)
-
--   :material-github:{ .lg .middle } **Reference**
-
-    ---
-
-    Complete Terraform module API documentation
-
-    [:octicons-arrow-right-24: Module API](reference/terraform.md)
 
 </div>
 
 ## Community & Support
 
-- 📖 **Documentation** - You're reading it!
-- 🐛 **Issues** - [Report bugs or request features](https://github.com/trouze/terraform-dbtcloud-yaml/issues)
-- 💬 **Discussions** - [Share ideas and best practices](https://github.com/trouze/terraform-dbtcloud-yaml/discussions)
+- 📖 **Documentation** — You're reading it!
+- 🐛 **Issues** — [Report bugs or request features](https://github.com/trouze/terraform-dbtcloud-yaml/issues)
+- 💬 **Discussions** — [Share ideas and best practices](https://github.com/trouze/terraform-dbtcloud-yaml/discussions)
 
 ## License
 
-This project is licensed under Apache License 2.0. See [LICENSE](https://github.com/trouze/terraform-dbtcloud-yaml/blob/main/LICENSE) for details.
+Apache License 2.0. See [LICENSE](https://github.com/trouze/terraform-dbtcloud-yaml/blob/main/LICENSE) for details.
 
 ---
 
-**Ready to manage your dbt Cloud with code?** Start with the [Quick Start Guide](getting-started/quickstart.md)!
+**Ready to manage your dbt Cloud with code?** Start with the [Quick Start Guide](getting-started/quickstart.md).

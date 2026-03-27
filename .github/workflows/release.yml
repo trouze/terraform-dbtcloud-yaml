@@ -1,0 +1,35 @@
+# release.yml — triggered by a version tag (e.g. git tag v1.2.3 && git push --tags).
+#
+# Produces two release assets:
+#   starter.tar.gz  — the examples/basic/ directory, ready to extract
+#   install.sh      — bootstrap script that downloads starter.tar.gz
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Package starter
+        run: tar -czf starter.tar.gz -C examples/basic .
+
+      - name: Create release with assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            install.sh
+            starter.tar.gz
+          generate_release_notes: true

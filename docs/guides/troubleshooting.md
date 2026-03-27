@@ -183,26 +183,29 @@ Error: dbt Cloud API error: 403 Forbidden
 
 ---
 
-### "404 Not Found - Connection ID"
+### "Connection Not Found"
 
 **Error Message:**
 ```
-Error: Cannot find connection with ID: 1234
+Error: Cannot find connection with key: "my_connection"
 ```
 
-**Cause:** Connection ID doesn't exist or is in different account.
+**Cause:** The `connection_key` in your environment doesn't match any `global_connections[].key`.
 
 **Solutions:**
 
-1. **Find correct connection ID:**
-   - In dbt Cloud: Admin > Connections
-   - Click connection, check URL: `/connections/{CONNECTION_ID}`
+1. **Check your global_connections keys:**
+```yaml
+global_connections:
+  - name: Databricks Production
+    key: databricks_prod     # ← this is the key
+```
 
-2. **Update YAML:**
+2. **Make sure your environment references it correctly:**
 ```yaml
 environments:
-  - name: "Production"
-    connection_id: 1234  # Use the correct ID
+  - name: Production
+    connection_key: databricks_prod   # ← must match exactly
 ```
 
 ---
@@ -259,7 +262,7 @@ name: "My Project: Production"
 
 **Error Message:**
 ```
-Error: Missing required field: connection_id
+Error: Missing required field
 ```
 
 **Cause:** Required field not provided in YAML.
@@ -270,12 +273,14 @@ Check the [YAML Schema](../configuration/yaml-schema.md) for required fields:
 
 ```yaml
 environments:
-  - name: "Production"        # Required
-    type: "deployment"        # Required
-    connection_id: 1001       # Required ← Add this!
-    credential:               # Required
-      token_name: "token"     # Required
-      schema: "analytics"     # Required
+  - name: Production          # Required
+    key: prod                 # Required
+    type: deployment          # Required
+    deployment_type: production  # Required for deployment envs
+    connection_key: my_conn   # References global_connections[].key
+    credential:
+      credential_type: databricks
+      schema: analytics
 ```
 
 ---
@@ -374,25 +379,30 @@ Error: Token key 'prod_databricks_token' not found in token_map
 
 **Solutions:**
 
-1. **Check YAML credential name:**
+**Option A — Using `environment_credentials` (recommended):**
+```yaml
+# In YAML: environment with key: prod in project with key: analytics
+environments:
+  - name: Production
+    key: prod
+    credential:
+      credential_type: databricks
+      catalog: main
+      schema: analytics
+```
+```bash
+# Key is "{project_key}_{env_key}"
+export TF_VAR_environment_credentials='{"analytics_prod": {"credential_type": "databricks", "token": "dapi..."}}'
+```
+
+**Option B — Using `token_map` (legacy Databricks):**
 ```yaml
 credential:
   token_name: "prod_databricks_token"  # This key...
 ```
-
-2. **Must match token_map:**
 ```bash
-export TF_VAR_token_map='{
-  "prod_databricks_token": "dapi_abc123"
-  # ↑ Must match exactly
-}'
-```
-
-3. **Or add to terraform.tfvars:**
-```hcl
-token_map = {
-  prod_databricks_token = "dapi_abc123"
-}
+export TF_VAR_token_map='{"prod_databricks_token": "dapi_abc123"}'
+#                          ↑ Must match exactly
 ```
 
 ---
@@ -439,7 +449,9 @@ token_map = {
 ```yaml
 env:
   TF_VAR_dbt_account_id: ${{ secrets.DBT_ACCOUNT_ID }}
-  # Secret name must match exactly ↑
+  TF_VAR_dbt_token: ${{ secrets.DBT_TOKEN }}
+  TF_VAR_environment_credentials: ${{ secrets.ENVIRONMENT_CREDENTIALS }}
+  # Secret names must match exactly ↑
 ```
 
 3. **Ensure workflow has access:**

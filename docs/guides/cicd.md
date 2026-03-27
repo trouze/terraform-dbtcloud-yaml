@@ -4,83 +4,44 @@ Automate your dbt Cloud infrastructure deployments using CI/CD pipelines.
 
 ## Overview
 
-This module integrates seamlessly with popular CI/CD platforms:
+The recommended pattern is two separate workflows:
 
-- **GitHub Actions** - Native GitHub integration
-- **GitLab CI/CD** - Built into GitLab
-- **Azure DevOps Pipelines** - Microsoft Azure
-- **Jenkins** - Self-hosted automation
-- **CircleCI** - Cloud-based CI/CD
+- **CI** (`ci.yml`) — runs on every PR, validates config and posts the Terraform plan as a comment
+- **CD** (`cd.yml`) — runs on merge to main, applies the plan with an optional approval gate
 
-All examples use environment variables for credentials, making them portable across platforms.
+The `examples/basic/.github/workflows/` directory contains ready-to-use versions of both.
 
 ---
 
 ## GitHub Actions
 
-### Basic Workflow
+### Required Secrets
 
-Deploy on push to main:
+Set these in your repository: **Settings > Secrets and variables > Actions**
 
-```yaml title=".github/workflows/dbt-cloud.yml"
-name: Deploy dbt Cloud Infrastructure
+| Secret | Description | Required |
+|--------|-------------|----------|
+| `DBT_ACCOUNT_ID` | Numeric dbt Cloud account ID | Yes |
+| `DBT_TOKEN` | dbt Cloud API token | Yes |
+| `DBT_PAT` | Personal access token (GitHub App integration only; can equal `DBT_TOKEN`) | Conditional |
+| `ENVIRONMENT_CREDENTIALS` | JSON blob — see [Environment Variables](../configuration/environment-variables.md) | Yes (if using env credentials) |
+| `CONNECTION_CREDENTIALS` | JSON blob for global connection OAuth/keys | If using global connections |
+| `LINEAGE_TOKENS` | JSON blob for Tableau/Looker tokens | If using lineage integrations |
+| `OAUTH_CLIENT_SECRETS` | JSON blob for OAuth configurations | If using OAuth |
 
-on:
-  push:
-    branches: [main]
-    paths:
-      - 'dbt-config.yml'
-      - '**.tf'
+### CI — Plan on PR
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: 1.6.0
-      
-      - name: Terraform Init
-        run: terraform init
-      
-      - name: Terraform Plan
-        env:
-          TF_VAR_dbt_account_id: ${{ secrets.DBT_ACCOUNT_ID }}
-          TF_VAR_dbt_api_token: ${{ secrets.DBT_API_TOKEN }}
-          TF_VAR_dbt_pat: ${{ secrets.DBT_PAT }}
-          TF_VAR_dbt_host_url: https://cloud.getdbt.com/api
-          TF_VAR_yaml_file_path: ./dbt-config.yml
-          TF_VAR_token_map: ${{ secrets.TOKEN_MAP }}
-        run: terraform plan -out=tfplan
-      
-      - name: Terraform Apply
-        env:
-          TF_VAR_dbt_account_id: ${{ secrets.DBT_ACCOUNT_ID }}
-          TF_VAR_dbt_api_token: ${{ secrets.DBT_API_TOKEN }}
-          TF_VAR_dbt_pat: ${{ secrets.DBT_PAT }}
-          TF_VAR_dbt_host_url: https://cloud.getdbt.com/api
-          TF_VAR_yaml_file_path: ./dbt-config.yml
-          TF_VAR_token_map: ${{ secrets.TOKEN_MAP }}
-        run: terraform apply tfplan
-```
+Runs on every pull request that touches `dbt-config.yml` or any `.tf` file. Posts the Terraform plan as a PR comment (updates the existing comment on re-push rather than stacking new ones).
 
-### With Pull Request Preview
-
-Show plan in PR comments:
-
-```yaml title=".github/workflows/terraform-pr.yml"
-name: Terraform PR Check
+```yaml title=".github/workflows/ci.yml"
+name: CI — Terraform Plan
 
 on:
   pull_request:
+    branches: [main]
     paths:
-      - 'dbt-config.yml'
-      - '**.tf'
+      - "dbt-config.yml"
+      - "**.tf"
 
 permissions:
   contents: read
@@ -88,96 +49,171 @@ permissions:
 
 jobs:
   plan:
+    name: Validate and Plan
     runs-on: ubuntu-latest
-    
+
+    env:
+      TF_VAR_dbt_account_id: ${{ secrets.DBT_ACCOUNT_ID }}
+      TF_VAR_dbt_token: ${{ secrets.DBT_TOKEN }}
+      TF_VAR_dbt_pat: ${{ secrets.DBT_PAT }}
+      TF_VAR_dbt_host_url: "https://cloud.getdbt.com"
+      TF_VAR_environment_credentials: ${{ secrets.ENVIRONMENT_CREDENTIALS }}
+      TF_VAR_connection_credentials: ${{ secrets.CONNECTION_CREDENTIALS }}
+      TF_VAR_lineage_tokens: ${{ secrets.LINEAGE_TOKENS }}
+      TF_VAR_oauth_client_secrets: ${{ secrets.OAUTH_CLIENT_SECRETS }}
+
     steps:
-      - uses: actions/checkout@v3
-      
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-      
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1"
+
       - name: Terraform Init
         run: terraform init
-      
+
+      - name: Terraform Validate
+        run: terraform validate
+
       - name: Terraform Plan
         id: plan
-        env:
-          TF_VAR_dbt_account_id: ${{ secrets.DBT_ACCOUNT_ID }}
-          TF_VAR_dbt_api_token: ${{ secrets.DBT_API_TOKEN }}
-          TF_VAR_dbt_pat: ${{ secrets.DBT_PAT }}
-          TF_VAR_dbt_host_url: https://cloud.getdbt.com/api
-          TF_VAR_yaml_file_path: ./dbt-config.yml
-          TF_VAR_token_map: ${{ secrets.TOKEN_MAP }}
-        run: terraform plan -no-color
-        continue-on-error: true
-      
-      - name: Comment Plan on PR
-        uses: actions/github-script@v6
+        run: |
+          terraform plan -no-color -out=tfplan
+          terraform show -no-color tfplan > plan.txt
+        continue-on-error: true  # Post comment even if plan fails
+
+      - name: Post plan as PR comment
+        uses: actions/github-script@v7
         with:
           script: |
-            const output = `#### Terraform Plan 📋
-            
+            const fs = require('fs');
+            const raw = fs.readFileSync('plan.txt', 'utf8');
+
+            // Truncate if the plan is too large for a GitHub comment
+            const maxLen = 60000;
+            const plan = raw.length > maxLen
+              ? raw.slice(0, maxLen) + '\n\n... output truncated (full plan in Actions log)'
+              : raw;
+
+            const status = '${{ steps.plan.outcome }}' === 'success' ? '✅' : '❌';
+            const body = `### ${status} Terraform Plan
+
+            <details><summary>Show plan</summary>
+
+            \`\`\`hcl
+            ${plan}
             \`\`\`
-            ${{ steps.plan.outputs.stdout }}
-            \`\`\`
-            
-            *Pushed by: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
+
+            </details>
+
+            > Triggered by @${{ github.actor }} on \`${{ github.head_ref }}\``;
+
+            // Replace any previous plan comment instead of stacking new ones
+            const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: output
-            })
+              issue_number: context.issue.number,
+            });
+            const prev = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Terraform Plan')
+            );
+            if (prev) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: prev.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Fail if plan errored
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
 ```
 
-### Multi-Project Matrix
+### CD — Apply on Merge
 
-Deploy multiple projects in parallel:
+Runs on push to main (i.e., after a PR merges). Uses a GitHub Environment (`production`) which can be configured with required reviewers for an approval gate before apply.
 
-```yaml title=".github/workflows/multi-project.yml"
-name: Deploy Multiple Projects
+```yaml title=".github/workflows/cd.yml"
+name: CD — Terraform Apply
 
 on:
   push:
     branches: [main]
+    paths:
+      - "dbt-config.yml"
+      - "**.tf"
+
+permissions:
+  contents: read
 
 jobs:
-  deploy:
+  apply:
+    name: Apply
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        project: [finance, marketing, operations]
-      fail-fast: false
-    
+    environment: production  # remove this line if you don't need an approval gate
+
+    env:
+      TF_VAR_dbt_account_id: ${{ secrets.DBT_ACCOUNT_ID }}
+      TF_VAR_dbt_token: ${{ secrets.DBT_TOKEN }}
+      TF_VAR_dbt_pat: ${{ secrets.DBT_PAT }}
+      TF_VAR_dbt_host_url: "https://cloud.getdbt.com"
+      TF_VAR_environment_credentials: ${{ secrets.ENVIRONMENT_CREDENTIALS }}
+      TF_VAR_connection_credentials: ${{ secrets.CONNECTION_CREDENTIALS }}
+      TF_VAR_lineage_tokens: ${{ secrets.LINEAGE_TOKENS }}
+      TF_VAR_oauth_client_secrets: ${{ secrets.OAUTH_CLIENT_SECRETS }}
+
     steps:
-      - uses: actions/checkout@v3
-      
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-      
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1"
+
       - name: Terraform Init
         run: terraform init
-      
-      - name: Deploy ${{ matrix.project }}
-        env:
-          TF_VAR_dbt_account_id: ${{ secrets.DBT_ACCOUNT_ID }}
-          TF_VAR_dbt_api_token: ${{ secrets.DBT_API_TOKEN }}
-          TF_VAR_dbt_pat: ${{ secrets.DBT_PAT }}
-          TF_VAR_dbt_host_url: https://cloud.getdbt.com/api
-          TF_VAR_yaml_file_path: ./configs/${{ matrix.project }}.yml
-          TF_VAR_token_map: ${{ secrets.TOKEN_MAP }}
-        run: |
-          terraform workspace select -or-create ${{ matrix.project }}
-          terraform plan -out=tfplan
-          terraform apply tfplan
+
+      - name: Terraform Plan
+        run: terraform plan -no-color -out=tfplan
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
 ```
+
+### Setting Up the Approval Gate
+
+To require a reviewer before applying to production:
+
+1. Go to **Settings > Environments** in your GitHub repository
+2. Create an environment named `production`
+3. Add **Required reviewers**
+4. Optionally add branch protection rules (e.g., only allow deploys from `main`)
+
+Remove the `environment: production` line from `cd.yml` if you don't need this gate.
+
+### Remote State
+
+Before using these workflows in production, configure a [Terraform backend](https://developer.hashicorp.com/terraform/language/settings/backends/configuration) in `main.tf` (S3, GCS, Terraform Cloud, etc.). Without it, state is local and lost between CI runs.
 
 ---
 
 ## GitLab CI/CD
 
-### Basic Pipeline
+### Masked Variables
+
+Store credentials in **Settings > CI/CD > Variables**. Mark all credential variables as **Masked** and **Protected**.
 
 ```yaml title=".gitlab-ci.yml"
 stages:
@@ -186,58 +222,58 @@ stages:
   - apply
 
 variables:
-  TF_ROOT: ${CI_PROJECT_DIR}
-  TF_VAR_dbt_host_url: "https://cloud.getdbt.com/api"
-  TF_VAR_yaml_file_path: "./dbt-config.yml"
+  TF_VAR_dbt_host_url: "https://cloud.getdbt.com"
 
 .terraform-base:
   image: hashicorp/terraform:latest
   before_script:
-    - cd ${TF_ROOT}
     - terraform init
 
 validate:
   extends: .terraform-base
   stage: validate
   script:
-    - terraform fmt -check
     - terraform validate
 
 plan:
   extends: .terraform-base
   stage: plan
   variables:
-    TF_VAR_dbt_account_id: ${DBT_ACCOUNT_ID}
-    TF_VAR_dbt_api_token: ${DBT_API_TOKEN}
-    TF_VAR_dbt_pat: ${DBT_PAT}
-    TF_VAR_token_map: ${TOKEN_MAP}
+    TF_VAR_dbt_account_id: $DBT_ACCOUNT_ID
+    TF_VAR_dbt_token: $DBT_TOKEN
+    TF_VAR_dbt_pat: $DBT_PAT
+    TF_VAR_environment_credentials: $ENVIRONMENT_CREDENTIALS
+    TF_VAR_connection_credentials: $CONNECTION_CREDENTIALS
   script:
     - terraform plan -out=tfplan
   artifacts:
     paths:
-      - ${TF_ROOT}/tfplan
+      - tfplan
     expire_in: 1 day
 
 apply:
   extends: .terraform-base
   stage: apply
   variables:
-    TF_VAR_dbt_account_id: ${DBT_ACCOUNT_ID}
-    TF_VAR_dbt_api_token: ${DBT_API_TOKEN}
-    TF_VAR_dbt_pat: ${DBT_PAT}
-    TF_VAR_token_map: ${TOKEN_MAP}
+    TF_VAR_dbt_account_id: $DBT_ACCOUNT_ID
+    TF_VAR_dbt_token: $DBT_TOKEN
+    TF_VAR_dbt_pat: $DBT_PAT
+    TF_VAR_environment_credentials: $ENVIRONMENT_CREDENTIALS
+    TF_VAR_connection_credentials: $CONNECTION_CREDENTIALS
   script:
     - terraform apply tfplan
   dependencies:
     - plan
-  only:
-    - main
-  when: manual
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual   # Approval gate
 ```
 
 ---
 
 ## Azure DevOps
+
+Store credentials in **Pipelines > Library > Variable groups** (mark as secret).
 
 ```yaml title="azure-pipelines.yml"
 trigger:
@@ -255,37 +291,32 @@ pool:
 variables:
   - group: dbt-cloud-credentials
   - name: TF_VAR_dbt_host_url
-    value: 'https://cloud.getdbt.com/api'
-  - name: TF_VAR_yaml_file_path
-    value: './dbt-config.yml'
+    value: 'https://cloud.getdbt.com'
 
 stages:
   - stage: Plan
     jobs:
       - job: TerraformPlan
         steps:
-          - task: TerraformInstaller@0
+          - task: TerraformInstaller@1
             inputs:
               terraformVersion: 'latest'
-          
-          - task: TerraformTaskV2@2
+
+          - task: TerraformTaskV4@4
             displayName: 'Terraform Init'
             inputs:
               command: 'init'
-              workingDirectory: '$(System.DefaultWorkingDirectory)'
-          
-          - task: TerraformTaskV2@2
+
+          - task: TerraformTaskV4@4
             displayName: 'Terraform Plan'
             inputs:
               command: 'plan'
-              workingDirectory: '$(System.DefaultWorkingDirectory)'
-              environmentServiceNameAzureRM: 'terraform-sp'
             env:
               TF_VAR_dbt_account_id: $(DBT_ACCOUNT_ID)
-              TF_VAR_dbt_api_token: $(DBT_API_TOKEN)
+              TF_VAR_dbt_token: $(DBT_TOKEN)
               TF_VAR_dbt_pat: $(DBT_PAT)
-              TF_VAR_token_map: $(TOKEN_MAP)
-  
+              TF_VAR_environment_credentials: $(ENVIRONMENT_CREDENTIALS)
+
   - stage: Apply
     dependsOn: Plan
     condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
@@ -296,228 +327,62 @@ stages:
           runOnce:
             deploy:
               steps:
-                - task: TerraformTaskV2@2
+                - task: TerraformTaskV4@4
                   displayName: 'Terraform Apply'
                   inputs:
                     command: 'apply'
-                    workingDirectory: '$(System.DefaultWorkingDirectory)'
                   env:
                     TF_VAR_dbt_account_id: $(DBT_ACCOUNT_ID)
-                    TF_VAR_dbt_api_token: $(DBT_API_TOKEN)
+                    TF_VAR_dbt_token: $(DBT_TOKEN)
                     TF_VAR_dbt_pat: $(DBT_PAT)
-                    TF_VAR_token_map: $(TOKEN_MAP)
+                    TF_VAR_environment_credentials: $(ENVIRONMENT_CREDENTIALS)
 ```
 
 ---
 
 ## Best Practices
 
-### 1. Secret Management
+### Secret Management
 
 ✅ **DO:**
-- Use platform-native secrets (GitHub Secrets, GitLab Variables, etc.)
-- Mark secrets as "masked" or "protected"
-- Use different secrets for dev/staging/prod
-- Rotate secrets regularly
+- Use platform-native secrets (GitHub Secrets, GitLab masked variables, Azure Library, key vault)
+- Mark secrets as "masked" or "protected" so they never appear in logs
+- Use the same secret names across environments for consistency
+- Rotate tokens regularly
 
 ❌ **DON'T:**
 - Hardcode credentials in workflow files
-- Echo secrets in logs
-- Share secrets across unrelated projects
+- Echo secrets in scripts
+- Use personal tokens for automated workflows (use service account tokens)
 
-### 2. Environment Separation
+### Credential JSON Format
 
-Use different workflows for environments:
+JSON blob variables (`ENVIRONMENT_CREDENTIALS`, `CONNECTION_CREDENTIALS`, etc.) must be single-line JSON strings in CI/CD secrets:
 
-```yaml
-# Production
-on:
-  push:
-    branches: [main]
-
-# Staging
-on:
-  push:
-    branches: [staging]
-
-# Development
-on:
-  push:
-    branches: [develop]
+```
+{"analytics_prod": {"credential_type": "databricks", "token": "dapi...", "catalog": "main", "schema": "analytics"}}
 ```
 
-### 3. Approval Gates
+In `terraform.tfvars` (local use only), you can use HCL map syntax instead:
 
-Require manual approval for production:
-
-**GitHub Actions:**
-```yaml
-environment:
-  name: production
-  url: https://cloud.getdbt.com
+```hcl
+environment_credentials = {
+  analytics_prod = {
+    credential_type = "databricks"
+    token           = "dapi..."
+    catalog         = "main"
+    schema          = "analytics"
+  }
+}
 ```
 
-**GitLab CI/CD:**
-```yaml
-apply:
-  when: manual
-  only:
-    - main
-```
+### Approval Gates
 
-### 4. Plan Artifact
+Require manual approval before production apply:
 
-Save plan output for review:
-
-```yaml
-- name: Save Plan
-  run: terraform show -no-color tfplan > plan.txt
-
-- name: Upload Plan
-  uses: actions/upload-artifact@v3
-  with:
-    name: terraform-plan
-    path: plan.txt
-```
-
-### 5. Parallel Execution
-
-Use matrix strategy for multiple projects:
-
-```yaml
-strategy:
-  matrix:
-    project: [a, b, c]
-  fail-fast: false  # Continue even if one fails
-  max-parallel: 3   # Limit concurrent jobs
-```
-
----
-
-## Troubleshooting
-
-### "No value for required variable"
-
-**Problem:** Secrets not loaded.
-
-**Solution:**
-- Verify secrets are defined in CI/CD platform
-- Check variable names match exactly
-- Ensure workflow has access to secrets
-
-### "State Lock Timeout"
-
-**Problem:** Previous run didn't release state lock.
-
-**Solution:**
-```yaml
-- name: Force Unlock (emergency only)
-  run: terraform force-unlock -force <LOCK_ID>
-```
-
-### "Plan Changes Unexpectedly"
-
-**Problem:** State drift or external changes.
-
-**Solution:**
-- Run `terraform refresh` to sync state
-- Review changes carefully
-- Consider using `terraform import` for existing resources
-
----
-
-## Complete Example
-
-Putting it all together:
-
-```yaml title=".github/workflows/complete.yml"
-name: dbt Cloud Infrastructure
-
-on:
-  pull_request:
-    paths: ['**.yml', '**.tf']
-  push:
-    branches: [main]
-    paths: ['**.yml', '**.tf']
-
-permissions:
-  contents: read
-  pull-requests: write
-
-jobs:
-  terraform:
-    name: Terraform ${{ github.event_name == 'pull_request' && 'Plan' || 'Apply' }}
-    runs-on: ubuntu-latest
-    
-    env:
-      TF_VAR_dbt_account_id: ${{ secrets.DBT_ACCOUNT_ID }}
-      TF_VAR_dbt_api_token: ${{ secrets.DBT_API_TOKEN }}
-      TF_VAR_dbt_pat: ${{ secrets.DBT_PAT }}
-      TF_VAR_dbt_host_url: https://cloud.getdbt.com/api
-      TF_VAR_yaml_file_path: ./dbt-config.yml
-      TF_VAR_token_map: ${{ secrets.TOKEN_MAP }}
-    
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-      
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: 1.6.0
-      
-      - name: Terraform Format Check
-        run: terraform fmt -check -recursive
-      
-      - name: Terraform Init
-        run: terraform init
-      
-      - name: Terraform Validate
-        run: terraform validate
-      
-      - name: Terraform Plan
-        id: plan
-        run: |
-          terraform plan -no-color -out=tfplan
-          terraform show -no-color tfplan > plan.txt
-      
-      - name: Comment Plan on PR
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const fs = require('fs');
-            const plan = fs.readFileSync('plan.txt', 'utf8');
-            const output = `#### Terraform Plan 📋
-            <details><summary>Show Plan</summary>
-            
-            \`\`\`
-            ${plan}
-            \`\`\`
-            
-            </details>
-            
-            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: output
-            })
-      
-      - name: Terraform Apply
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: terraform apply -auto-approve tfplan
-      
-      - name: Upload Plan Artifact
-        if: always()
-        uses: actions/upload-artifact@v3
-        with:
-          name: terraform-plan
-          path: plan.txt
-          retention-days: 30
-```
+- **GitHub Actions**: `environment: production` with Required reviewers configured
+- **GitLab CI**: `when: manual` on the apply job
+- **Azure DevOps**: deployment environment with approval policies
 
 ---
 
@@ -525,15 +390,23 @@ jobs:
 
 <div class="grid cards" markdown>
 
--   :material-folder-multiple:{ .lg .middle } __Multi-Project Setup__
+-   :material-key:{ .lg .middle } **Environment Variables**
 
     ---
 
-    Manage multiple dbt projects
+    Full credential variable reference and setup instructions
+
+    [:octicons-arrow-right-24: Environment Variables](../configuration/environment-variables.md)
+
+-   :material-folder-multiple:{ .lg .middle } **Multi-Project Setup**
+
+    ---
+
+    Manage multiple dbt projects in one repo
 
     [:octicons-arrow-right-24: Multi-Project Guide](../configuration/multi-project.md)
 
--   :material-security:{ .lg .middle } __Best Practices__
+-   :material-security:{ .lg .middle } **Best Practices**
 
     ---
 

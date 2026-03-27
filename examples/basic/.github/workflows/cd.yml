@@ -1,0 +1,54 @@
+# CD — runs on merge to main and applies the Terraform plan.
+#
+# Uses a GitHub Environment ("production") which can be configured with
+# required reviewers for an approval gate before apply:
+#   Settings > Environments > production > Required reviewers
+#
+# Uses the same secrets as ci.yml — see that file for the full list
+# and setup instructions.
+
+name: CD — Terraform Apply
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "dbt-config.yml"
+      - "**.tf"
+
+permissions:
+  contents: read
+
+jobs:
+  apply:
+    name: Apply
+    runs-on: ubuntu-latest
+    environment: production  # remove this line if you don't need an approval gate
+
+    env:
+      TF_VAR_dbt_account_id: ${{ secrets.DBT_ACCOUNT_ID }}
+      TF_VAR_dbt_token: ${{ secrets.DBT_TOKEN }}
+      TF_VAR_dbt_pat: ${{ secrets.DBT_PAT }}
+      TF_VAR_dbt_host_url: "https://cloud.getdbt.com"
+      TF_VAR_environment_credentials: ${{ secrets.ENVIRONMENT_CREDENTIALS }}
+      TF_VAR_connection_credentials: ${{ secrets.CONNECTION_CREDENTIALS }}
+      TF_VAR_lineage_tokens: ${{ secrets.LINEAGE_TOKENS }}
+      TF_VAR_oauth_client_secrets: ${{ secrets.OAUTH_CLIENT_SECRETS }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1"
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Plan
+        run: terraform plan -no-color -out=tfplan
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan

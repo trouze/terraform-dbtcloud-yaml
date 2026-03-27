@@ -1,20 +1,16 @@
-variable "project_id" {
-  description = "The ID of the project to which jobs belong"
-  type        = string
+variable "projects" {
+  description = "List of project configurations. Each project may have an 'environment_variables' list."
+  type        = any
 }
 
-variable "environment_ids" {
-  description = "The ID of the project this repository is associated with"
+variable "project_ids" {
+  description = "Map of project key to dbt Cloud project ID"
   type        = map(string)
 }
 
-variable "environment_variables" {
-  description = "A list of environment variable configurations"
-  type = any
-}
-
 variable "token_map" {
-    type = map(string)
-    description = "Mapping of token names to credential"
-    sensitive = true
+  description = "Map of token names to values (used for secret_ prefixed env var values)"
+  type        = map(string)
+  default     = {}
+  sensitive   = true
 }

@@ -4,25 +4,31 @@ terraform {
   required_providers {
     dbtcloud = {
       source  = "dbt-labs/dbtcloud"
-      version = "~> 1.3"
+      version = "~> 1.8"
     }
   }
 }
 
 provider "dbtcloud" {
   account_id = var.dbt_account_id
-  token      = var.dbt_api_token
+  token      = var.dbt_token
+  host_url   = var.dbt_host_url
 }
 
-# Test the terraform-dbtcloud-yaml module from GitHub
-module "dbt_cloud_test" {
-  source = "git::https://github.com/trouze/terraform-dbtcloud-yaml.git?ref=v0.1.0-alpha"
+module "dbt_cloud" {
+  source = "github.com/trouze/terraform-dbtcloud-yaml"
 
   dbt_account_id = var.dbt_account_id
   dbt_token      = var.dbt_token
-  dbt_pat        = var.dbt_pat != "" ? var.dbt_pat : var.dbt_token
   dbt_host_url   = var.dbt_host_url
-  yaml_file      = var.yaml_file_path
-  token_map      = var.token_map
+  dbt_pat        = var.dbt_pat
+  yaml_file      = "${path.module}/dbt-config.yml"
   target_name    = var.target_name
+
+  # Sensitive credentials — never put these in the YAML file
+  token_map               = var.token_map
+  environment_credentials = var.environment_credentials
+  connection_credentials  = var.connection_credentials
+  lineage_tokens          = var.lineage_tokens
+  oauth_client_secrets    = var.oauth_client_secrets
 }

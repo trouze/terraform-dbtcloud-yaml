@@ -8,10 +8,10 @@ Before you begin, make sure you have:
 
 - [x] Terraform >= 1.0 installed
 - [x] dbt Cloud account with admin access
-- [x] dbt Cloud API token ([Get one here](https://cloud.getdbt.com/settings/profile))
+- [x] dbt Cloud API token ([generate at Profile > API Access](https://cloud.getdbt.com/settings/profile))
 - [x] Git repository with your dbt project
 
-## Step 1: Clone the Example
+## Step 1: Copy the Example
 
 Start with the basic example as a template:
 
@@ -28,102 +28,109 @@ The basic example includes:
 
 ```
 basic/
-├── main.tf              # Terraform configuration
-├── variables.tf         # Input variable definitions
-├── dbt-config.yml      # Your dbt Cloud configuration
-└── .env.example        # Credential template
+├── main.tf                         # Terraform module call
+├── variables.tf                    # Input variable definitions
+├── dbt-config.yml                  # Your dbt Cloud configuration
+├── .env.example                    # Credential template
+└── .github/
+    └── workflows/
+        ├── ci.yml                  # Plan on PR
+        └── cd.yml                  # Apply on merge
 ```
 
-## Step 2: Configure Your Credentials
+## Step 2: Set Your Credentials
 
-Create a `.env` file for your dbt Cloud credentials:
+Credentials are passed via environment variables — never hardcoded. In CI/CD, set these as secrets in your platform (see [CI/CD Guide](../guides/cicd.md)). For local use:
 
 ```bash
 cp .env.example .env
+# Edit .env with your actual values, then:
+source .env
 ```
 
-Edit `.env` with your actual values:
+Your `.env` should look like:
 
 ```bash
-# Required: dbt Cloud credentials
+# Required
 export TF_VAR_dbt_account_id=12345
-export TF_VAR_dbt_api_token=dbtc_xxxxxxxxxxxxx
-export TF_VAR_dbt_pat=dbtc_xxxxxxxxxxxxx
-export TF_VAR_dbt_host_url=https://cloud.getdbt.com/api
+export TF_VAR_dbt_token=dbtc_your_api_token
+export TF_VAR_dbt_host_url=https://cloud.getdbt.com
 
-# Optional: Path to your YAML config (you can pass this via -var flag to switch between projects easily)
-export TF_VAR_yaml_file_path=./dbt-config.yml
-
-# Optional: Database credential tokens (if using Databricks, Snowflake, etc.)
-export TF_VAR_token_map='{"my_credential":"abc123"}'
+# Environment credentials — keyed by "{project_key}_{env_key}"
+export TF_VAR_environment_credentials='{
+  "analytics_prod": {
+    "credential_type": "databricks",
+    "token": "dapi...",
+    "catalog": "main",
+    "schema": "analytics"
+  }
+}'
 ```
 
 !!! tip "Where to find these values"
     - **Account ID**: Found in your dbt Cloud URL: `https://cloud.getdbt.com/accounts/{account_id}/`
-    - **API Token**: Generate at [https://cloud.getdbt.com/settings/profile](https://cloud.getdbt.com/settings/profile)
-    - **PAT**: Same as API Token (Personal Access Token)
-    - **Host URL**: `https://cloud.getdbt.com/api` for US, check [docs](https://docs.getdbt.com/docs/dbt-cloud/api-v2) for other regions
+    - **API Token**: Generate at [https://cloud.getdbt.com/settings/profile](https://cloud.getdbt.com/settings/profile) — starts with `dbtc_`
+    - **Host URL**: `https://cloud.getdbt.com` for US multi-tenant; see [Environment Variables](../configuration/environment-variables.md) for other regions
 
 !!! warning "Security"
-    Never commit `.env` to version control! It's already in `.gitignore`.
+    Never commit `.env` or `terraform.tfvars` to version control. Both are in `.gitignore` by default.
 
 ## Step 3: Configure Your dbt Project
 
 Edit `dbt-config.yml` with your project details:
 
 ```yaml
-project:
-  name: "my-dbt-project"
-  repository:
-    remote_url: "https://github.com/myorg/my-dbt-repo.git"
-    git_clone_strategy: "github_app"  # or "deploy_key", "gitlab_deploy_token"
-    github_installation_id: 123456     # Your GitHub App installation ID
-  
-  environments:
-    - name: "Production"
-      type: "deployment"
-      connection_id: 1  # Your dbt Cloud connection ID
-      credential:
-        token_name: "databricks_token"  # Maps to token_map
-        schema: "prod"
-      jobs:
-        - name: "Daily Production Run"
-          execute_steps:
-            - "dbt run"
-            - "dbt test"
-          triggers:
-            schedule: true
-            schedule_hours: [6]  # 6 AM daily
-            schedule_days: [0, 1, 2, 3, 4]  # Weekdays
+projects:
+  - name: Analytics
+    key: analytics
+    repository:
+      remote_url: "your-org/your-repo"      # GitHub: "org/repo", or full URL
+      github_installation_id: 1234567        # From GitHub App integration
+
+    environments:
+      - name: Production
+        key: prod
+        type: deployment
+        deployment_type: production
+        connection_key: databricks_prod      # References global_connections[].key
+        credential:
+          credential_type: databricks
+          catalog: main
+          schema: analytics
+
+    jobs:
+      - name: Daily Build
+        key: daily_build
+        environment_key: prod               # References environments[].key
+        execute_steps:
+          - dbt build
+        triggers:
+          schedule: true
+        schedule_type: every_day
+        schedule_hours: [6]                 # 6 AM UTC
 ```
 
-!!! info "Git Clone Strategies"
-    Choose based on your Git provider:
-    
-    - **GitHub**: `github_app` (recommended) or `deploy_key`
-    - **GitLab**: `gitlab_deploy_token` or `deploy_key`
-    - **Azure DevOps**: `azure_active_directory_app`
-    - **Other**: `deploy_key` (universal SSH)
+!!! info "connection_key"
+    Instead of a raw numeric `connection_id`, environments reference connections by `connection_key` — matching `global_connections[].key` in the YAML. This keeps your config portable and readable.
+
+!!! info "Jobs at project level"
+    Jobs are defined at the project level with an `environment_key` field, not nested inside environments. This makes them easier to read and reference by key for deferral.
+
+See the [YAML Schema](../configuration/yaml-schema.md) for all available fields including global connections, service tokens, Snowflake credentials, scheduled jobs, and more.
 
 ## Step 4: Initialize Terraform
 
-Load your credentials and initialize:
-
 ```bash
-# Load credentials from .env
 source .env
 
-# Initialize Terraform
 terraform init
 ```
 
 You should see:
 
 ```
-```
 Initializing modules...
 Downloading git::https://github.com/trouze/terraform-dbtcloud-yaml.git...
-```
 
 Terraform has been successfully initialized!
 ```
@@ -136,87 +143,79 @@ Always review what Terraform will create:
 terraform plan
 ```
 
-You'll see an output like:
+You'll see output like:
 
 ```
-Plan: 8 to add, 0 to change, 0 to destroy.
+Plan: 5 to add, 0 to change, 0 to destroy.
 
-Changes to Outputs:
-  + project_id      = (known after apply)
-  + repository_id   = (known after apply)
-  + environment_ids = {
-      + "Production" = (known after apply)
-    }
+  + dbtcloud_project.projects["analytics"]
+  + dbtcloud_repository.repositories["analytics"]
+  + dbtcloud_environment.environments["analytics_prod"]
+  + dbtcloud_databricks_credential.credentials["analytics_prod"]
+  + dbtcloud_job.jobs["analytics_daily_build"]
 ```
-
-!!! tip "Understanding the Plan"
-    - **Resources being created**: Project, repository, environments, credentials, jobs
-    - **Nothing exists yet**: Resources are only created when you run `apply`
-    - **Review carefully**: Make sure connection IDs, URLs, and names are correct
 
 ## Step 6: Apply Configuration
-
-Create your dbt Cloud infrastructure:
 
 ```bash
 terraform apply
 ```
 
-Type `yes` when prompted. Terraform will create:
-
-1. ✅ dbt Cloud project
-2. ✅ Repository connection
-3. ✅ Environments (Production, Development, etc.)
-4. ✅ Credentials (database connections)
-5. ✅ Jobs (scheduled runs, CI checks)
+Type `yes` when prompted. Terraform will create your dbt Cloud project, environments, credentials, and jobs.
 
 ```
-Apply complete! Resources: 8 added, 0 changed, 0 destroyed.
-
-Outputs:
-project_id = 12345
-repository_id = 67890
-environment_ids = {
-  "Production" = 11111
-}
+Apply complete! Resources: 5 added, 0 changed, 0 destroyed.
 ```
 
 ## Step 7: Verify in dbt Cloud
 
 1. Log into [dbt Cloud](https://cloud.getdbt.com)
 2. Navigate to your account
-3. You should see your new project!
-4. Check that environments and jobs are configured correctly
+3. Confirm your project, environments, and jobs are configured correctly
+
+## Making Changes
+
+After initial setup, all changes go through the same loop:
+
+1. Edit `dbt-config.yml`
+2. Run `terraform plan` to preview
+3. Run `terraform apply` to apply
+
+```bash
+source .env
+terraform plan
+terraform apply
+```
 
 ## What's Next?
 
 <div class="grid cards" markdown>
 
--   :material-rocket:{ .lg .middle } __Customize Your Setup__
+-   :material-file-document:{ .lg .middle } **YAML Schema**
 
     ---
 
-    Learn about all configuration options
+    All configuration options with types, defaults, and examples
 
     [:octicons-arrow-right-24: YAML Schema](../configuration/yaml-schema.md)
 
--   :material-github-box:{ .lg .middle } __CI/CD Integration__
+-   :material-github-box:{ .lg .middle } **CI/CD Integration**
 
     ---
 
-    Automate deployments with GitHub Actions
+    Automate plan on PR and apply on merge
 
     [:octicons-arrow-right-24: CI/CD Guide](../guides/cicd.md)
 
--   :material-book-multiple:{ .lg .middle } __More Examples__
+-   :material-key:{ .lg .middle } **Environment Variables**
 
     ---
 
-    See real-world use cases
+    Full credential variable reference
 
-    [:octicons-arrow-right-24: Examples](examples.md)
+    [:octicons-arrow-right-24: Environment Variables](../configuration/environment-variables.md)
 
--   :material-lifebuoy:{ .lg .middle } __Need Help?__
+-   :material-lifebuoy:{ .lg .middle } **Troubleshooting**
 
     ---
 
@@ -226,21 +225,5 @@ environment_ids = {
 
 </div>
 
-## Making Changes
-
-After initial setup, you can modify your configuration:
-
-1. Edit `dbt-config.yml`
-2. Run `terraform plan` to preview changes
-3. Run `terraform apply` to apply them
-
-```bash
-# Example: Add a new environment
-nano dbt-config.yml  # Add new environment
-source .env
-terraform plan      # Review changes
-terraform apply     # Apply changes
-```
-
-!!! success "You're All Set!"
+!!! success "You're all set!"
     Your dbt Cloud project is now managed as code. All changes are tracked in Git and deployed via Terraform.

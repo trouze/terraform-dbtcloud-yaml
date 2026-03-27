@@ -1,0 +1,124 @@
+# CI — runs on every PR that touches config or Terraform files.
+# Validates the configuration and posts the plan as a PR comment
+# so reviewers can see exactly what will change before merging.
+#
+# Required GitHub secrets (Settings > Secrets and variables > Actions):
+#   DBT_ACCOUNT_ID             — numeric account ID
+#   DBT_TOKEN                  — dbt Cloud API token
+#   DBT_PAT                    — personal access token (GitHub App integration only;
+#                                can be the same value as DBT_TOKEN otherwise)
+#   ENVIRONMENT_CREDENTIALS    — JSON blob, see .env.example for shape
+#
+# Optional secrets (omit if not used):
+#   CONNECTION_CREDENTIALS     — JSON blob for OAuth/service principal connections
+#   LINEAGE_TOKENS             — JSON blob for Tableau/Looker integrations
+#   OAUTH_CLIENT_SECRETS       — JSON blob for OAuth configurations
+#
+# Remote state: configure a backend in main.tf (S3, GCS, Terraform Cloud, etc.)
+# before using these workflows in production. Without it, state is local and
+# lost between runs.
+
+name: CI — Terraform Plan
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "dbt-config.yml"
+      - "**.tf"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  plan:
+    name: Validate and Plan
+    runs-on: ubuntu-latest
+
+    env:
+      TF_VAR_dbt_account_id: ${{ secrets.DBT_ACCOUNT_ID }}
+      TF_VAR_dbt_token: ${{ secrets.DBT_TOKEN }}
+      TF_VAR_dbt_pat: ${{ secrets.DBT_PAT }}
+      TF_VAR_dbt_host_url: "https://cloud.getdbt.com"
+      TF_VAR_environment_credentials: ${{ secrets.ENVIRONMENT_CREDENTIALS }}
+      TF_VAR_connection_credentials: ${{ secrets.CONNECTION_CREDENTIALS }}
+      TF_VAR_lineage_tokens: ${{ secrets.LINEAGE_TOKENS }}
+      TF_VAR_oauth_client_secrets: ${{ secrets.OAUTH_CLIENT_SECRETS }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~1"
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          terraform plan -no-color -out=tfplan
+          terraform show -no-color tfplan > plan.txt
+        continue-on-error: true  # Post comment even if plan fails
+
+      - name: Post plan as PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const raw = fs.readFileSync('plan.txt', 'utf8');
+
+            // Truncate if the plan is too large for a GitHub comment
+            const maxLen = 60000;
+            const plan = raw.length > maxLen
+              ? raw.slice(0, maxLen) + '\n\n... output truncated (full plan in Actions log)'
+              : raw;
+
+            const status = '${{ steps.plan.outcome }}' === 'success' ? '✅' : '❌';
+            const body = `### ${status} Terraform Plan
+
+            <details><summary>Show plan</summary>
+
+            \`\`\`hcl
+            ${plan}
+            \`\`\`
+
+            </details>
+
+            > Triggered by @${{ github.actor }} on \`${{ github.head_ref }}\``;
+
+            // Replace any previous plan comment instead of stacking new ones
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const prev = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Terraform Plan')
+            );
+            if (prev) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: prev.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Fail if plan errored
+        if: steps.plan.outcome == 'failure'
+        run: exit 1

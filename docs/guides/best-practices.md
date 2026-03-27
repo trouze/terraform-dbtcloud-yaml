@@ -10,8 +10,8 @@ Recommended patterns for managing dbt Cloud infrastructure with Terraform.
 
 ```bash
 # .env file (never commit)
-export TF_VAR_dbt_api_token=dbtc_xxxxx
-export TF_VAR_token_map='{"key":"value"}'
+export TF_VAR_dbt_token=dbtc_xxxxx
+export TF_VAR_environment_credentials='{"analytics_prod": {"credential_type": "databricks", "token": "dapi..."}}'
 ```
 
 ❌ **Never hardcode** credentials:
@@ -19,7 +19,7 @@ export TF_VAR_token_map='{"key":"value"}'
 ```hcl
 # DON'T DO THIS!
 variable "dbt_token" {
-  default = "dbtc_xxxxx"  # ❌ Exposed in version control
+  default = "dbtc_xxxxx"  # ❌ Never hardcode — exposed in version control
 }
 ```
 
@@ -340,7 +340,7 @@ Cache Terraform plugins:
 
 ```yaml
 - name: Cache Terraform Plugins
-  uses: actions/cache@v3
+  uses: actions/cache@v4
   with:
     path: ~/.terraform.d/plugin-cache
     key: ${{ runner.os }}-terraform-${{ hashFiles('**/.terraform.lock.hcl') }}
@@ -500,24 +500,19 @@ environments:
     enable_model_query_history: true
   
   # Staging: Production-like, limited access
-  - name: "Staging"
-    type: "deployment"
-    dbt_version: "1.7.1"  # Pin to same as prod
-    jobs:
-      - name: "Staging CI"
-        triggers:
-          on_merge: true
-        deferring_environment: "Production"
-  
+  - name: Staging
+    key: staging
+    type: deployment
+    deployment_type: staging
+    dbt_version: "1.9.0"  # Pin to same as prod
+
   # Production: Locked down, scheduled
-  - name: "Production"
-    type: "deployment"
-    dbt_version: "1.7.1"
-    jobs:
-      - name: "Daily Run"
-        triggers:
-          schedule: true
-        schedule_hours: [6]
+  - name: Production
+    key: prod
+    type: deployment
+    deployment_type: production
+    dbt_version: "1.9.0"
+    protected: true
 ```
 
 ### Job Naming
@@ -539,15 +534,13 @@ jobs:
 
 ### Credential Mapping
 
-Organize by environment and warehouse:
+Use `environment_credentials` keyed by `"{project_key}_{env_key}"`:
 
 ```bash
-export TF_VAR_token_map='{
-  "dev_databricks_uc": "dapi_dev123",
-  "staging_databricks_uc": "dapi_stg456",
-  "prod_databricks_uc": "dapi_prd789",
-  "dev_snowflake": "sf_dev_abc",
-  "prod_snowflake": "sf_prd_xyz"
+export TF_VAR_environment_credentials='{
+  "analytics_dev":     {"credential_type": "databricks", "token": "dapi_dev123"},
+  "analytics_staging": {"credential_type": "databricks", "token": "dapi_stg456"},
+  "analytics_prod":    {"credential_type": "databricks", "token": "dapi_prd789"}
 }'
 ```
 

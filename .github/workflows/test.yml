@@ -1,0 +1,61 @@
+# test.yml — runs Terraform unit tests on every pull request and push to main.
+# Uses mock providers so no dbt Cloud credentials are required.
+
+name: Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  root-tests:
+    name: Root Module Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.7"
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Test
+        run: terraform test -verbose
+
+  module-tests:
+    name: Module Tests (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module:
+          - project
+          - environments
+          - jobs
+          - credentials
+          - repository
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "~> 1.7"
+
+      - name: Terraform Init
+        working-directory: modules/${{ matrix.module }}
+        run: terraform init
+
+      - name: Terraform Test
+        working-directory: modules/${{ matrix.module }}
+        run: terraform test -verbose

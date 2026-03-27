@@ -10,17 +10,22 @@ The simplest possible setup to get started.
 
 - Single dbt Cloud project
 - GitHub repository integration
-- One production environment
+- One production environment with Databricks credentials
 - One scheduled job
+- GitHub Actions workflows for CI (plan on PR) and CD (apply on merge)
 
 ### Directory Structure
 
 ```
 examples/basic/
-├── main.tf              # Terraform module call
-├── variables.tf         # Input variables
-├── dbt-config.yml      # dbt Cloud configuration
-└── .env.example        # Credential template
+├── main.tf                         # Terraform module call
+├── variables.tf                    # Input variables
+├── dbt-config.yml                  # dbt Cloud configuration
+├── .env.example                    # Credential template
+└── .github/
+    └── workflows/
+        ├── ci.yml                  # Plan on PR, post as comment
+        └── cd.yml                  # Apply on merge to main
 ```
 
 ### Try It Out
@@ -39,265 +44,290 @@ terraform apply
 
 ---
 
-## Managing Multiple Projects
+## Multi-Project in One YAML
 
-Store multiple YAML configurations and manage them independently or in parallel.
+Store multiple projects in a single YAML file. All share one Terraform state.
 
-### Scenario: Multiple Teams
+```yaml title="dbt-config.yml"
+projects:
+  - name: Finance Analytics
+    key: finance
+    repository:
+      remote_url: "your-org/finance-dbt"
+      github_installation_id: 1234567
+    environments:
+      - name: Production
+        key: prod
+        type: deployment
+        deployment_type: production
+        connection_key: databricks_prod
+        credential:
+          credential_type: databricks
+          catalog: main
+          schema: finance_analytics
+    jobs:
+      - name: Daily Build
+        key: daily_build
+        environment_key: prod
+        execute_steps:
+          - dbt build
+        triggers:
+          schedule: true
+        schedule_type: every_day
+        schedule_hours: [5]
 
-You have separate dbt projects for different teams (Finance, Marketing, Operations) and want to manage them with the same Terraform workflow.
+  - name: Marketing Analytics
+    key: marketing
+    repository:
+      remote_url: "your-org/marketing-dbt"
+      github_installation_id: 1234567
+    environments:
+      - name: Production
+        key: prod
+        type: deployment
+        deployment_type: production
+        connection_key: snowflake_prod
+        credential:
+          credential_type: snowflake
+          auth_type: password
+          user: DBT_USER
+          schema: MARKETING
+          database: ANALYTICS
+          warehouse: TRANSFORMING
+    jobs:
+      - name: Daily Build
+        key: daily_build
+        environment_key: prod
+        execute_steps:
+          - dbt build
+        triggers:
+          schedule: true
+        schedule_type: every_day
+        schedule_hours: [6]
+```
 
-### Directory Structure
+Environment credentials are keyed by `"{project_key}_{env_key}"`:
+
+```bash
+export TF_VAR_environment_credentials='{
+  "finance_prod": {
+    "credential_type": "databricks",
+    "token": "dapi_finance...",
+    "catalog": "main",
+    "schema": "finance_analytics"
+  },
+  "marketing_prod": {
+    "credential_type": "snowflake",
+    "auth_type": "password",
+    "user": "DBT_USER",
+    "password": "...",
+    "schema": "MARKETING",
+    "database": "ANALYTICS",
+    "warehouse": "TRANSFORMING"
+  }
+}'
+```
+
+---
+
+## Multiple Teams — One YAML File Per Team
+
+For larger teams, use separate YAML files and deploy with the `yaml_file` variable:
 
 ```
 my-dbt-infrastructure/
 ├── main.tf
 ├── variables.tf
-├── .env
 └── configs/
     ├── finance.yml
     ├── marketing.yml
     └── operations.yml
 ```
 
-### Deploy Specific Project
-
 ```bash
-# Load credentials once
 source .env
 
 # Deploy Finance project
-terraform plan -var="yaml_file_path=./configs/finance.yml"
-terraform apply -var="yaml_file_path=./configs/finance.yml"
+terraform apply -var="yaml_file=./configs/finance.yml"
 
 # Deploy Marketing project
-terraform plan -var="yaml_file_path=./configs/marketing.yml"
-terraform apply -var="yaml_file_path=./configs/marketing.yml"
+terraform apply -var="yaml_file=./configs/marketing.yml"
 ```
 
-### Deploy All Projects (Sequential)
+---
 
-```bash
-source .env
+## Multi-Environment Project
 
-for config in configs/*.yml; do
-  echo "Deploying $config..."
-  terraform apply -var="yaml_file_path=$config" -auto-approve
-done
+Development, staging, and production environments in one project, with job deferral:
+
+```yaml title="dbt-config.yml"
+projects:
+  - name: Analytics
+    key: analytics
+    repository:
+      remote_url: "your-org/analytics-dbt"
+      github_installation_id: 1234567
+
+    environments:
+      - name: Development
+        key: dev
+        type: development
+        connection_key: databricks_prod
+        custom_branch: develop
+        credential:
+          credential_type: databricks
+          catalog: main
+          schema: dev_analytics
+
+      - name: Staging
+        key: staging
+        type: deployment
+        deployment_type: staging
+        connection_key: databricks_prod
+        credential:
+          credential_type: databricks
+          catalog: main
+          schema: staging_analytics
+
+      - name: Production
+        key: prod
+        type: deployment
+        deployment_type: production
+        connection_key: databricks_prod
+        protected: true
+        credential:
+          credential_type: databricks
+          catalog: main
+          schema: analytics
+
+    jobs:
+      - name: Production Daily
+        key: prod_daily
+        environment_key: prod
+        execute_steps:
+          - dbt build
+        triggers:
+          schedule: true
+        schedule_type: days_of_week
+        schedule_days: [1, 2, 3, 4, 5]   # Weekdays
+        schedule_hours: [6]
+        generate_docs: true
+
+      - name: Staging CI
+        key: staging_ci
+        environment_key: staging
+        execute_steps:
+          - dbt build --select state:modified+
+        triggers:
+          on_merge: true
+        deferring_environment_key: prod   # Defer to prod for state comparison
 ```
 
 ---
 
 ## CI/CD with GitHub Actions
 
-Automate dbt Cloud infrastructure deployment on configuration changes.
+Use the two-workflow pattern from `examples/basic/.github/workflows/`:
 
-### Single Project Workflow
+- `ci.yml` — validates and plans on every PR, posts plan as a comment (updates existing comment on re-push)
+- `cd.yml` — applies on merge to main, with optional approval gate via GitHub Environments
 
-```yaml title=".github/workflows/dbt-infrastructure.yml"
-name: Deploy dbt Cloud Infrastructure
+```yaml title=".github/workflows/ci.yml (key steps)"
+- name: Terraform Plan
+  id: plan
+  run: |
+    terraform plan -no-color -out=tfplan
+    terraform show -no-color tfplan > plan.txt
+  continue-on-error: true
 
-on:
-  push:
-    branches: [main]
-    paths:
-      - 'dbt-config.yml'
-      - '**.tf'
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: 1.6.0
-      
-      - name: Terraform Init
-        run: terraform init
-      
-      - name: Terraform Plan
-        env:
-          TF_VAR_dbt_account_id: ${{ secrets.DBT_ACCOUNT_ID }}
-          TF_VAR_dbt_api_token: ${{ secrets.DBT_API_TOKEN }}
-          TF_VAR_dbt_pat: ${{ secrets.DBT_PAT }}
-          TF_VAR_dbt_host_url: https://cloud.getdbt.com/api
-          TF_VAR_yaml_file_path: ./dbt-config.yml
-        run: terraform plan
-      
-      - name: Terraform Apply
-        if: github.ref == 'refs/heads/main'
-        env:
-          TF_VAR_dbt_account_id: ${{ secrets.DBT_ACCOUNT_ID }}
-          TF_VAR_dbt_api_token: ${{ secrets.DBT_API_TOKEN }}
-          TF_VAR_dbt_pat: ${{ secrets.DBT_PAT }}
-          TF_VAR_dbt_host_url: https://cloud.getdbt.com/api
-          TF_VAR_yaml_file_path: ./dbt-config.yml
-        run: terraform apply -auto-approve
+- name: Post plan as PR comment
+  uses: actions/github-script@v7
+  # ... posts/updates comment with plan output
 ```
 
-### Multi-Project Parallel Deployment
-
-```yaml title=".github/workflows/multi-project.yml"
-name: Deploy Multiple dbt Projects
-
-on:
-  push:
-    branches: [main]
-    paths:
-      - 'configs/**.yml'
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        project: [finance, marketing, operations]
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-      
-      - name: Terraform Init
-        run: terraform init
-      
-      - name: Deploy ${{ matrix.project }}
-        env:
-          TF_VAR_dbt_account_id: ${{ secrets.DBT_ACCOUNT_ID }}
-          TF_VAR_dbt_api_token: ${{ secrets.DBT_API_TOKEN }}
-          TF_VAR_dbt_pat: ${{ secrets.DBT_PAT }}
-          TF_VAR_dbt_host_url: https://cloud.getdbt.com/api
-          TF_VAR_yaml_file_path: ./configs/${{ matrix.project }}.yml
-        run: |
-          terraform plan
-          terraform apply -auto-approve
-```
-
-!!! tip "Required Secrets"
-    Add these to your GitHub repository secrets:
-    
-    - `DBT_ACCOUNT_ID`
-    - `DBT_API_TOKEN`
-    - `DBT_PAT`
+See the [CI/CD Guide](../guides/cicd.md) for the full workflow files and GitLab/Azure DevOps equivalents.
 
 ---
 
-## Advanced: Multi-Environment Configuration
+## Full Schema Reference
 
-Manage development, staging, and production environments in one YAML file.
-
-```yaml title="dbt-config.yml"
-project:
-  name: "analytics"
-  repository:
-    remote_url: "https://github.com/myorg/dbt-analytics.git"
-    git_clone_strategy: "github_app"
-    github_installation_id: 123456
-  
-  environments:
-    # Development environment
-    - name: "Development"
-      type: "development"
-      connection_id: 1
-      credential:
-        token_name: "dev_databricks_token"
-        schema: "dev"
-      custom_branch: "develop"
-    
-    # Staging environment
-    - name: "Staging"
-      type: "deployment"
-      connection_id: 2
-      credential:
-        token_name: "staging_databricks_token"
-        schema: "staging"
-      jobs:
-        - name: "Staging CI"
-          execute_steps:
-            - "dbt build"
-          triggers:
-            on_merge: true
-    
-    # Production environment
-    - name: "Production"
-      type: "deployment"
-      connection_id: 3
-      credential:
-        token_name: "prod_databricks_token"
-        schema: "prod"
-      jobs:
-        - name: "Production Daily"
-          execute_steps:
-            - "dbt run"
-            - "dbt test"
-          triggers:
-            schedule: true
-            schedule_hours: [6]
-            schedule_days: [0, 1, 2, 3, 4]
-          
-        - name: "Production CI"
-          execute_steps:
-            - "dbt build --select state:modified+"
-          triggers:
-            on_merge: true
-          deferring_environment: "Production"
-```
-
----
-
-## Complete YAML Schema Reference
-
-For the full specification of all available configuration options, see the [YAML Schema documentation](../configuration/yaml-schema.md).
+See [YAML Schema](../configuration/yaml-schema.md) for every field with types, defaults, and examples.
 
 ### Quick Reference
 
 ```yaml
-project:
-  name: <string>                    # Required
-  repository:
-    remote_url: <string>            # Required
-    git_clone_strategy: <string>    # Required
-    gitlab_project_id: <number>     # Optional
-    github_installation_id: <number> # Optional
-  
-  environments:
-    - name: <string>                # Required
-      type: <string>                # Required: "development" or "deployment"
-      connection_id: <number>       # Required
-      credential:
-        token_name: <string>        # Optional
-        schema: <string>            # Optional
-        catalog: <string>           # Optional
-      dbt_version: <string>         # Optional: default "latest"
-      custom_branch: <string>       # Optional
-      jobs:
-        - name: <string>            # Required
-          execute_steps:            # Required
-            - <string>
-          triggers:                 # Required
-            schedule: <boolean>
-            github_webhook: <boolean>
-            on_merge: <boolean>
-          # ... many more optional fields
-  
-  environment_variables:            # Optional
-    - name: <string>                # Must start with DBT_
-      environment_values:
-        - env: <string>
-          value: <string>
+# Account-level (optional)
+account_features:
+  advanced_ci: true
+  partial_parsing: true
+
+global_connections:
+  - name: Databricks Production
+    key: databricks_prod
+    type: databricks
+    host: adb-1234.azuredatabricks.net
+    http_path: /sql/1.0/warehouses/abc123
+
+service_tokens:
+  - name: CI Service Token
+    key: ci_token
+    permissions:
+      - permission_set: job_runner
+        all_projects: true
+
+groups:
+  - name: Developers
+    key: developers
+    assign_by_default: false
+
+notifications:
+  - name: prod-failures
+    key: prod_failures
+    notification_type: 2          # 2 = Slack
+    slack_channel_id: C0123456789
+    slack_channel_name: "#dbt-alerts"
+    on_failure: []
+
+# Projects (required)
+projects:
+  - name: Analytics
+    key: analytics
+    protected: false
+
+    repository:
+      remote_url: "your-org/your-repo"
+      github_installation_id: 1234567
+
+    environments:
+      - name: Production
+        key: prod
+        type: deployment
+        deployment_type: production
+        connection_key: databricks_prod
+        protected: true
+        credential:
+          credential_type: databricks
+          catalog: main
+          schema: analytics
+
+    jobs:
+      - name: Daily Build
+        key: daily_build
+        environment_key: prod
+        execute_steps:
+          - dbt build
+        triggers:
+          schedule: true
+        schedule_type: every_day
+        schedule_hours: [6]
+        generate_docs: true
+        deferring_environment_key: prod
+
+    environment_variables:
+      - name: DBT_WAREHOUSE
+        environment_values:
+          - env: project
+            value: "prod_warehouse"
+          - env: Production
+            value: "prod_warehouse"
 ```
-
----
-
-## More Examples Coming Soon
-
-- **Snowflake Integration**
-- **Databricks Unity Catalog**
-- **BigQuery with Service Accounts**
-- **GitLab CI/CD Pipeline**
-- **Azure DevOps Integration**
-
-Want to contribute an example? [Open a PR](https://github.com/trouze/terraform-dbtcloud-yaml/pulls)!

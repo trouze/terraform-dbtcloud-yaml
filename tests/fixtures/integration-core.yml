@@ -1,0 +1,21 @@
+projects:
+  - name: TF Integration Core
+    key: tf_int_core
+    environments:
+      - name: Dev
+        key: dev
+        type: development
+    jobs:
+      - name: Daily Run
+        key: daily_run
+        environment_key: dev
+        execute_steps:
+          - dbt compile
+        triggers:
+          schedule: true
+          github_webhook: false
+          git_provider_webhook: false
+          on_merge: false
+        schedule_type: days_of_week
+        schedule_days: [1, 2, 3, 4, 5]
+        schedule_hours: [6]

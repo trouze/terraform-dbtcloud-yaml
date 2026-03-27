@@ -1,0 +1,10 @@
+projects:
+  - name: TF Integration Svc
+    key: tf_int_svc
+
+service_tokens:
+  - name: TF Integration Token
+    key: tf_int_svc_token
+    permissions:
+      - permission_set: readonly
+        all_projects: true
