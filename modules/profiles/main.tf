@@ -28,8 +28,8 @@ locals {
 resource "dbtcloud_profile" "profiles" {
   for_each = local.profiles_map
 
-  project_id  = each.value.project_id
-  key         = each.value.profile_key
+  project_id = each.value.project_id
+  key        = each.value.profile_key
   connection_id = try(
     lookup(var.global_connection_ids, tostring(each.value.profile_data.connection_key), null),
     try(tonumber(each.value.profile_data.connection_id), null)

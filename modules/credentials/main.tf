@@ -49,10 +49,10 @@ resource "dbtcloud_databricks_credential" "credentials" {
   for_each = {
     for k, item in local.credential_owners_map :
     k => item
-    if (
+    if(
       contains(local.available_env_cred_keys, k) &&
       try(local.env_cred_types[k], "") == "databricks"
-    ) || (
+      ) || (
       !contains(local.available_env_cred_keys, k) &&
       try(item.cred_data.credential_type, try(item.cred_data.type, "databricks")) == "databricks"
     )
@@ -102,16 +102,16 @@ resource "dbtcloud_snowflake_credential" "credentials_keypair" {
     try(nonsensitive(var.environment_credentials[k].auth_type), "password") == "keypair"
   }
 
-  project_id                 = each.value.project_id
-  auth_type                  = "keypair"
-  user                       = try(var.environment_credentials[each.key].user, "")
-  private_key                = try(var.environment_credentials[each.key].private_key, null)
-  private_key_passphrase     = try(var.environment_credentials[each.key].private_key_passphrase, null)
-  schema                     = try(var.environment_credentials[each.key].schema, try(each.value.cred_data.schema, ""))
-  num_threads                = try(var.environment_credentials[each.key].num_threads, null)
-  database                   = try(var.environment_credentials[each.key].database, null)
-  role                       = try(var.environment_credentials[each.key].role, null)
-  warehouse                  = try(var.environment_credentials[each.key].warehouse, null)
+  project_id             = each.value.project_id
+  auth_type              = "keypair"
+  user                   = try(var.environment_credentials[each.key].user, "")
+  private_key            = try(var.environment_credentials[each.key].private_key, null)
+  private_key_passphrase = try(var.environment_credentials[each.key].private_key_passphrase, null)
+  schema                 = try(var.environment_credentials[each.key].schema, try(each.value.cred_data.schema, ""))
+  num_threads            = try(var.environment_credentials[each.key].num_threads, null)
+  database               = try(var.environment_credentials[each.key].database, null)
+  role                   = try(var.environment_credentials[each.key].role, null)
+  warehouse              = try(var.environment_credentials[each.key].warehouse, null)
 }
 
 #############################################

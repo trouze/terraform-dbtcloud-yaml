@@ -28,8 +28,8 @@ locals {
 resource "dbtcloud_group" "groups" {
   for_each = local.unprotected_groups_map
 
-  name            = each.value.name
-  assign_by_default = try(each.value.assign_by_default, false)
+  name               = each.value.name
+  assign_by_default  = try(each.value.assign_by_default, false)
   sso_mapping_groups = try(each.value.sso_mapping_groups, null)
 
   dynamic "group_permissions" {
@@ -45,8 +45,8 @@ resource "dbtcloud_group" "groups" {
 resource "dbtcloud_group" "protected_groups" {
   for_each = local.protected_groups_map
 
-  name            = each.value.name
-  assign_by_default = try(each.value.assign_by_default, false)
+  name               = each.value.name
+  assign_by_default  = try(each.value.assign_by_default, false)
   sso_mapping_groups = try(each.value.sso_mapping_groups, null)
 
   dynamic "group_permissions" {

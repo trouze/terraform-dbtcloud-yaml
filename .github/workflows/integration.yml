@@ -33,7 +33,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "~> 1.7"
+          terraform_version_file: .terraform-version
           terraform_wrapper: false
 
       - name: Go mod download

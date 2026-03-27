@@ -15,11 +15,11 @@ locals {
     [
       for p in var.projects : [
         for job in try(p.jobs, []) : {
-          project_key     = try(p.key, p.name)
-          project_id      = var.project_ids[try(p.key, p.name)]
-          env_key         = try(job.environment_key, job.environment)
-          composite_key   = "${try(p.key, p.name)}_${try(job.key, job.name)}"
-          job_data        = job
+          project_key   = try(p.key, p.name)
+          project_id    = var.project_ids[try(p.key, p.name)]
+          env_key       = try(job.environment_key, job.environment)
+          composite_key = "${try(p.key, p.name)}_${try(job.key, job.name)}"
+          job_data      = job
         }
       ]
     ],

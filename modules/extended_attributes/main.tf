@@ -28,6 +28,6 @@ locals {
 resource "dbtcloud_extended_attributes" "extended_attributes" {
   for_each = local.ea_map
 
-  project_id         = each.value.project_id
+  project_id          = each.value.project_id
   extended_attributes = jsonencode(try(each.value.ea_data.content, each.value.ea_data))
 }
