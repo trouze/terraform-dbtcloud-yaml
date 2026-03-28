@@ -9,7 +9,6 @@ The fastest way to get a dbt Cloud project, environments, and a scheduled job un
 | `dbt-config.yml` | Your dbt Cloud configuration (edit this) |
 | `main.tf` | Wires the YAML file into the module (no edits needed) |
 | `variables.tf` | Input variable declarations |
-| `terraform.tfvars.example` | Credential template — copy to `terraform.tfvars` |
 | `.env.example` | Environment variable template for CI/CD secrets |
 | `.github/workflows/` | GitHub Actions CI (plan on PR) and CD (apply on merge) |
 
