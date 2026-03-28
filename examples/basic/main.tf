@@ -17,7 +17,7 @@ provider "dbtcloud" {
 
 module "dbt_cloud" {
   source  = "trouze/yaml/dbtcloud"
-  version = "0.1.0-alpha"
+  version = "0.1.0"
 
   dbt_account_id = var.dbt_account_id
   dbt_token      = var.dbt_token
