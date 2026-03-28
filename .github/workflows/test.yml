@@ -7,7 +7,21 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "**.tf"
+      - "modules/**"
+      - "tests/**"
+      - "schemas/**"
+      - ".github/workflows/test.yml"
+      - "!examples/**"
   pull_request:
+    paths:
+      - "**.tf"
+      - "modules/**"
+      - "tests/**"
+      - "schemas/**"
+      - ".github/workflows/test.yml"
+      - "!examples/**"
 
 permissions:
   contents: read

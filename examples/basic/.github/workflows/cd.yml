@@ -5,7 +5,7 @@
 #   Settings > Environments > production > Required reviewers
 #
 # Uses the same secrets as ci.yml — see that file for the full list
-# and setup instructions.
+# and setup instructions, including AES_256_ENCRYPTION_KEY for state storage.
 
 name: CD — Terraform Apply
 
@@ -18,6 +18,7 @@ on:
 
 permissions:
   contents: read
+  actions: write  # required to upload state artifact
 
 jobs:
   apply:
@@ -39,6 +40,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Download Terraform State
+        uses: badgerhobbs/terraform-state@v2
+        with:
+          encryption_key: ${{ secrets.AES_256_ENCRYPTION_KEY }}
+          operation: download
+          location: artifact
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true  # OK to fail on first run — no artifact exists yet
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
@@ -52,3 +62,12 @@ jobs:
 
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan
+
+      - name: Upload Terraform State
+        uses: badgerhobbs/terraform-state@v2
+        if: always()  # upload even if apply partially succeeded, to preserve any changes
+        with:
+          encryption_key: ${{ secrets.AES_256_ENCRYPTION_KEY }}
+          operation: upload
+          location: artifact
+          github_token: ${{ secrets.GITHUB_TOKEN }}

@@ -8,15 +8,18 @@
 #   DBT_PAT                    — personal access token (GitHub App integration only;
 #                                can be the same value as DBT_TOKEN otherwise)
 #   ENVIRONMENT_CREDENTIALS    — JSON blob, see .env.example for shape
+#   AES_256_ENCRYPTION_KEY     — random 32-char string used to encrypt the state artifact
+#                                generate with: openssl rand -hex 16
 #
 # Optional secrets (omit if not used):
 #   CONNECTION_CREDENTIALS     — JSON blob for OAuth/service principal connections
 #   LINEAGE_TOKENS             — JSON blob for Tableau/Looker integrations
 #   OAUTH_CLIENT_SECRETS       — JSON blob for OAuth configurations
 #
-# Remote state: configure a backend in main.tf (S3, GCS, Terraform Cloud, etc.)
-# before using these workflows in production. Without it, state is local and
-# lost between runs.
+# State storage: these workflows store Terraform state as an encrypted GitHub Actions
+# artifact — no backend configuration required to get started. For team use or
+# production, migrate to a real backend (S3, GCS, Terraform Cloud, etc.) in main.tf
+# and remove the badgerhobbs/terraform-state steps.
 
 name: CI — Terraform Plan
 
@@ -50,10 +53,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Download Terraform State
+        uses: badgerhobbs/terraform-state@v2
+        with:
+          encryption_key: ${{ secrets.AES_256_ENCRYPTION_KEY }}
+          operation: download
+          location: artifact
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true  # OK to fail on first run — no artifact exists yet
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: "~1"
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
 
       - name: Terraform Init
         run: terraform init

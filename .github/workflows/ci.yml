@@ -7,12 +7,14 @@ on:
       - "tests/**"
       - "schemas/**"
       - ".github/workflows/ci.yml"
+      - "!examples/**"
   push:
     branches: [main]
     paths:
       - "**.tf"
       - "tests/**"
       - "schemas/**"
+      - "!examples/**"
 
 jobs:
   validate:

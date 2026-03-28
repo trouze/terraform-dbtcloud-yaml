@@ -57,8 +57,10 @@ terraform apply
 
 The `.github/workflows/` directory has ready-to-use GitHub Actions workflows:
 
-- **`ci.yml`** — runs `terraform plan` on every PR and posts the plan as a comment
-- **`cd.yml`** — runs `terraform apply` when changes merge to main
+- **`ci.yml`** — formats check, validates, plans on every PR, and posts the plan as a comment
+- **`cd.yml`** — applies on merge to main, with an optional approval gate via GitHub Environments
+
+Terraform state is stored as an encrypted artifact in GitHub Actions — no remote backend required to get started.
 
 Set these GitHub repository secrets (Settings > Secrets and variables > Actions):
 
@@ -66,11 +68,12 @@ Set these GitHub repository secrets (Settings > Secrets and variables > Actions)
 DBT_ACCOUNT_ID          numeric account ID
 DBT_TOKEN               dbt Cloud service token
 ENVIRONMENT_CREDENTIALS JSON, e.g. {"analytics_prod":{"credential_type":"databricks","token":"dapi...","catalog":"main","schema":"analytics"}}
+AES_256_ENCRYPTION_KEY  random key used to encrypt the state artifact — generate with: openssl rand -hex 16
 ```
 
 Optional secrets (omit if not used): `DBT_PAT`, `CONNECTION_CREDENTIALS`, `LINEAGE_TOKENS`, `OAUTH_CLIENT_SECRETS`.
 
-Add a [Terraform backend](https://developer.hashicorp.com/terraform/language/backend) to `main.tf` before enabling CD so state is stored remotely.
+> **When to graduate off artifact state:** artifact state works well for a single user or small team. When you need concurrent runs, state locking, or a more durable audit trail, add a [Terraform backend](https://developer.hashicorp.com/terraform/language/backend) to `main.tf` and remove the `badgerhobbs/terraform-state` steps from both workflow files.
 
 ## Going further
 

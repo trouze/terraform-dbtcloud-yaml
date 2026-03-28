@@ -1,0 +1,92 @@
+name: Deploy Terraform Changes
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write # require to upload artifacts
+
+concurrency:
+  group: terraform-deploy
+  cancel-in-progress: false
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    # Required permissions
+    permissions:
+      pull-requests: read
+    outputs:
+      # Expose matched filters as job 'packages' output variable
+      modules: ${{ steps.filter.outputs.changes }}
+    steps:
+    # For pull requests it's not necessary to checkout the code
+    - uses: dorny/paths-filter@v2
+      id: filter
+      with:
+        filters: |
+          account:
+            - 'dbt_cloud/account/**'
+          initial_project:
+            - 'dbt_cloud/projects/initial/**'
+  terraform:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # TODO: set dynamically based on ${{ fromJSON(needs.changes.outputs.projects) }}
+        # but I'm not sure how to dynamically set the other variables in a way that feels this clean
+        include:
+          - module: account
+          - module: initial_project
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        if: ${{ contains(fromJSON(needs.changes.outputs.modules), matrix.module) }}
+
+      - name: Download Encrypted Artifact & Decrypt
+        uses: badgerhobbs/terraform-state@v2
+        if: ${{ contains(fromJSON(needs.changes.outputs.modules), matrix.module) }}
+        with:
+          encryption_key: ${{ secrets.AES_256_ENCRYPTION_KEY }}
+          operation: download
+          location: artifact
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        if: ${{ contains(fromJSON(needs.changes.outputs.modules), matrix.module) }}
+        with:
+          terraform_version: 1.5.0  # Specify your Terraform version
+
+      - name: Terraform Init
+        if: ${{ contains(fromJSON(needs.changes.outputs.modules), matrix.module) }}
+        run: terraform init
+
+      - name: Terraform Plan
+        id: plan
+        if: ${{ contains(fromJSON(needs.changes.outputs.modules), matrix.module) }}
+        run: terraform plan -out=tfplan_${{ matrix.module }} -target=module.${{ matrix.module }}
+
+      - name: Apply Terraform Changes
+        # if: github.ref == 'refs/heads/main' && contains(fromJSON(needs.changes.outputs.modules), matrix.module)
+        if: false
+        run: terraform apply -auto-approve tfplan_${{ matrix.module }}
+        env:
+          TF_VAR_dbt_account_id: ${{ secrets.TF_VAR_DBT_ACCOUNT_ID }}
+          TF_VAR_dbt_token: ${{ secrets.TF_VAR_DBT_TOKEN }}
+          TF_VAR_dbt_host_url: ${{ secrets.TF_VAR_DBT_HOST_URL }}
+
+      - name: Encrypt Artifact & Upload Encrypted Artifact
+        uses: badgerhobbs/terraform-state@v2
+        if: ${{ contains(fromJSON(needs.changes.outputs.modules), matrix.module) }}
+        with:
+          encryption_key: ${{ secrets.AES_256_ENCRYPTION_KEY }}
+          operation: upload
+          location: artifact
+          github_token: ${{ secrets.GITHUB_TOKEN }}
