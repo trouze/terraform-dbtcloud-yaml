@@ -9,18 +9,23 @@ terraform {
 }
 
 locals {
-  # Flatten env var job overrides from environment-nested jobs (legacy layout)
+  # Flatten env var job overrides from environment-nested jobs (legacy layout).
+  # job_key must match modules/jobs composite_key: project_key + try(env.name, env.key) + job.name
+  # COMPAT(v1-schema): env_var_overrides; v2/importer: environment_variable_overrides — merge(..., ...) (latter wins duplicate keys).
   overrides_from_env_jobs = flatten([
     for p in var.projects : [
       for env in try(p.environments, []) : [
         for job in try(env.jobs, []) : [
-          for var_name, var_value in try(job.env_var_overrides, {}) : {
+          for var_name, var_value in merge(
+            try(job.env_var_overrides, {}),
+            try(job.environment_variable_overrides, {})
+            ) : {
             project_key   = try(p.key, p.name)
             project_id    = var.project_ids[try(p.key, p.name)]
-            job_key       = "${try(p.key, p.name)}_${env.name}_${job.name}"
+            job_key       = "${try(p.key, p.name)}_${try(env.name, env.key)}_${job.name}"
             var_name      = var_name
             var_value     = var_value
-            composite_key = "${try(p.key, p.name)}_${env.name}_${job.name}_${var_name}"
+            composite_key = "${try(p.key, p.name)}_${try(env.name, env.key)}_${job.name}_${var_name}"
           }
         ]
       ] if try(env.jobs, null) != null
@@ -31,7 +36,10 @@ locals {
   overrides_from_project_jobs = flatten([
     for p in var.projects : [
       for job in try(p.jobs, []) : [
-        for var_name, var_value in try(job.env_var_overrides, {}) : {
+        for var_name, var_value in merge(
+          try(job.env_var_overrides, {}),
+          try(job.environment_variable_overrides, {})
+          ) : {
           project_key   = try(p.key, p.name)
           project_id    = var.project_ids[try(p.key, p.name)]
           job_key       = "${try(p.key, p.name)}_${try(job.key, job.name)}"
@@ -55,5 +63,19 @@ resource "dbtcloud_environment_variable_job_override" "environment_variable_job_
   name              = each.value.var_name
   project_id        = each.value.project_id
   job_definition_id = lookup(var.job_ids, each.value.job_key, null)
-  raw_value         = tostring(each.value.var_value)
+  raw_value = (
+    startswith(tostring(each.value.var_value), "secret_") ?
+    lookup(var.token_map, trimprefix(tostring(each.value.var_value), "secret_"), tostring(each.value.var_value)) :
+    tostring(each.value.var_value)
+  )
+
+  # Deferred: stock dbtcloud provider has no resource_metadata on dbtcloud_environment_variable_job_override (terraform providers schema).
+  # resource_metadata = {
+  #   source_project_id  = null # v2 importer: lookup(local.source_project_ids_by_key, each.value.project_key, null)
+  #   source_id          = null
+  #   source_identity    = "VAR_JOB_OVERRIDE:${each.value.project_key}:${each.value.job_key}:${each.value.var_name}"
+  #   source_key         = each.value.var_name
+  #   source_project_key = each.value.project_key
+  #   source_name        = each.value.var_name
+  # }
 }

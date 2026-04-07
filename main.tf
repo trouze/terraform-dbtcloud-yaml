@@ -266,8 +266,9 @@ module "environment_variable_job_overrides" {
   projects    = local.projects
   project_ids = module.project.project_ids
   job_ids     = module.jobs.job_ids
+  token_map   = var.token_map
 
-  depends_on = [module.environment_variables]
+  depends_on = [module.environment_variables, module.jobs]
 }
 
 #############################################

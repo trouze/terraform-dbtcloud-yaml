@@ -617,7 +617,19 @@
               "run_compare_changes": { "type": ["boolean", "null"], "description": "Enable Advanced CI change comparison", "default": null },
               "errors_on_lint_failure": { "type": ["boolean", "null"], "description": "Fail job if linting errors are found", "default": null },
               "triggers_on_draft_pr": { "type": ["boolean", "null"], "description": "Allow webhook triggers on draft PRs", "default": null },
-              "is_active": { "type": ["boolean", "null"], "description": "Whether this job is active", "default": true }
+              "is_active": { "type": ["boolean", "null"], "description": "Whether this job is active", "default": true },
+              "env_var_overrides": {
+                "type": "object",
+                "description": "Job-level environment variable overrides (map of variable name to value). Prefix with secret_ to resolve via token_map (see modules/environment_variable_job_overrides).",
+                "additionalProperties": { "type": "string" },
+                "default": {}
+              },
+              "environment_variable_overrides": {
+                "type": "object",
+                "description": "v2/importer field name for env_var_overrides; merged with env_var_overrides (this map wins when the same key appears in both).",
+                "additionalProperties": { "type": "string" },
+                "default": {}
+              }
             },
             "required": ["name", "key", "environment_key", "execute_steps", "triggers"],
             "additionalProperties": false
