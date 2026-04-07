@@ -739,7 +739,17 @@
               "key": { "type": "string", "description": "Unique key. Auth token supplied via var.lineage_tokens[project_key_integration_key].", "pattern": "^[a-z0-9_]+$" },
               "host": { "type": "string", "description": "Integration host URL (e.g. https://tableau.example.com)" },
               "site_id": { "type": ["string", "null"], "description": "[Tableau] Tableau site ID", "default": null },
-              "token_name": { "type": ["string", "null"], "description": "[Tableau] Tableau personal access token name", "default": null }
+              "token_name": { "type": ["string", "null"], "description": "[Tableau] Tableau personal access token name", "default": null },
+              "id": {
+                "type": ["integer", "string", "null"],
+                "description": "Legacy dbt Cloud lineage integration id (import/migration); reserved for future resource_metadata / tooling (COMPAT v2/importer; see modules/lineage_integrations).",
+                "default": null
+              },
+              "token": {
+                "type": ["string", "null"],
+                "description": "Optional inline token when not using var.lineage_tokens (not recommended for secrets in git).",
+                "default": null
+              }
             },
             "required": ["name", "key", "host"],
             "additionalProperties": false
@@ -748,7 +758,7 @@
 
         "artefacts": {
           "type": "object",
-          "description": "Project artefact job assignments for docs and source freshness",
+          "description": "v1: project artefact job assignments (docs_job / freshness_job). v2/importer equivalent: project_artefacts with docs_job_key / freshness_job_key (see modules/project_artefacts).",
           "properties": {
             "docs_job": { "type": "string", "description": "References jobs[].key for the job that generates dbt docs" },
             "freshness_job": { "type": "string", "description": "References jobs[].key for the job that runs source freshness" }
@@ -756,13 +766,43 @@
           "additionalProperties": false
         },
 
+        "project_artefacts": {
+          "type": "object",
+          "description": "v2/importer field names for artefact job links (singleton per project). Merged conceptually with artefacts in modules/project_artefacts.",
+          "properties": {
+            "docs_job_key": { "type": "string", "description": "Job key for docs generation (same resolution as artefacts.docs_job)" },
+            "freshness_job_key": { "type": "string", "description": "Job key for source freshness (same resolution as artefacts.freshness_job)" }
+          },
+          "additionalProperties": false
+        },
+
         "semantic_layer": {
           "type": "object",
-          "description": "Semantic Layer configuration",
+          "description": "v1 Semantic Layer: supply environment_key or environment (modules/semantic_layer COMPAT). Omit if using semantic_layer_config only.",
           "properties": {
-            "environment_key": { "type": "string", "description": "References environments[].key for the Semantic Layer environment" }
+            "environment_key": { "type": "string", "description": "References environments[].key for the Semantic Layer environment" },
+            "environment": { "type": "string", "description": "Alias for environment_key (legacy YAML; same resolution)" }
           },
-          "required": ["environment_key"],
+          "additionalProperties": false
+        },
+
+        "semantic_layer_config": {
+          "type": "object",
+          "description": "v2/importer Semantic Layer block: set environment_id (dbt Cloud id) or environment_key / environment to resolve via environments[].key (see modules/semantic_layer).",
+          "properties": {
+            "environment_id": {
+              "type": ["string", "integer", "null"],
+              "description": "dbt Cloud environment id when known from import (takes precedence over environment_key).",
+              "default": null
+            },
+            "environment_key": { "type": "string", "description": "References environments[].key when environment_id is not set" },
+            "environment": { "type": "string", "description": "Alias for environment_key" },
+            "id": {
+              "type": ["integer", "string", "null"],
+              "description": "Legacy semantic layer configuration id (import/migration); reserved for future resource_metadata (COMPAT v2/importer).",
+              "default": null
+            }
+          },
           "additionalProperties": false
         }
       },

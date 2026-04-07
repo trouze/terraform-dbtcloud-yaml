@@ -32,10 +32,15 @@ resource "dbtcloud_lineage_integration" "integrations" {
 
   project_id = each.value.project_id
   host       = each.value.li_data.host
-  site_id    = each.value.li_data.site_id
-  token_name = each.value.li_data.token_name
-  token = try(
-    lookup(var.lineage_tokens, each.key, null),
-    each.value.li_data.token
+  # Provider marks site_id / token_name required; use empty string when omitted (e.g. non-Tableau integrations).
+  site_id    = coalesce(try(each.value.li_data.site_id, null), "")
+  token_name = coalesce(try(each.value.li_data.token_name, null), "")
+  token = coalesce(
+    try(lookup(var.lineage_tokens, each.key, null), null),
+    try(each.value.li_data.token, null),
+    ""
   )
 }
+
+# Deferred: stock dbtcloud provider has no resource_metadata on dbtcloud_lineage_integration (terraform providers schema).
+# v2/importer: resource_metadata.source_identity LNGI:<project_key>:<integration_key>; source_id from lineage_integrations[].id.

@@ -1,5 +1,5 @@
 variable "projects" {
-  description = "List of project configurations. Each project may have an 'artefacts' block with docs_job and freshness_job keys."
+  description = "Project configs. Artefacts: v1 'artefacts' (docs_job, freshness_job) or v2 'project_artefacts' (docs_job_key, freshness_job_key); see modules/project_artefacts."
   type        = any
 }
 

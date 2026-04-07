@@ -37,6 +37,25 @@ locals {
     ])
   }
 
+  # Effective artefact job refs (COMPAT v1 artefacts vs v2 project_artefacts; same rules as modules/project_artefacts)
+  _artefact_docs_job_by_project = {
+    for p in local.projects :
+    try(p.key, p.name) => (
+      try(p.project_artefacts.docs_job_key, null) != null && try(tostring(p.project_artefacts.docs_job_key), "") != ""
+      ? p.project_artefacts.docs_job_key
+      : try(p.artefacts.docs_job, null)
+    )
+  }
+
+  _artefact_freshness_job_by_project = {
+    for p in local.projects :
+    try(p.key, p.name) => (
+      try(p.project_artefacts.freshness_job_key, null) != null && try(tostring(p.project_artefacts.freshness_job_key), "") != ""
+      ? p.project_artefacts.freshness_job_key
+      : try(p.artefacts.freshness_job, null)
+    )
+  }
+
   # Extended attribute keys per project: { project_key => set(ea_key) }
   _ea_keys_by_project = {
     for p in local.projects :
@@ -220,23 +239,56 @@ locals {
     ]
   ])
 
-  # ── V-05: artefacts.docs_job / freshness_job → jobs[].key ─────────────────
+  # ── V-05: artefacts / project_artefacts job keys → jobs[].key (COMPAT v1 vs v2/importer names)
 
   _errors_artefact_job_keys = flatten([
-    for p in local.projects : try(p.artefacts, null) != null ? concat(
-      try(p.artefacts.docs_job, null) != null && !contains(
+    for p in local.projects :
+    try(p.artefacts, null) != null || try(p.project_artefacts, null) != null
+    ? concat(
+      local._artefact_docs_job_by_project[try(p.key, p.name)] != null && !contains(
         try(local._job_keys_by_project[try(p.key, p.name)], toset([])),
-        p.artefacts.docs_job
+        local._artefact_docs_job_by_project[try(p.key, p.name)]
         ) ? [
-        "Project '${try(p.key, p.name)}' artefacts.docs_job references job key '${p.artefacts.docs_job}' which does not exist. Available job keys: [${join(", ", tolist(try(local._job_keys_by_project[try(p.key, p.name)], toset([]))))}]"
+        "Project '${try(p.key, p.name)}' artefacts / project_artefacts docs job references key '${local._artefact_docs_job_by_project[try(p.key, p.name)]}' which does not exist. Available job keys: [${join(", ", tolist(try(local._job_keys_by_project[try(p.key, p.name)], toset([]))))}]"
       ] : [],
-      try(p.artefacts.freshness_job, null) != null && !contains(
+      local._artefact_freshness_job_by_project[try(p.key, p.name)] != null && !contains(
         try(local._job_keys_by_project[try(p.key, p.name)], toset([])),
-        p.artefacts.freshness_job
+        local._artefact_freshness_job_by_project[try(p.key, p.name)]
         ) ? [
-        "Project '${try(p.key, p.name)}' artefacts.freshness_job references job key '${p.artefacts.freshness_job}' which does not exist. Available job keys: [${join(", ", tolist(try(local._job_keys_by_project[try(p.key, p.name)], toset([]))))}]"
+        "Project '${try(p.key, p.name)}' artefacts / project_artefacts freshness job references key '${local._artefact_freshness_job_by_project[try(p.key, p.name)]}' which does not exist. Available job keys: [${join(", ", tolist(try(local._job_keys_by_project[try(p.key, p.name)], toset([]))))}]"
       ] : [],
-    ) : []
+    )
+    : []
+  ])
+
+  # ── V-05b: semantic_layer / semantic_layer_config must resolve an environment ─
+
+  _errors_semantic_layer_env = flatten([
+    for p in local.projects :
+    try(p.semantic_layer, null) != null || try(p.semantic_layer_config, null) != null
+    ? (
+      try(p.semantic_layer_config.environment_id, null) != null
+      ? []
+      : length(compact([
+        try(p.semantic_layer_config.environment_key, null),
+        try(p.semantic_layer_config.environment, null),
+        try(p.semantic_layer.environment_key, null),
+        try(p.semantic_layer.environment, null),
+      ])) == 0
+      ? ["Project '${try(p.key, p.name)}' has semantic_layer or semantic_layer_config but no environment_id (v2) and no environment_key / environment to resolve against environments[].key."]
+      : !contains(
+        try(local._env_keys_by_project[try(p.key, p.name)], toset([])),
+        coalesce(
+          try(p.semantic_layer_config.environment_key, null),
+          try(p.semantic_layer_config.environment, null),
+          try(p.semantic_layer.environment_key, null),
+          try(p.semantic_layer.environment, null)
+        )
+        ) ? [
+        "Project '${try(p.key, p.name)}' semantic layer references environment '${coalesce(try(p.semantic_layer_config.environment_key, null), try(p.semantic_layer_config.environment, null), try(p.semantic_layer.environment_key, null), try(p.semantic_layer.environment, null))}' which does not exist. Available environment keys: [${join(", ", tolist(try(local._env_keys_by_project[try(p.key, p.name)], toset([]))))}]"
+      ] : []
+    )
+    : []
   ])
 
   # ── V-06: Every project must have a name ──────────────────────────────────
@@ -367,6 +419,7 @@ locals {
     local._errors_ea_payload,
     local._errors_deferring_env_key,
     local._errors_artefact_job_keys,
+    local._errors_semantic_layer_env,
     local._errors_project_name,
     local._errors_deployment_type,
     local._errors_execute_steps,

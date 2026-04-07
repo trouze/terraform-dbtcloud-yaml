@@ -289,7 +289,7 @@ module "lineage_integrations" {
 #############################################
 
 module "project_artefacts" {
-  count  = length([for p in local.projects : p if try(p.artefacts, null) != null]) > 0 ? 1 : 0
+  count = length([for p in local.projects : p if try(p.artefacts, null) != null || try(p.project_artefacts, null) != null]) > 0 ? 1 : 0
   source = "./modules/project_artefacts"
 
   projects    = local.projects
@@ -304,10 +304,15 @@ module "project_artefacts" {
 #############################################
 
 module "semantic_layer" {
-  count  = length([for p in local.projects : p if try(p.semantic_layer, null) != null]) > 0 ? 1 : 0
+  count = length([
+    for p in local.projects : p
+    if try(p.semantic_layer, null) != null || try(p.semantic_layer_config, null) != null
+  ]) > 0 ? 1 : 0
   source = "./modules/semantic_layer"
 
   projects        = local.projects
   project_ids     = module.project.project_ids
   environment_ids = module.environments.environment_ids
+
+  depends_on = [module.environments]
 }

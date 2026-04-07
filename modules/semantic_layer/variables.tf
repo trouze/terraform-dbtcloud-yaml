@@ -1,5 +1,5 @@
 variable "projects" {
-  description = "List of project configurations. Each project may have a 'semantic_layer' block with an 'environment' key."
+  description = "Project configs. v1 'semantic_layer' (environment / environment_key → environment_ids) or v2 'semantic_layer_config' (environment_id); see modules/semantic_layer."
   type        = any
 }
 
