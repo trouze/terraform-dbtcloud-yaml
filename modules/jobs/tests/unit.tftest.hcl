@@ -292,6 +292,116 @@ run "protected_job_routed_to_protected_resource" {
 
 # ── Deferring environment resolution ─────────────────────────────────────────
 
+run "cost_optimization_state_aware_sets_force_node_false" {
+  command = apply
+
+  variables {
+    projects = [
+      {
+        key  = "analytics"
+        name = "Analytics"
+        jobs = [
+          {
+            name                       = "SAO Run"
+            key                        = "sao_run"
+            environment_key            = "prod"
+            execute_steps              = ["dbt build"]
+            force_node_selection       = true
+            cost_optimization_features = ["state_aware_orchestration"]
+            triggers = {
+              schedule             = false
+              github_webhook       = false
+              git_provider_webhook = false
+              on_merge             = false
+            }
+          }
+        ]
+      }
+    ]
+    project_ids     = { analytics = "1001" }
+    environment_ids = { analytics_prod = "2001" }
+  }
+
+  assert {
+    condition     = dbtcloud_job.jobs["analytics_sao_run"].force_node_selection == false
+    error_message = "state_aware_orchestration in cost_optimization_features should set force_node_selection to false"
+  }
+}
+
+run "run_compare_changes_true_when_staging_and_cross_env_defer" {
+  command = apply
+
+  variables {
+    projects = [
+      {
+        key  = "analytics"
+        name = "Analytics"
+        jobs = [
+          {
+            name                      = "Compare Run"
+            key                       = "compare_run"
+            environment_key           = "prod"
+            deferring_environment_key = "staging"
+            run_compare_changes       = true
+            execute_steps             = ["dbt build"]
+            triggers = {
+              schedule             = false
+              github_webhook       = false
+              git_provider_webhook = false
+              on_merge             = false
+            }
+          }
+        ]
+      }
+    ]
+    project_ids      = { analytics = "1001" }
+    environment_ids  = { analytics_prod = "2001", analytics_staging = "2002" }
+    deployment_types = { analytics_prod = "staging" }
+  }
+
+  assert {
+    condition     = dbtcloud_job.jobs["analytics_compare_run"].run_compare_changes == true
+    error_message = "run_compare_changes should be true when job env is staging/production and deferral is a different environment"
+  }
+}
+
+run "run_compare_changes_false_when_not_eligible" {
+  command = apply
+
+  variables {
+    projects = [
+      {
+        key  = "analytics"
+        name = "Analytics"
+        jobs = [
+          {
+            name                      = "No Compare"
+            key                       = "no_compare"
+            environment_key           = "prod"
+            deferring_environment_key = "staging"
+            run_compare_changes       = true
+            execute_steps             = ["dbt build"]
+            triggers = {
+              schedule             = false
+              github_webhook       = false
+              git_provider_webhook = false
+              on_merge             = false
+            }
+          }
+        ]
+      }
+    ]
+    project_ids      = { analytics = "1001" }
+    environment_ids  = { analytics_prod = "2001", analytics_staging = "2002" }
+    deployment_types = { analytics_prod = "other" }
+  }
+
+  assert {
+    condition     = dbtcloud_job.jobs["analytics_no_compare"].run_compare_changes == false
+    error_message = "run_compare_changes should be false when deployment_type is not staging or production"
+  }
+}
+
 run "deferring_environment_id_resolved" {
   command = apply
 

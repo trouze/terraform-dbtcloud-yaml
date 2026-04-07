@@ -521,6 +521,11 @@
               "name": { "type": "string", "description": "Job display name", "minLength": 1, "maxLength": 256 },
               "key": { "type": "string", "description": "Unique key within this project", "pattern": "^[a-z0-9_]+$" },
               "environment_key": { "type": "string", "description": "References environments[].key to place this job" },
+              "environment": {
+                "type": ["string", "null"],
+                "description": "COMPAT(v1-schema): alias for environment_key when environment_key is omitted (see modules/jobs).",
+                "default": null
+              },
               "execute_steps": {
                 "type": "array",
                 "description": "dbt commands to execute (e.g. 'dbt build', 'dbt test')",
@@ -567,6 +572,42 @@
                 "description": "Custom cron expression (5-field, UTC). Used with custom_cron schedule_type.",
                 "default": null
               },
+              "schedule_interval": {
+                "type": ["integer", "null"],
+                "description": "Hours between runs when using schedule_type every_hour (mutually exclusive with schedule_cron in modules/jobs).",
+                "default": null
+              },
+              "force_node_selection": {
+                "type": ["boolean", "string", "null"],
+                "description": "State-aware node selection; omitted (null) for CI/Merge jobs. When cost_optimization_features includes state_aware_orchestration, modules/jobs sets this to false (v2/importer).",
+                "default": null
+              },
+              "cost_optimization_features": {
+                "type": ["array", "null"],
+                "description": "v2/importer: e.g. [\"state_aware_orchestration\"] maps to force_node_selection = false (see modules/jobs).",
+                "items": { "type": "string" },
+                "default": null
+              },
+              "compare_changes_flags": {
+                "type": ["string", "boolean", "null"],
+                "description": "Flags passed when run_compare_changes is enabled; normalized per job type in modules/jobs (default API string: --select state:modified).",
+                "default": null
+              },
+              "job_type": {
+                "type": ["string", "null"],
+                "description": "Job classification (e.g. scheduled, ci, merge); affects CI detection, lint gating, and force_node_selection in modules/jobs. Provider job_type is ignored in Terraform lifecycle.",
+                "default": null
+              },
+              "protected": {
+                "type": "boolean",
+                "description": "When true, the job uses lifecycle.prevent_destroy in Terraform (v2/importer parity).",
+                "default": false
+              },
+              "id": {
+                "type": ["integer", "string", "null"],
+                "description": "Legacy dbt Cloud job id (import/migration); reserved for future resource_metadata / tooling (COMPAT v2/importer).",
+                "default": null
+              },
               "deferring_environment_key": { "type": ["string", "null"], "description": "References environments[].key to defer to that environment's most recent successful run", "default": null },
               "deferring_job_key": { "type": ["string", "null"], "description": "References another job[].key to defer to a specific job", "default": null },
               "self_deferring": { "type": ["boolean", "null"], "description": "Defer to this job's own latest successful run", "default": null },
@@ -602,12 +643,26 @@
                 "items": {
                   "type": "object",
                   "properties": {
-                    "env": { "type": "string", "description": "Environment name or 'project' for the project-level default", "minLength": 1 },
+                    "env": {
+                      "type": "string",
+                      "description": "Environment display name (environments[].name), environments[].key when different from name, or 'project' for the project-level default (v2/importer parity; see modules/environment_variables).",
+                      "minLength": 1
+                    },
                     "value": { "type": "string", "description": "Variable value. Prefix with 'secret_' to reference a token_map key.", "minLength": 0 }
                   },
                   "required": ["env", "value"],
                   "additionalProperties": false
                 }
+              },
+              "protected": {
+                "type": "boolean",
+                "description": "When true, the variable uses lifecycle.prevent_destroy in Terraform (v2/importer parity).",
+                "default": false
+              },
+              "id": {
+                "type": ["integer", "string", "null"],
+                "description": "Legacy dbt Cloud variable id (import/migration); reserved for future resource_metadata / tooling (COMPAT v2/importer).",
+                "default": null
               }
             },
             "required": ["name", "environment_values"],

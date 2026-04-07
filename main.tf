@@ -234,9 +234,12 @@ module "environments" {
 module "jobs" {
   source = "./modules/jobs"
 
-  projects        = local.projects
-  project_ids     = module.project.project_ids
-  environment_ids = module.environments.environment_ids
+  projects         = local.projects
+  project_ids      = module.project.project_ids
+  environment_ids  = module.environments.environment_ids
+  deployment_types = module.environments.deployment_types
+
+  depends_on = [module.environments, module.environment_variables]
 }
 
 #############################################
