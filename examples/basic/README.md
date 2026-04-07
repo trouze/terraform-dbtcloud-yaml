@@ -17,7 +17,7 @@ The fastest way to get a dbt Cloud project, environments, and a scheduled job un
 **1. Get these files**
 
 ```bash
-curl -fsSL https://github.com/trouze/terraform-dbtcloud-yaml/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/releases/latest/download/install.sh | bash
 cd my-dbt-cloud
 ```
 

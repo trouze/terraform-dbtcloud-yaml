@@ -40,7 +40,7 @@ terraform plan
 terraform apply
 ```
 
-[:material-github: View Source](https://github.com/trouze/terraform-dbtcloud-yaml/tree/main/examples/basic){ .md-button }
+[:material-github: View Source](https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/tree/main/examples/basic){ .md-button }
 
 ---
 

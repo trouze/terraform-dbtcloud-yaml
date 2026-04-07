@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# install.sh — bootstrap a dbt Cloud Terraform starter from terraform-dbtcloud-yaml
+# install.sh — bootstrap a dbt Cloud Terraform starter from terraform-dbtcloud-as-yaml
 #
 # Usage:
-#   curl -fsSL https://github.com/trouze/terraform-dbtcloud-yaml/releases/latest/download/install.sh | bash
-#   curl -fsSL https://github.com/trouze/terraform-dbtcloud-yaml/releases/latest/download/install.sh | bash -s -- my-project
+#   curl -fsSL https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/releases/latest/download/install.sh | bash
+#   curl -fsSL https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/releases/latest/download/install.sh | bash -s -- my-project
 #
 set -euo pipefail
 
 TARGET=${1:-my-dbt-platform}
-REPO="trouze/terraform-dbtcloud-yaml"
+REPO="dbt-labs/terraform-dbtcloud-as-yaml"
 RELEASE_URL="https://github.com/$REPO/releases/latest/download/starter.tar.gz"
 
 echo "Setting up dbt Platform Terraform starter in ./$TARGET ..."

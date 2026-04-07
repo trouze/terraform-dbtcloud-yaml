@@ -538,7 +538,7 @@ Still stuck? Here's how to get support:
 
 ### 1. Check Existing Issues
 
-Search [GitHub Issues](https://github.com/trouze/terraform-dbtcloud-yaml/issues) for similar problems.
+Search [GitHub Issues](https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/issues) for similar problems.
 
 ### 2. Create Detailed Issue
 
@@ -551,7 +551,7 @@ Include:
 
 ### Community Support
 
-- [GitHub Discussions](https://github.com/trouze/terraform-dbtcloud-yaml/discussions)
+- [GitHub Discussions](https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/discussions)
 - [dbt Community Slack](https://www.getdbt.com/community/)
 
 ---
@@ -629,7 +629,7 @@ Before deployment:
 
     Report bugs or request features
 
-    [:octicons-arrow-right-24: Open Issue](https://github.com/trouze/terraform-dbtcloud-yaml/issues)
+    [:octicons-arrow-right-24: Open Issue](https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/issues)
 
 -   :material-forum:{ .lg .middle } __Discussions__
 
@@ -637,6 +637,6 @@ Before deployment:
 
     Ask questions and share ideas
 
-    [:octicons-arrow-right-24: Join Discussion](https://github.com/trouze/terraform-dbtcloud-yaml/discussions)
+    [:octicons-arrow-right-24: Join Discussion](https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/discussions)
 
 </div>

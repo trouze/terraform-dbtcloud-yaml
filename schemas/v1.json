@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/trouze/terraform-dbtcloud-yaml/refs/heads/main/schemas/v1.json",
+  "$id": "https://raw.githubusercontent.com/dbt-labs/terraform-dbtcloud-as-yaml/refs/heads/main/schemas/v1.json",
   "title": "dbt Cloud Terraform Configuration Schema v1",
   "description": "Canonical JSON Schema for dbt Cloud Terraform YAML (version: 1). Root Terraform hoists globals.connections → global_connections, globals.privatelink_endpoints → privatelink_endpoints, globals.service_tokens / groups / notifications to top-level keys modules read, and converts project.environment_variables[].environment_values from a map to a list internally. The dbtcloud provider uses Terraform variables (e.g. TF_VAR_dbt_host_url), not YAML — mirror account.host_url there for applies.",
   "type": "object",

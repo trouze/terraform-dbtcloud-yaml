@@ -16,8 +16,8 @@ Before you begin, make sure you have:
 Start with the basic example as a template:
 
 ```bash
-git clone https://github.com/trouze/terraform-dbtcloud-yaml.git
-cd terraform-dbtcloud-yaml/examples/basic
+git clone https://github.com/dbt-labs/terraform-dbtcloud-as-yaml.git
+cd terraform-dbtcloud-as-yaml/examples/basic
 
 # Or copy to your own directory
 cp -r examples/basic ~/my-dbt-setup
@@ -80,7 +80,7 @@ export TF_VAR_environment_credentials='{
 Edit `dbt-config.yml` with your project details:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/trouze/terraform-dbtcloud-yaml/main/schemas/v1.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/dbt-labs/terraform-dbtcloud-as-yaml/main/schemas/v1.json
 
 version: 1
 account:
@@ -147,7 +147,7 @@ You should see:
 
 ```
 Initializing modules...
-Downloading git::https://github.com/trouze/terraform-dbtcloud-yaml.git...
+Downloading git::https://github.com/dbt-labs/terraform-dbtcloud-as-yaml.git...
 
 Terraform has been successfully initialized!
 ```

@@ -1,6 +1,6 @@
-# terraform-dbtcloud-yaml
+# terraform-dbtcloud-as-yaml
 
-[![Terraform Version](https://img.shields.io/badge/terraform-%3E%3D%201.0-blue?logo=terraform)](https://www.terraform.io) [![dbt Cloud Provider](https://img.shields.io/badge/dbt--cloud--provider-v1.8-blue)](https://registry.terraform.io/providers/dbt-labs/dbtcloud/latest) [![License](https://img.shields.io/badge/license-Apache%202.0-green)](https://github.com/trouze/terraform-dbtcloud-yaml/blob/main/LICENSE)
+[![Terraform Version](https://img.shields.io/badge/terraform-%3E%3D%201.0-blue?logo=terraform)](https://www.terraform.io) [![dbt Cloud Provider](https://img.shields.io/badge/dbt--cloud--provider-v1.8-blue)](https://registry.terraform.io/providers/dbt-labs/dbtcloud/latest) [![License](https://img.shields.io/badge/license-Apache%202.0-green)](https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/blob/main/LICENSE)
 
 Manage your entire dbt Cloud setup with infrastructure-as-code using Terraform and YAML. Define projects, repositories, environments, credentials, and jobs in a single, human-readable YAML file.
 
@@ -34,7 +34,7 @@ This module bridges that gap: you describe your dbt Cloud setup in YAML, and Ter
     }
 
     module "dbt_cloud" {
-      source = "github.com/trouze/terraform-dbtcloud-yaml"
+      source = "github.com/dbt-labs/terraform-dbtcloud-as-yaml"
 
       dbt_account_id          = var.dbt_account_id
       dbt_token               = var.dbt_token
@@ -47,7 +47,7 @@ This module bridges that gap: you describe your dbt Cloud setup in YAML, and Ter
 === "Step 2: Create dbt-config.yml"
 
     ```yaml
-    # yaml-language-server: $schema=https://raw.githubusercontent.com/trouze/terraform-dbtcloud-yaml/main/schemas/v1.json
+    # yaml-language-server: $schema=https://raw.githubusercontent.com/dbt-labs/terraform-dbtcloud-as-yaml/main/schemas/v1.json
 
     version: 1
     account:
@@ -229,12 +229,12 @@ environments:
 ## Community & Support
 
 - 📖 **Documentation** — You're reading it!
-- 🐛 **Issues** — [Report bugs or request features](https://github.com/trouze/terraform-dbtcloud-yaml/issues)
-- 💬 **Discussions** — [Share ideas and best practices](https://github.com/trouze/terraform-dbtcloud-yaml/discussions)
+- 🐛 **Issues** — [Report bugs or request features](https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/issues)
+- 💬 **Discussions** — [Share ideas and best practices](https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/discussions)
 
 ## License
 
-Apache License 2.0. See [LICENSE](https://github.com/trouze/terraform-dbtcloud-yaml/blob/main/LICENSE) for details.
+Apache License 2.0. See [LICENSE](https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/blob/main/LICENSE) for details.
 
 ---
 

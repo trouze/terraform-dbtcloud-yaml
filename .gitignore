@@ -37,3 +37,6 @@ override.tf.json
 terraform.rc
 
 *.DS_Store
+
+# Internal publishing checklist (keep local only)
+.claude/implementation/public.md

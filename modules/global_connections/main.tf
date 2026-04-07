@@ -11,7 +11,7 @@ terraform {
 locals {
   # BigQuery: deterministic placeholder when no real key material is supplied (matches v2 / API expectations for create).
   bigquery_dummy_private_key_id   = "0000000000000000000000000000000000000000"
-  bigquery_dummy_private_key_seed = "terraform-dbtcloud-yaml:dummy:bigquery:private-key"
+  bigquery_dummy_private_key_seed = "terraform-dbtcloud-as-yaml:dummy:bigquery:private-key"
   bigquery_dummy_private_key_body = join("", [
     for i in range(0, 8) : base64encode(sha512(format("%s:%d", local.bigquery_dummy_private_key_seed, i)))
   ])

@@ -16,6 +16,9 @@ on:
       - "schemas/**"
       - "!examples/**"
 
+permissions:
+  contents: read
+
 jobs:
   validate:
     name: Validate

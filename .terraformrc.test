@@ -8,7 +8,8 @@
 
 provider_installation {
   filesystem_mirror {
-    path    = "/Users/tylerrouze/dev/terraform-dbtcloud-yaml/.terraform/providers"
+    # Replace with the absolute path to this repo after `terraform init` (see README / CONTRIBUTING).
+    path    = "/absolute/path/to/terraform-dbtcloud-as-yaml/.terraform/providers"
     include = ["registry.terraform.io/dbt-labs/dbtcloud"]
   }
   direct {

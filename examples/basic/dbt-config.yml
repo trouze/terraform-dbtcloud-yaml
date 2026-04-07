@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/trouze/terraform-dbtcloud-yaml/refs/heads/main/schemas/v1.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/dbt-labs/terraform-dbtcloud-as-yaml/refs/heads/main/schemas/v1.json
 
 ##############################################################################
 # dbt Cloud Terraform YAML — Minimal Starter (version: 1)

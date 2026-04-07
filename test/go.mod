@@ -1,4 +1,4 @@
-module github.com/trouze/terraform-dbtcloud-yaml/test
+module github.com/dbt-labs/terraform-dbtcloud-as-yaml/test
 
 go 1.21
 

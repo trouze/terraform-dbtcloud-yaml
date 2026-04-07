@@ -42,5 +42,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `environment_variables` - Manage project and job environment variables
 - `environment_variable_job_overrides` - Job-specific variable overrides
 
-[Unreleased]: https://github.com/yourusername/dbt-terraform-modules-yaml/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/yourusername/dbt-terraform-modules-yaml/releases/tag/v1.0.0
+[Unreleased]: https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/releases/tag/v1.0.0

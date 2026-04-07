@@ -1,12 +1,16 @@
-# Contributing to dbt Cloud Terraform Modules
+# Contributing to terraform-dbtcloud-as-yaml
 
 Thank you for your interest in contributing! This document provides guidelines and instructions for contributing to this project.
 
 ## Code of Conduct
 
-Please be respectful and constructive in all interactions.
+All contributors must follow the [dbt Community Code of Conduct](https://docs.getdbt.com/community/resources/code-of-conduct). See also [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) in this repository.
 
 ## How to Contribute
+
+### Reporting security issues
+
+Do not open a public issue. Follow [SECURITY.md](SECURITY.md).
 
 ### Reporting Bugs
 
@@ -30,8 +34,8 @@ Feature requests are welcome! Please include:
 
 1. **Fork the repository**
    ```bash
-   git clone https://github.com/your-username/dbt-terraform-modules-yaml.git
-   cd dbt-terraform-modules-yaml
+   git clone https://github.com/your-username/terraform-dbtcloud-as-yaml.git
+   cd terraform-dbtcloud-as-yaml
    git checkout -b feature/your-feature-name
    ```
 
@@ -68,8 +72,8 @@ Feature requests are welcome! Please include:
 ### Local Development
 
 ```bash
-git clone https://github.com/your-username/terraform-dbtcloud-yaml.git
-cd terraform-dbtcloud-yaml
+git clone https://github.com/your-username/terraform-dbtcloud-as-yaml.git
+cd terraform-dbtcloud-as-yaml
 
 terraform init -backend=false
 ```
@@ -116,12 +120,12 @@ Maintainers will:
 
 ## Questions?
 
-- Check existing [GitHub issues](https://github.com/yourusername/dbt-terraform-modules-yaml/issues)
+- Check existing [GitHub issues](https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/issues)
 - Review the [README](../README.md) and [documentation](../README.md#documentation)
 - Open a new discussion in GitHub Discussions
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the project's MIT License.
+By contributing, you agree that your contributions will be licensed under the project's [Apache License 2.0](LICENSE).
 
-Thank you for contributing! 🎉
+Thank you for contributing!

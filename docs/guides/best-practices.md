@@ -106,7 +106,7 @@ Always pin module versions:
 ```hcl
 ```hcl
 module "dbt_cloud" {
-  source = "git::https://github.com/trouze/terraform-dbtcloud-yaml.git?ref=v1.0.0"
+  source = "git::https://github.com/dbt-labs/terraform-dbtcloud-as-yaml.git?ref=v1.0.0"
 ```
 ```
 
@@ -249,7 +249,7 @@ Use schema validation in IDE:
 
 ```yaml
 # Add to top of dbt-config.yml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/trouze/terraform-dbtcloud-yaml/main/schemas/v1.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/dbt-labs/terraform-dbtcloud-as-yaml/main/schemas/v1.json
 
 project:
   name: "my-project"
@@ -567,6 +567,6 @@ Before deploying to production:
 
 ## Getting Help
 
-- 📖 [Documentation](https://trouze.github.io/terraform-dbtcloud-yaml)
-- 🐛 [Issues](https://github.com/trouze/terraform-dbtcloud-yaml/issues)
-- 💬 [Discussions](https://github.com/trouze/terraform-dbtcloud-yaml/discussions)
+- 📖 [Documentation](https://dbt-labs.github.io/terraform-dbtcloud-as-yaml)
+- 🐛 [Issues](https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/issues)
+- 💬 [Discussions](https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/discussions)

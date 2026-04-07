@@ -16,8 +16,10 @@ provider "dbtcloud" {
 }
 
 module "dbt_cloud" {
-  source  = "trouze/yaml/dbtcloud"
-  version = "0.1.0"
+  # When this module is published to the Terraform Registry under dbt-labs, you may use:
+  #   source  = "dbt-labs/yaml/dbtcloud"
+  #   version = "~> 0.1"
+  source = "github.com/dbt-labs/terraform-dbtcloud-as-yaml"
 
   dbt_account_id = var.dbt_account_id
   dbt_token      = var.dbt_token

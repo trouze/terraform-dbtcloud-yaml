@@ -1,4 +1,4 @@
-# terraform-dbtcloud-yaml
+# terraform-dbtcloud-as-yaml
 
 [![Terraform Version](https://img.shields.io/badge/terraform-%3E%3D%201.0-blue?logo=terraform)](https://www.terraform.io)
 [![dbt Cloud Provider](https://img.shields.io/badge/dbt--cloud--provider-%3E%3D%201.8-blue)](https://registry.terraform.io/providers/dbt-labs/dbtcloud/latest)
@@ -7,7 +7,7 @@
 ## Get started in 60 seconds
 
 ```bash
-curl -fsSL https://github.com/trouze/terraform-dbtcloud-yaml/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/releases/latest/download/install.sh | bash
 ```
 
 This downloads the [examples/basic/](examples/basic/) starter into `./my-dbt-cloud`. No npm, no git magic — just curl and tar. To use a different directory name: `curl -fsSL ... | bash -s -- my-project`.
@@ -24,6 +24,10 @@ source .env && terraform init && terraform apply
 See [examples/basic/README.md](examples/basic/README.md) for a full walkthrough.
 
 ---
+
+## Who this is for
+
+Teams that want to manage **dbt Cloud** projects, environments, jobs, and related settings from a single YAML file—without writing Terraform HCL for every resource. Typical users are analytics engineers and data platform engineers who already maintain `dbt_project.yml` and related config, and platform teams that run `terraform plan` / `apply` in CI or manually.
 
 ## Why this exists
 
@@ -54,7 +58,7 @@ provider "dbtcloud" {
 }
 
 module "dbt_cloud" {
-  source = "github.com/trouze/terraform-dbtcloud-yaml"
+  source = "github.com/dbt-labs/terraform-dbtcloud-as-yaml"
 
   dbt_account_id = var.dbt_account_id
   dbt_token      = var.dbt_token
@@ -72,7 +76,7 @@ module "dbt_cloud" {
 Configuration uses **`version: 1`**, an **`account`** block (including `host_url` for the dbt Cloud region), shared resources under **`globals`** (connections, service tokens, groups, notifications, PrivateLink endpoints), and a **`projects`** list. Validate in your editor with [`schemas/v1.json`](docs/configuration/yaml-schema.md).
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/trouze/terraform-dbtcloud-yaml/main/schemas/v1.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/dbt-labs/terraform-dbtcloud-as-yaml/main/schemas/v1.json
 
 version: 1
 account:
@@ -295,9 +299,19 @@ schedule_hours: [6, 18]            # UTC
 
 ---
 
+## Support and maintenance
+
+This project is provided **as-is**, without SLAs or contractual support. dbt Labs and maintainers may address bugs and improvements on a **best-effort** basis.
+
+- **Questions and ideas:** [GitHub Discussions](https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/discussions)
+- **Bugs and feature requests:** [GitHub Issues](https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/issues)
+- **Security:** see [SECURITY.md](SECURITY.md) (do not file public issues for undisclosed vulnerabilities)
+
+For contribution workflow, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Contributing
 
-Contributions welcome. Please open an issue before large changes to align on approach.
+Contributions welcome. Please open an issue before large changes to align on approach. See [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## License
 
