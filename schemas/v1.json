@@ -209,15 +209,19 @@
         "properties": {
           "name": { "type": "string", "description": "Notification display name", "minLength": 1 },
           "key": { "type": "string", "description": "Unique key for this notification", "pattern": "^[a-z0-9_]+$" },
+          "id": { "type": "string", "description": "Optional external identifier; included in Terraform output notifications_provenance as source_id (not sent to dbt Cloud unless the provider supports it)" },
+          "protected": { "type": "boolean", "description": "When true, sets lifecycle.prevent_destroy on this notification", "default": false },
+          "state": { "type": "integer", "description": "1 = active (default), 2 = inactive (dbt Cloud API)", "enum": [1, 2], "default": 1 },
           "notification_type": {
             "type": "integer",
-            "description": "Destination type: 1=email, 2=slack, 4=pagerduty, 5=webhook",
+            "description": "Per dbt-labs/dbtcloud provider: 1=dbt Cloud user email, 2=Slack (requires slack_channel_id/name and a valid user_id for the Slack integration owner), 4=external email (requires external_email; user_id still required by API). Values 3/5 may appear in legacy docs; prefer 4 for external email. Webhook support depends on provider version.",
             "enum": [1, 2, 4, 5]
           },
-          "user_id": { "type": ["integer", "null"], "description": "dbt Cloud user ID to notify (email notifications)", "minimum": 1 },
+          "user_id": { "type": ["integer", "null"], "description": "dbt Cloud user ID (required by API for all notification types, including Slack and external email)", "minimum": 1 },
           "slack_channel_id": { "type": ["string", "null"], "description": "[Slack] Slack channel ID" },
           "slack_channel_name": { "type": ["string", "null"], "description": "[Slack] Slack channel display name" },
-          "webhook_id": { "type": ["string", "null"], "description": "[Webhook] Webhook ID" },
+          "external_email": { "type": ["string", "null"], "description": "[Type 4] External email address" },
+          "webhook_id": { "type": ["string", "null"], "description": "[Reserved] Not applied by stock dbtcloud provider dbtcloud_notification; kept for schema forward-compatibility" },
           "on_failure": { "type": "array", "description": "Job IDs to notify on failure", "items": { "type": "integer", "minimum": 1 }, "default": [] },
           "on_success": { "type": "array", "description": "Job IDs to notify on success", "items": { "type": "integer", "minimum": 1 }, "default": [] },
           "on_cancel": { "type": "array", "description": "Job IDs to notify on cancel", "items": { "type": "integer", "minimum": 1 }, "default": [] },

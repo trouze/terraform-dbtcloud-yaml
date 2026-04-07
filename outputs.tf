@@ -77,6 +77,16 @@ output "user_groups_provenance" {
   value       = length(try(local.yaml_content.user_groups, [])) > 0 ? module.user_groups[0].user_groups_provenance : {}
 }
 
+output "notification_ids" {
+  description = "Map of notification key to dbt Cloud notification ID"
+  value       = length(try(local.yaml_content.notifications, [])) > 0 ? module.notifications[0].notification_ids : {}
+}
+
+output "notifications_provenance" {
+  description = "Account notifications: YAML key, logical identity, optional source_id, protected flag, and dbt_notification_id (stock-provider alternative to resource_metadata)"
+  value       = length(try(local.yaml_content.notifications, [])) > 0 ? module.notifications[0].notifications_provenance : {}
+}
+
 output "oauth_configuration_ids" {
   description = "Map of OAuth configuration key to dbt Cloud OAuth configuration ID"
   value       = length(try(local.yaml_content.oauth_configurations, [])) > 0 ? module.oauth_configurations[0].oauth_configuration_ids : {}
