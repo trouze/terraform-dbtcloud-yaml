@@ -410,11 +410,31 @@
           "items": {
             "type": "object",
             "properties": {
-              "name": { "type": "string", "description": "Display name", "minLength": 1 },
-              "key": { "type": "string", "description": "Unique key for referencing in environments via extended_attributes_key", "pattern": "^[a-z0-9_]+$" },
-              "content": { "type": "object", "description": "Free-form YAML object with adapter-specific overrides (e.g. databricks.http_path)", "additionalProperties": true }
+              "name": { "type": "string", "description": "Display name (v1); optional when using v2 extended_attributes", "minLength": 1 },
+              "key": { "type": "string", "description": "Unique key for referencing in environments/profiles via extended_attributes_key", "pattern": "^[a-z0-9_]+$" },
+              "content": {
+                "type": "object",
+                "description": "v1: adapter-specific overrides (e.g. databricks.http_path). Use extended_attributes for v2/importer shape (COMPAT in modules/extended_attributes).",
+                "additionalProperties": true
+              },
+              "extended_attributes": {
+                "type": "object",
+                "description": "v2/importer: adapter overrides object (same JSON as API extended_attributes). Prefer over content when importing from dbt Cloud.",
+                "additionalProperties": true
+              },
+              "id": {
+                "type": ["integer", "string", "null"],
+                "description": "Legacy dbt Cloud extended attributes id (import/migration); remapped via extended_attribute_ids_by_source_id for profiles/environments (COMPAT v2/importer).",
+                "default": null
+              },
+              "protected": { "type": "boolean", "description": "When true, Terraform lifecycle prevents destroy on this extended_attributes resource", "default": false },
+              "state": {
+                "type": ["integer", "null"],
+                "description": "dbt Cloud state (1 = active, 2 = inactive); defaults to 1 in Terraform when null",
+                "default": null
+              }
             },
-            "required": ["name", "key", "content"],
+            "required": ["key"],
             "additionalProperties": false
           }
         },
@@ -441,6 +461,11 @@
               "custom_branch": { "type": ["string", "null"], "description": "Custom git branch. Null uses the project default branch.", "default": null },
               "dbt_version": { "type": ["string", "null"], "description": "dbt version override for this environment (e.g. '1.8.0')", "default": null },
               "extended_attributes_key": { "type": ["string", "null"], "description": "References extended_attributes[].key to apply adapter overrides", "default": null },
+              "extended_attributes_id": {
+                "type": ["string", "integer", "null"],
+                "description": "Legacy dbt Cloud extended_attributes_id or pass-through when not managed here; coalesced with extended_attribute_ids_by_source_id when extended_attributes[].id is set (COMPAT v2/importer).",
+                "default": null
+              },
               "protected": { "type": "boolean", "description": "Protect from accidental deletion", "default": false },
               "enable_model_query_history": { "type": ["boolean", "null"], "description": "Enable model query history", "default": null },
               "credential": {
@@ -600,7 +625,12 @@
                 "description": "COMPAT(v1-schema): inline profile credential metadata when minting a Terraform-managed credential (secrets via environment_credentials[project_key_profile_key]); see modules/credentials.",
                 "additionalProperties": true
               },
-              "extended_attributes_key": { "type": ["string", "null"], "description": "References extended_attributes[].key for adapter overrides", "default": null }
+              "extended_attributes_key": { "type": ["string", "null"], "description": "References extended_attributes[].key for adapter overrides", "default": null },
+              "extended_attributes_id": {
+                "type": ["string", "integer", "null"],
+                "description": "Legacy dbt Cloud extended_attributes_id; coalesced with extended_attribute_ids_by_source_id when YAML extended_attributes[].id is set (COMPAT v2/importer; see modules/profiles).",
+                "default": null
+              }
             },
             "required": ["name", "key", "connection_key", "credential_key"],
             "additionalProperties": false

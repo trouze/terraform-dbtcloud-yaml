@@ -100,7 +100,7 @@ locals {
     for p in local.projects : [
       for env in try(p.environments, []) :
       try(
-        env.extended_attributes_key != null && !contains(
+        env.extended_attributes_key != null && env.extended_attributes_key != "" && !contains(
           try(local._ea_keys_by_project[try(p.key, p.name)], toset([])),
           env.extended_attributes_key
         )
@@ -108,6 +108,20 @@ locals {
         : [],
         []
       )
+    ]
+  ])
+
+  # ── V-03b: each extended_attributes[] must supply v1 content or v2 extended_attributes object (non-empty)
+
+  _errors_ea_payload = flatten([
+    for p in local.projects : [
+      for ea in try(p.extended_attributes, []) :
+      (
+        (try(ea.extended_attributes, null) == null || length(keys(try(ea.extended_attributes, {}))) == 0) &&
+        (try(ea.content, null) == null || length(keys(try(ea.content, {}))) == 0)
+        ) ? [
+        "Project '${try(p.key, p.name)}' extended_attributes entry '${try(ea.key, ea.name)}' must set non-empty 'content' (v1) or 'extended_attributes' (v2/importer)."
+      ] : []
     ]
   ])
 
@@ -268,6 +282,7 @@ locals {
     local._errors_connection_key,
     local._errors_job_env_key,
     local._errors_ea_key,
+    local._errors_ea_payload,
     local._errors_deferring_env_key,
     local._errors_artefact_job_keys,
     local._errors_project_name,

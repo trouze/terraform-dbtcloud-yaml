@@ -201,11 +201,12 @@ module "credentials" {
 module "environments" {
   source = "./modules/environments"
 
-  projects               = local.projects
-  project_ids            = module.project.project_ids
-  credential_ids         = module.credentials.credential_ids
-  global_connection_ids  = local.global_connection_ids_effective
-  extended_attribute_ids = length(flatten([for p in local.projects : try(p.extended_attributes, [])])) > 0 ? module.extended_attributes[0].extended_attribute_ids : {}
+  projects                            = local.projects
+  project_ids                         = module.project.project_ids
+  credential_ids                      = module.credentials.credential_ids
+  global_connection_ids               = local.global_connection_ids_effective
+  extended_attribute_ids              = length(flatten([for p in local.projects : try(p.extended_attributes, [])])) > 0 ? module.extended_attributes[0].extended_attribute_ids : {}
+  extended_attribute_ids_by_source_id = length(flatten([for p in local.projects : try(p.extended_attributes, [])])) > 0 ? module.extended_attributes[0].extended_attribute_ids_by_source_id : {}
 }
 
 #############################################
@@ -256,12 +257,13 @@ module "profiles" {
   count  = length(flatten([for p in local.projects : try(p.profiles, [])])) > 0 ? 1 : 0
   source = "./modules/profiles"
 
-  projects                    = local.projects
-  project_ids                 = module.project.project_ids
-  global_connection_ids       = local.global_connection_ids_effective
-  credential_ids              = module.credentials.credential_ids
-  credential_ids_by_source_id = module.credentials.credential_ids_by_source_id
-  extended_attribute_ids      = length(flatten([for p in local.projects : try(p.extended_attributes, [])])) > 0 ? module.extended_attributes[0].extended_attribute_ids : {}
+  projects                            = local.projects
+  project_ids                         = module.project.project_ids
+  global_connection_ids               = local.global_connection_ids_effective
+  credential_ids                      = module.credentials.credential_ids
+  credential_ids_by_source_id         = module.credentials.credential_ids_by_source_id
+  extended_attribute_ids              = length(flatten([for p in local.projects : try(p.extended_attributes, [])])) > 0 ? module.extended_attributes[0].extended_attribute_ids : {}
+  extended_attribute_ids_by_source_id = length(flatten([for p in local.projects : try(p.extended_attributes, [])])) > 0 ? module.extended_attributes[0].extended_attribute_ids_by_source_id : {}
 }
 
 #############################################

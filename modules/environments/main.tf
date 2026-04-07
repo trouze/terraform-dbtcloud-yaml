@@ -63,14 +63,16 @@ locals {
     )
   }
 
-  # Resolve extended_attributes_id via key lookup
+  # COMPAT(v1-schema): key-based lookup, then legacy id remap, then raw extended_attributes_id
   resolve_extended_attributes_id = {
     for k, item in local.envs_map :
-    k => (
-      try(item.env_data.extended_attributes_key, null) != null ?
-      lookup(var.extended_attribute_ids, "${item.project_key}_${item.env_data.extended_attributes_key}", null) :
-      null
-    )
+    k => try(coalesce(
+      try(item.env_data.extended_attributes_key, null) != null && try(item.env_data.extended_attributes_key, "") != "" ?
+      lookup(var.extended_attribute_ids, "${item.project_key}_${item.env_data.extended_attributes_key}", null) : null,
+      try(item.env_data.extended_attributes_id, null) != null ?
+      lookup(var.extended_attribute_ids_by_source_id, tostring(item.env_data.extended_attributes_id), null) : null,
+      try(tonumber(item.env_data.extended_attributes_id), null)
+    ), null)
   }
 }
 

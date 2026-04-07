@@ -97,7 +97,7 @@ output "ip_rule_ids" {
 #############################################
 
 output "extended_attribute_ids" {
-  description = "Map of composite key (project_key_ea_key) to extended_attributes resource ID"
+  description = "Map of composite key (project_key_ea_key) to dbt Cloud extended_attributes_id (numeric API id)"
   value       = length(flatten([for p in local.projects : try(p.extended_attributes, [])])) > 0 ? module.extended_attributes[0].extended_attribute_ids : {}
 }
 

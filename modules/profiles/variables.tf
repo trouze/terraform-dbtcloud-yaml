@@ -27,7 +27,13 @@ variable "credential_ids_by_source_id" {
 }
 
 variable "extended_attribute_ids" {
-  description = "Map of composite key (project_key_ea_key) to extended_attributes ID (from extended_attributes module)"
-  type        = map(string)
+  description = "Map of composite key (project_key_ea_key) to dbt Cloud extended_attributes_id (numeric; from extended_attributes module)."
+  type        = map(number)
+  default     = {}
+}
+
+variable "extended_attribute_ids_by_source_id" {
+  description = "Maps legacy YAML extended_attributes[].id to Terraform-managed extended_attributes_id (from extended_attributes module)."
+  type        = map(number)
   default     = {}
 }

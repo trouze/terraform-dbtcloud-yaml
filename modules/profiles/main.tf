@@ -41,8 +41,12 @@ resource "dbtcloud_profile" "profiles" {
     try(each.value.profile_data.credentials_id, null) != null ? lookup(var.credential_ids_by_source_id, tostring(each.value.profile_data.credentials_id), null) : null,
     try(each.value.profile_data.credentials_id, null)
   ), null)
-  extended_attributes_id = try(
-    lookup(var.extended_attribute_ids, "${each.value.project_key}_${each.value.profile_data.extended_attributes_key}", null),
-    null
-  )
+  # COMPAT(v1-schema): key lookup, then legacy id remap, then raw extended_attributes_id (v2/importer)
+  extended_attributes_id = try(coalesce(
+    try(each.value.profile_data.extended_attributes_key, null) != null && try(each.value.profile_data.extended_attributes_key, "") != "" ?
+    lookup(var.extended_attribute_ids, "${each.value.project_key}_${each.value.profile_data.extended_attributes_key}", null) : null,
+    try(each.value.profile_data.extended_attributes_id, null) != null ?
+    lookup(var.extended_attribute_ids_by_source_id, tostring(each.value.profile_data.extended_attributes_id), null) : null,
+    try(tonumber(each.value.profile_data.extended_attributes_id), null)
+  ), null)
 }
