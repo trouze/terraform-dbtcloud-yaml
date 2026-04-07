@@ -56,7 +56,7 @@ module "data_lookups" {
 
   projects     = local.projects
   dbt_pat      = var.dbt_pat
-  dbt_host_url = var.dbt_host_url
+  dbt_host_url = local.dbt_host_url_effective
 }
 
 #############################################

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/trouze/terraform-dbtcloud-yaml/refs/heads/main/schemas/v1.json",
   "title": "dbt Cloud Terraform YAML Configuration Schema v1",
-  "description": "JSON Schema for validating dbt Cloud YAML configuration files (v1). Supports both singular project: and list-based projects: shapes. Use with VS Code YAML extension or JetBrains built-in YAML validation.",
+  "description": "JSON Schema for validating dbt Cloud YAML configuration files (v1). Supports both singular project: and list-based projects: shapes. For version: 2 + globals.* layout, see schemas/v2.json (normalized at Terraform root). Use with VS Code YAML extension or JetBrains built-in YAML validation.",
   "type": "object",
   "properties": {
 

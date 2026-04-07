@@ -110,3 +110,23 @@ output "lineage_integration_ids" {
   description = "Map of composite key (project_key_integration_key) to lineage integration ID"
   value       = length(flatten([for p in local.projects : try(p.lineage_integrations, [])])) > 0 ? module.lineage_integrations[0].lineage_integration_ids : {}
 }
+
+output "semantic_layer_ids" {
+  description = "Map of project key to dbt Cloud semantic layer configuration ID"
+  value       = length(module.semantic_layer) > 0 ? module.semantic_layer[0].semantic_layer_ids : {}
+}
+
+output "project_artefact_ids" {
+  description = "Map of project key to dbt Cloud project_artefacts resource ID"
+  value       = length(module.project_artefacts) > 0 ? module.project_artefacts[0].project_artefact_ids : {}
+}
+
+output "yaml_schema_version" {
+  description = "2 when the YAML file sets version: 2; otherwise 1 (implicit v1 layout)"
+  value       = try(local._raw_yaml.version, null) == 2 ? 2 : 1
+}
+
+output "yaml_account" {
+  description = "When version: 2, the YAML account block (name, host_url, id); null for v1-only files"
+  value       = try(local._raw_yaml.version, null) == 2 ? try(local._raw_yaml.account, null) : null
+}

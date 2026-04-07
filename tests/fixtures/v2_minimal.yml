@@ -1,0 +1,46 @@
+# Minimal version: 2 layout — globals.connections + projects[] (normalized at Terraform root).
+version: 2
+account:
+  name: Test Account
+  host_url: https://cloud.getdbt.com
+globals:
+  connections:
+    - key: test_wh
+      name: Test Warehouse
+      type: snowflake
+      protected: true
+      details:
+        account: xy12345
+        database: ANALYTICS
+        warehouse: COMPUTE_WH
+projects:
+  - name: My Test Project
+    key: my_project
+    repository:
+      remote_url: acme/analytics
+    environments:
+      - name: Production
+        key: prod
+        type: deployment
+        deployment_type: production
+        protected: true
+        connection_key: test_wh
+    jobs:
+      - name: Daily Run
+        key: daily_run
+        environment_key: prod
+        execute_steps:
+          - dbt build
+        triggers:
+          schedule: true
+          github_webhook: false
+          git_provider_webhook: false
+          on_merge: false
+        schedule_type: days_of_week
+        schedule_days: [0, 1, 2, 3, 4]
+        schedule_hours: [6]
+    environment_variables:
+      - name: DBT_V2_MAP_FORM
+        environment_values:
+          prod: "map_value"
+          project: "project_default"

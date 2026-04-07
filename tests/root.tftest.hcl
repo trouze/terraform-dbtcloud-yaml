@@ -128,3 +128,38 @@ run "multi_project_jobs_keyed_correctly" {
     error_message = "Expected composite key 'analytics_daily_run' in job_ids"
   }
 }
+
+# ── version: 2 YAML (globals.* normalized at root) ─────────────────────────────
+
+run "v2_yaml_flattens_globals_and_reports_schema_version" {
+  command = plan
+
+  variables {
+    yaml_file = "tests/fixtures/v2_minimal.yml"
+  }
+
+  assert {
+    condition     = output.yaml_schema_version == 2
+    error_message = "Expected yaml_schema_version output 2 for version: 2 fixture"
+  }
+
+  assert {
+    condition     = output.yaml_account != null && output.yaml_account.host_url == "https://cloud.getdbt.com"
+    error_message = "Expected yaml_account.host_url from version: 2 YAML"
+  }
+
+  assert {
+    condition     = contains(keys(output.project_ids), "my_project")
+    error_message = "Expected project key my_project after v2 normalization"
+  }
+
+  assert {
+    condition     = contains(keys(output.environment_ids), "my_project_prod")
+    error_message = "Expected environment composite key my_project_prod"
+  }
+
+  assert {
+    condition     = contains(keys(output.job_ids), "my_project_daily_run")
+    error_message = "Expected job composite key my_project_daily_run"
+  }
+}
