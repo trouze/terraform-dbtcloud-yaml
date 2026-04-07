@@ -117,6 +117,12 @@ variable "enable_gitlab_deploy_token" {
   default     = false
 }
 
+variable "skip_global_project_permissions" {
+  description = "When true, account-level group permissions from YAML are applied as all_projects-only blocks so Terraform does not add edges to project resources (scoped adoption of globals)."
+  type        = bool
+  default     = false
+}
+
 #############################################
 # Locals
 #############################################

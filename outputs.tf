@@ -62,6 +62,11 @@ output "group_ids" {
   value       = length(try(local.yaml_content.groups, [])) > 0 ? module.groups[0].group_ids : {}
 }
 
+output "groups_provenance" {
+  description = "Account groups: YAML key, logical identity, optional source_id, protected flag, and dbt_group_id (stock-provider alternative to resource_metadata)"
+  value       = length(try(local.yaml_content.groups, [])) > 0 ? module.groups[0].groups_provenance : {}
+}
+
 output "user_groups_provenance" {
   description = "User group assignments: assignment key, logical identity, optional source_id, user_id, and dbt_user_groups_id (stock-provider alternative to resource_metadata)"
   value       = length(try(local.yaml_content.user_groups, [])) > 0 ? module.user_groups[0].user_groups_provenance : {}

@@ -64,7 +64,8 @@ module "groups" {
   count  = length(try(local.yaml_content.groups, [])) > 0 ? 1 : 0
   source = "./modules/groups"
 
-  groups_data = try(local.yaml_content.groups, [])
+  groups_data                     = try(local.yaml_content.groups, [])
+  skip_global_project_permissions = var.skip_global_project_permissions
 }
 
 #############################################

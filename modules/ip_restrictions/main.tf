@@ -13,6 +13,7 @@ terraform {
 #############################################
 
 locals {
+  # COMPAT(v1-schema): for_each key from key or legacy name — align with v2 schema when canonical.
   ip_rules_map = {
     for rule in var.ip_rules_data :
     try(rule.key, rule.name) => rule

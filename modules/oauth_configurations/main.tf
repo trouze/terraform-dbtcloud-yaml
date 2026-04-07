@@ -18,6 +18,7 @@ terraform {
 #############################################
 
 locals {
+  # COMPAT(v1-schema): for_each key from key or legacy name — align with v2 schema when canonical.
   oauth_configurations_map = {
     for o in var.oauth_data :
     try(o.key, o.name) => o
@@ -46,9 +47,10 @@ locals {
 resource "dbtcloud_oauth_configuration" "oauth_configurations" {
   for_each = local.unprotected_oauth_map
 
-  name          = each.value.name
-  type          = try(each.value.type, null)
-  client_id     = try(each.value.client_id, null)
+  name      = each.value.name
+  type      = try(each.value.type, null)
+  client_id = try(each.value.client_id, null)
+  # COMPAT(v1-schema): secrets from root map (preferred) or inline YAML — v2 schema may narrow to one path.
   client_secret = lookup(var.oauth_client_secrets, each.key, try(each.value.client_secret, ""))
   authorize_url = try(each.value.authorize_url, null)
   token_url     = try(each.value.token_url, null)
@@ -60,9 +62,10 @@ resource "dbtcloud_oauth_configuration" "oauth_configurations" {
 resource "dbtcloud_oauth_configuration" "protected_oauth_configurations" {
   for_each = local.protected_oauth_map
 
-  name          = each.value.name
-  type          = try(each.value.type, null)
-  client_id     = try(each.value.client_id, null)
+  name      = each.value.name
+  type      = try(each.value.type, null)
+  client_id = try(each.value.client_id, null)
+  # COMPAT(v1-schema): secrets from root map (preferred) or inline YAML — v2 schema may narrow to one path.
   client_secret = lookup(var.oauth_client_secrets, each.key, try(each.value.client_secret, ""))
   authorize_url = try(each.value.authorize_url, null)
   token_url     = try(each.value.token_url, null)

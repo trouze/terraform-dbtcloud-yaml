@@ -86,8 +86,48 @@
         "properties": {
           "name": { "type": "string", "description": "Group display name", "minLength": 1 },
           "key": { "type": "string", "description": "Unique key for this group", "pattern": "^[a-z0-9_]+$" },
+          "id": { "type": "string", "description": "Optional external identifier; included in Terraform output groups_provenance as source_id" },
+          "protected": { "type": "boolean", "description": "When true, the group uses lifecycle.prevent_destroy", "default": false },
           "assign_by_default": { "type": "boolean", "description": "Automatically assign new users to this group", "default": false },
-          "sso_mapping_groups": { "type": "array", "description": "SSO group names to map to this group", "items": { "type": "string" } }
+          "sso_mapping_groups": { "type": "array", "description": "SSO group names to map to this group", "items": { "type": "string" } },
+          "permissions": {
+            "type": "array",
+            "description": "RBAC partial permissions for this group (legacy key; same shape as group_permissions)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "permission_set": { "type": "string", "description": "Permission set name (dbt Cloud RBAC)" },
+                "all_projects": { "type": "boolean", "description": "Apply to all projects", "default": false },
+                "project_id": { "type": "integer", "description": "Numeric dbt Cloud project ID when not all_projects" },
+                "writable_environment_categories": {
+                  "type": "array",
+                  "description": "Environment types for write access (analyst, developer, git_admin, team_admin, database_admin only)",
+                  "items": { "type": "string" }
+                }
+              },
+              "required": ["permission_set"],
+              "additionalProperties": false
+            }
+          },
+          "group_permissions": {
+            "type": "array",
+            "description": "RBAC partial permissions (v2 / importer naming; preferred when both are present)",
+            "items": {
+              "type": "object",
+              "properties": {
+                "permission_set": { "type": "string", "description": "Permission set name (dbt Cloud RBAC)" },
+                "all_projects": { "type": "boolean", "description": "Apply to all projects", "default": false },
+                "project_id": { "type": "integer", "description": "Numeric dbt Cloud project ID when not all_projects" },
+                "writable_environment_categories": {
+                  "type": "array",
+                  "description": "Environment types for write access",
+                  "items": { "type": "string" }
+                }
+              },
+              "required": ["permission_set"],
+              "additionalProperties": false
+            }
+          }
         },
         "required": ["name", "key"],
         "additionalProperties": false

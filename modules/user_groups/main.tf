@@ -18,6 +18,7 @@ terraform {
 #############################################
 
 locals {
+  # COMPAT(v1-schema): for_each key from explicit key or user_id — v2 schema may require key always.
   user_groups_map = {
     for ug in var.user_groups_data :
     coalesce(try(ug.key, null), tostring(ug.user_id)) => ug
