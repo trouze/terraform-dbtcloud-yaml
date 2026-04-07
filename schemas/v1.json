@@ -143,11 +143,13 @@
         "properties": {
           "name": { "type": "string", "description": "OAuth config display name", "minLength": 1 },
           "key": { "type": "string", "description": "Unique key (also used as lookup key in oauth_client_secrets)", "pattern": "^[a-z0-9_]+$" },
+          "protected": { "type": "boolean", "description": "When true, use prevent_destroy lifecycle on this OAuth configuration", "default": false },
           "type": { "type": "string", "description": "OAuth provider type", "enum": ["snowflake"] },
           "authorize_url": { "type": "string", "description": "OAuth authorization endpoint URL" },
           "token_url": { "type": "string", "description": "OAuth token exchange endpoint URL" },
           "redirect_uri": { "type": "string", "description": "OAuth redirect URI registered with the provider" },
-          "client_id": { "type": "string", "description": "OAuth client ID" }
+          "client_id": { "type": "string", "description": "OAuth client ID" },
+          "application_id_uri": { "type": ["string", "null"], "description": "[Entra ID] Application ID URI for the OAuth integration" }
         },
         "required": ["name", "key", "type", "authorize_url", "token_url", "redirect_uri", "client_id"],
         "additionalProperties": false
@@ -162,6 +164,8 @@
         "properties": {
           "name": { "type": "string", "description": "Rule display name", "minLength": 1 },
           "key": { "type": "string", "description": "Unique key for this rule", "pattern": "^[a-z0-9_]+$" },
+          "protected": { "type": "boolean", "description": "When true, sets lifecycle.prevent_destroy on the rule", "default": false },
+          "description": { "type": "string", "description": "Human-readable description" },
           "type": { "type": "string", "description": "Rule type: allow or deny", "enum": ["allow", "deny"] },
           "cidrs": {
             "type": "array",

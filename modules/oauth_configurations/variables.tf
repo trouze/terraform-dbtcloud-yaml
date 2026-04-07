@@ -1,5 +1,5 @@
 variable "oauth_data" {
-  description = "List of OAuth configuration entries from YAML oauth_configurations[]"
+  description = "List of OAuth configuration entries from YAML oauth_configurations[] (optional: protected, application_id_uri for Entra)"
   type        = any
   default     = []
 }
