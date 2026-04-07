@@ -36,10 +36,11 @@ resource "dbtcloud_profile" "profiles" {
     lookup(var.global_connection_ids, tostring(each.value.profile_data.connection_key), null),
     try(tonumber(each.value.profile_data.connection_id), null)
   )
-  credentials_id = try(
+  credentials_id = try(coalesce(
     lookup(var.credential_ids, "${each.value.project_key}_${each.value.profile_data.credential_key}", null),
+    try(each.value.profile_data.credentials_id, null) != null ? lookup(var.credential_ids_by_source_id, tostring(each.value.profile_data.credentials_id), null) : null,
     try(each.value.profile_data.credentials_id, null)
-  )
+  ), null)
   extended_attributes_id = try(
     lookup(var.extended_attribute_ids, "${each.value.project_key}_${each.value.profile_data.extended_attributes_key}", null),
     null

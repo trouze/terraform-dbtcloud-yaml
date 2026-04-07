@@ -460,7 +460,12 @@
                   "database": { "type": "string", "description": "[Snowflake] Default database" },
                   "warehouse": { "type": "string", "description": "[Snowflake] Virtual warehouse name" },
                   "role": { "type": "string", "description": "[Snowflake] Default role" },
-                  "num_threads": { "type": "integer", "description": "Number of parallel threads", "minimum": 1, "maximum": 64 }
+                  "num_threads": { "type": "integer", "description": "Number of parallel threads", "minimum": 1, "maximum": 64 },
+                  "id": {
+                    "type": ["integer", "string", "null"],
+                    "description": "Legacy dbt Cloud warehouse credential ID (import/migration). After apply, profiles may resolve via credential_ids_by_source_id; see COMPAT in modules/credentials.",
+                    "default": null
+                  }
                 },
                 "required": ["credential_type"],
                 "additionalProperties": false
@@ -584,7 +589,17 @@
               "name": { "type": "string", "description": "Profile display name", "minLength": 1 },
               "key": { "type": "string", "description": "Unique key for this profile", "pattern": "^[a-z0-9_]+$" },
               "connection_key": { "type": "string", "description": "References global_connections[].key or LOOKUP:Connection Name for an existing account global connection (module data_lookups)" },
-              "credential_key": { "type": "string", "description": "Composite key (project_key_env_key) or environment key referencing the credential to use" },
+              "credential_key": { "type": "string", "description": "Composite key (project_key_env_key) or project_key_profile_key referencing the credential to use" },
+              "credentials_id": {
+                "type": ["string", "integer", "null"],
+                "description": "Legacy dbt Cloud credentials_id or placeholder for migration; coalesced with credential_ids_by_source_id when set (COMPAT v2/importer).",
+                "default": null
+              },
+              "credential": {
+                "type": "object",
+                "description": "COMPAT(v1-schema): inline profile credential metadata when minting a Terraform-managed credential (secrets via environment_credentials[project_key_profile_key]); see modules/credentials.",
+                "additionalProperties": true
+              },
               "extended_attributes_key": { "type": ["string", "null"], "description": "References extended_attributes[].key for adapter overrides", "default": null }
             },
             "required": ["name", "key", "connection_key", "credential_key"],

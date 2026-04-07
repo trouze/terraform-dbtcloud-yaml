@@ -30,7 +30,7 @@ output "environment_ids" {
 #############################################
 
 output "credential_ids" {
-  description = "Map of composite key (project_key_env_key) to credential ID"
+  description = "Map of composite key (project_key_env_key or project_key_profile_key) to credential ID"
   value       = module.credentials.credential_ids
 }
 

@@ -15,7 +15,13 @@ variable "global_connection_ids" {
 }
 
 variable "credential_ids" {
-  description = "Map of composite key (project_key_env_key) to credential ID (from credentials module)"
+  description = "Map of composite key (project_key_env_key or project_key_profile_key) to credential ID (from credentials module)"
+  type        = map(string)
+  default     = {}
+}
+
+variable "credential_ids_by_source_id" {
+  description = "Maps legacy YAML credential.id to Terraform-managed credential_id (from credentials module)."
   type        = map(string)
   default     = {}
 }

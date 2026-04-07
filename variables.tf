@@ -87,7 +87,7 @@ variable "connection_credentials" {
 }
 
 variable "environment_credentials" {
-  description = "Map of environment credential keys to their warehouse credential objects. Key format: project_key_env_key. Supports 14 warehouse types via credential_type field."
+  description = "Map of credential keys to warehouse credential objects. Key format: project_key_env_key for environments, or project_key_profile_key for standalone profile-owned credentials. Supports 14 warehouse types via credential_type field."
   type        = map(any)
   default     = {}
   sensitive   = true
