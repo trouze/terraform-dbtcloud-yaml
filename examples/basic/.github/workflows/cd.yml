@@ -38,10 +38,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Download Terraform State
-        uses: badgerhobbs/terraform-state@v2
+        uses: badgerhobbs/terraform-state@eacf740367a4a879626510770a6ea101c63c3c00 # v2
         with:
           encryption_key: ${{ secrets.AES_256_ENCRYPTION_KEY }}
           operation: download
@@ -50,7 +50,7 @@ jobs:
         continue-on-error: true  # OK to fail on first run — no artifact exists yet
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: "~1"
 
@@ -64,7 +64,7 @@ jobs:
         run: terraform apply -auto-approve tfplan
 
       - name: Upload Terraform State
-        uses: badgerhobbs/terraform-state@v2
+        uses: badgerhobbs/terraform-state@eacf740367a4a879626510770a6ea101c63c3c00 # v2
         if: always()  # upload even if apply partially succeeded, to preserve any changes
         with:
           encryption_key: ${{ secrets.AES_256_ENCRYPTION_KEY }}
