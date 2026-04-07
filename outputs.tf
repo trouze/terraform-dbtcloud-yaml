@@ -67,19 +67,9 @@ output "github_installation_fallback_id" {
   value       = length(module.data_lookups) > 0 ? module.data_lookups[0].github_installation_fallback_id : null
 }
 
-output "connections_provenance" {
-  description = "Global connections: YAML key, logical identity, optional source_id, protected flag, and dbt_connection_id (stock-provider alternative to resource_metadata)"
-  value       = length(try(local.yaml_content.global_connections, [])) > 0 ? module.global_connections[0].connections_provenance : {}
-}
-
 output "service_token_ids" {
   description = "Map of service token key to dbt Cloud service token ID"
   value       = length(try(local.yaml_content.service_tokens, [])) > 0 ? module.service_tokens[0].service_token_ids : {}
-}
-
-output "service_tokens_provenance" {
-  description = "Account service tokens: YAML key, logical identity, optional source_id, protected flag, and dbt_service_token_id (stock-provider alternative to resource_metadata)"
-  value       = length(try(local.yaml_content.service_tokens, [])) > 0 ? module.service_tokens[0].service_tokens_provenance : {}
 }
 
 output "group_ids" {
@@ -87,24 +77,9 @@ output "group_ids" {
   value       = length(try(local.yaml_content.groups, [])) > 0 ? module.groups[0].group_ids : {}
 }
 
-output "groups_provenance" {
-  description = "Account groups: YAML key, logical identity, optional source_id, protected flag, and dbt_group_id (stock-provider alternative to resource_metadata)"
-  value       = length(try(local.yaml_content.groups, [])) > 0 ? module.groups[0].groups_provenance : {}
-}
-
-output "user_groups_provenance" {
-  description = "User group assignments: assignment key, logical identity, optional source_id, user_id, and dbt_user_groups_id (stock-provider alternative to resource_metadata)"
-  value       = length(try(local.yaml_content.user_groups, [])) > 0 ? module.user_groups[0].user_groups_provenance : {}
-}
-
 output "notification_ids" {
   description = "Map of notification key to dbt Cloud notification ID"
   value       = length(try(local.yaml_content.notifications, [])) > 0 ? module.notifications[0].notification_ids : {}
-}
-
-output "notifications_provenance" {
-  description = "Account notifications: YAML key, logical identity, optional source_id, protected flag, and dbt_notification_id (stock-provider alternative to resource_metadata)"
-  value       = length(try(local.yaml_content.notifications, [])) > 0 ? module.notifications[0].notifications_provenance : {}
 }
 
 output "oauth_configuration_ids" {
@@ -112,19 +87,9 @@ output "oauth_configuration_ids" {
   value       = length(try(local.yaml_content.oauth_configurations, [])) > 0 ? module.oauth_configurations[0].oauth_configuration_ids : {}
 }
 
-output "oauth_configurations_provenance" {
-  description = "OAuth configs: YAML key, logical identity, optional source_id, and dbt_oauth_configuration_id (stock-provider alternative to resource_metadata)"
-  value       = length(try(local.yaml_content.oauth_configurations, [])) > 0 ? module.oauth_configurations[0].oauth_configurations_provenance : {}
-}
-
 output "ip_rule_ids" {
   description = "Map of IP rule key to dbt Cloud IP restriction rule ID"
   value       = length(try(local.yaml_content.ip_restrictions, [])) > 0 ? module.ip_restrictions[0].ip_rule_ids : {}
-}
-
-output "ip_rules_provenance" {
-  description = "IP restriction rules: YAML key, logical identity, optional source_id, and dbt_rule_id (stock-provider alternative to resource_metadata)"
-  value       = length(try(local.yaml_content.ip_restrictions, [])) > 0 ? module.ip_restrictions[0].ip_rules_provenance : {}
 }
 
 #############################################

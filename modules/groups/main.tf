@@ -34,18 +34,6 @@ locals {
     k => g
     if try(g.protected, false) != true
   }
-
-  # v2 set resource_metadata on dbtcloud_group; stock provider has no such argument.
-  groups_provenance = {
-    for key, g in local.groups_map :
-    key => {
-      source_key      = key
-      source_name     = g.name
-      source_identity = "GRP:${key}"
-      source_id       = try(g.id, null)
-      protected       = try(g.protected, false)
-    }
-  }
 }
 
 resource "dbtcloud_group" "groups" {
@@ -54,6 +42,14 @@ resource "dbtcloud_group" "groups" {
   name               = each.value.name
   assign_by_default  = try(each.value.assign_by_default, false)
   sso_mapping_groups = try(each.value.sso_mapping_groups, [])
+
+  # resource_metadata: pending official dbtcloud provider support (see importer projects_v2/globals.tf).
+  # resource_metadata = {
+  #   source_id       = try(each.value.id, null)
+  #   source_identity = "GRP:${each.key}"
+  #   source_key      = each.key
+  #   source_name     = each.value.name
+  # }
 
   dynamic "group_permissions" {
     for_each = var.skip_global_project_permissions ? [] : tolist(try(local.groups_permissions_by_key[each.key], []))
@@ -81,6 +77,14 @@ resource "dbtcloud_group" "protected_groups" {
   name               = each.value.name
   assign_by_default  = try(each.value.assign_by_default, false)
   sso_mapping_groups = try(each.value.sso_mapping_groups, [])
+
+  # resource_metadata: pending official dbtcloud provider support (see importer projects_v2/globals.tf).
+  # resource_metadata = {
+  #   source_id       = try(each.value.id, null)
+  #   source_identity = "GRP:${each.key}"
+  #   source_key      = each.key
+  #   source_name     = each.value.name
+  # }
 
   dynamic "group_permissions" {
     for_each = var.skip_global_project_permissions ? [] : tolist(try(local.groups_permissions_by_key[each.key], []))

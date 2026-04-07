@@ -34,18 +34,6 @@ locals {
     k => t
     if try(t.protected, false) != true
   }
-
-  # v2 set resource_metadata on dbtcloud_service_token; stock provider has no such argument.
-  service_tokens_provenance = {
-    for key, t in local.tokens_map :
-    key => {
-      source_key      = key
-      source_name     = t.name
-      source_identity = "TOK:${key}"
-      source_id       = try(t.id, null)
-      protected       = try(t.protected, false)
-    }
-  }
 }
 
 resource "dbtcloud_service_token" "service_tokens" {
@@ -53,6 +41,14 @@ resource "dbtcloud_service_token" "service_tokens" {
 
   name  = each.value.name
   state = try(each.value.state, 1)
+
+  # resource_metadata: pending official dbtcloud provider support (see importer projects_v2/globals.tf).
+  # resource_metadata = {
+  #   source_id       = try(each.value.id, null)
+  #   source_identity = "TOK:${each.key}"
+  #   source_key      = each.key
+  #   source_name     = each.value.name
+  # }
 
   dynamic "service_token_permissions" {
     for_each = var.skip_global_project_permissions ? [] : tolist(try(local.service_tokens_permissions_by_key[each.key], []))
@@ -88,6 +84,14 @@ resource "dbtcloud_service_token" "protected_service_tokens" {
 
   name  = each.value.name
   state = try(each.value.state, 1)
+
+  # resource_metadata: pending official dbtcloud provider support (see importer projects_v2/globals.tf).
+  # resource_metadata = {
+  #   source_id       = try(each.value.id, null)
+  #   source_identity = "TOK:${each.key}"
+  #   source_key      = each.key
+  #   source_name     = each.value.name
+  # }
 
   dynamic "service_token_permissions" {
     for_each = var.skip_global_project_permissions ? [] : tolist(try(local.service_tokens_permissions_by_key[each.key], []))

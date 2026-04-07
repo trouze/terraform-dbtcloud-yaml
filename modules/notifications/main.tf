@@ -24,18 +24,6 @@ locals {
     for k, n in local.notifications_map :
     k => n if try(n.protected, false) == true
   }
-
-  # v2 set resource_metadata on dbtcloud_notification; stock provider has no such argument.
-  notifications_provenance_meta = {
-    for key, n in local.notifications_map :
-    key => {
-      source_key      = key
-      source_name     = n.name
-      source_identity = "NTO:${key}"
-      source_id       = try(n.id, null)
-      protected       = try(n.protected, false)
-    }
-  }
 }
 
 resource "dbtcloud_notification" "notifications" {
@@ -51,6 +39,14 @@ resource "dbtcloud_notification" "notifications" {
   slack_channel_name = try(each.value.slack_channel_name, null)
   external_email     = try(each.value.external_email, null)
   state              = try(each.value.state, 1)
+
+  # resource_metadata: pending official dbtcloud provider support (importer pattern: NTO:${key}).
+  # resource_metadata = {
+  #   source_id       = try(each.value.id, null)
+  #   source_identity = "NTO:${each.key}"
+  #   source_key      = each.key
+  #   source_name     = each.value.name
+  # }
 }
 
 resource "dbtcloud_notification" "protected_notifications" {
@@ -66,6 +62,14 @@ resource "dbtcloud_notification" "protected_notifications" {
   slack_channel_name = try(each.value.slack_channel_name, null)
   external_email     = try(each.value.external_email, null)
   state              = try(each.value.state, 1)
+
+  # resource_metadata: pending official dbtcloud provider support (importer pattern: NTO:${key}).
+  # resource_metadata = {
+  #   source_id       = try(each.value.id, null)
+  #   source_identity = "NTO:${each.key}"
+  #   source_key      = each.key
+  #   source_name     = each.value.name
+  # }
 
   lifecycle {
     prevent_destroy = true

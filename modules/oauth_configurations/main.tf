@@ -11,10 +11,6 @@ terraform {
 #############################################
 # OAuth configurations (account-level)
 # client_secret is sensitive — sourced from var.oauth_client_secrets (or optional YAML).
-#
-# Provenance: v2 set resource_metadata on the resource; stock dbtcloud does not support
-# that block on dbtcloud_oauth_configuration — mirror intent via local.oauth_configurations_provenance
-# and output oauth_configurations_provenance (see migration plan).
 #############################################
 
 locals {
@@ -31,17 +27,6 @@ locals {
     for key, oauth in local.oauth_configurations_map :
     key => oauth if try(oauth.protected, false)
   }
-
-  oauth_configurations_provenance = {
-    for key, oauth in local.oauth_configurations_map :
-    key => {
-      source_key      = key
-      source_name     = oauth.name
-      source_identity = "OAUTH:${key}"
-      source_id       = try(oauth.id, null)
-      protected       = try(oauth.protected, false)
-    }
-  }
 }
 
 resource "dbtcloud_oauth_configuration" "oauth_configurations" {
@@ -57,6 +42,14 @@ resource "dbtcloud_oauth_configuration" "oauth_configurations" {
   redirect_uri  = try(each.value.redirect_uri, null)
 
   application_id_uri = try(each.value.application_id_uri, null)
+
+  # resource_metadata: pending official dbtcloud provider support (see importer projects_v2/oauth_configurations.tf).
+  # resource_metadata = {
+  #   source_id       = try(each.value.id, null)
+  #   source_identity = "OAUTH:${each.key}"
+  #   source_key      = each.key
+  #   source_name     = each.value.name
+  # }
 }
 
 resource "dbtcloud_oauth_configuration" "protected_oauth_configurations" {
@@ -72,6 +65,14 @@ resource "dbtcloud_oauth_configuration" "protected_oauth_configurations" {
   redirect_uri  = try(each.value.redirect_uri, null)
 
   application_id_uri = try(each.value.application_id_uri, null)
+
+  # resource_metadata: pending official dbtcloud provider support (see importer projects_v2/oauth_configurations.tf).
+  # resource_metadata = {
+  #   source_id       = try(each.value.id, null)
+  #   source_identity = "OAUTH:${each.key}"
+  #   source_key      = each.key
+  #   source_name     = each.value.name
+  # }
 
   lifecycle {
     prevent_destroy = true

@@ -65,17 +65,6 @@ locals {
       ].id : null
     )
   }
-
-  # Stock dbtcloud provider has no resource_metadata on global connections — mirror intent for audits / tooling.
-  connections_provenance = {
-    for k, conn in local.connections_map : k => {
-      source_id       = try(conn.id, null)
-      source_identity = "CON:${k}"
-      source_key      = k
-      source_name     = conn.name
-      protected       = try(conn.protected, false)
-    }
-  }
 }
 
 data "dbtcloud_privatelink_endpoints" "all" {
@@ -90,6 +79,14 @@ resource "dbtcloud_global_connection" "connections" {
   for_each = local.unprotected_connections_map
 
   name = each.value.name
+
+  # resource_metadata: pending official dbtcloud provider support (see importer projects_v2/globals.tf).
+  # resource_metadata = {
+  #   source_id       = try(each.value.id, null)
+  #   source_identity = "CON:${each.key}"
+  #   source_key      = each.key
+  #   source_name     = each.value.name
+  # }
 
   private_link_endpoint_id = local.private_link_endpoint_id_by_key[each.key]
 
@@ -241,6 +238,14 @@ resource "dbtcloud_global_connection" "protected_connections" {
   for_each = local.protected_connections_map
 
   name = each.value.name
+
+  # resource_metadata: pending official dbtcloud provider support (see importer projects_v2/globals.tf).
+  # resource_metadata = {
+  #   source_id       = try(each.value.id, null)
+  #   source_identity = "CON:${each.key}"
+  #   source_key      = each.key
+  #   source_name     = each.value.name
+  # }
 
   private_link_endpoint_id = local.private_link_endpoint_id_by_key[each.key]
 

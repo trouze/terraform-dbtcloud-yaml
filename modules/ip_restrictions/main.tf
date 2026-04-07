@@ -28,19 +28,6 @@ locals {
     for key, rule in local.ip_rules_map :
     key => rule if try(rule.protected, false)
   }
-
-  # Provider-agnostic provenance (v2 used resource_metadata on the resource; stock
-  # dbtcloud often does not expose it on this type). Exposed via output for CI / audits.
-  ip_rules_provenance = {
-    for key, rule in local.ip_rules_map :
-    key => {
-      source_key      = key
-      source_name     = rule.name
-      source_identity = "IPRST:${key}"
-      source_id       = try(rule.id, null)
-      protected       = try(rule.protected, false)
-    }
-  }
 }
 
 resource "dbtcloud_ip_restrictions_rule" "ip_rules" {
@@ -56,6 +43,14 @@ resource "dbtcloud_ip_restrictions_rule" "ip_rules" {
       cidr = c.cidr
     }
   ]
+
+  # resource_metadata: pending official dbtcloud provider support (see importer projects_v2/ip_restrictions.tf).
+  # resource_metadata = {
+  #   source_id       = try(each.value.id, null)
+  #   source_identity = "IPRST:${each.key}"
+  #   source_key      = each.key
+  #   source_name     = each.value.name
+  # }
 }
 
 resource "dbtcloud_ip_restrictions_rule" "protected_ip_rules" {
@@ -71,6 +66,14 @@ resource "dbtcloud_ip_restrictions_rule" "protected_ip_rules" {
       cidr = c.cidr
     }
   ]
+
+  # resource_metadata: pending official dbtcloud provider support (see importer projects_v2/ip_restrictions.tf).
+  # resource_metadata = {
+  #   source_id       = try(each.value.id, null)
+  #   source_identity = "IPRST:${each.key}"
+  #   source_key      = each.key
+  #   source_name     = each.value.name
+  # }
 
   lifecycle {
     prevent_destroy = true

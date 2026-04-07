@@ -70,7 +70,7 @@
         "properties": {
           "name": { "type": "string", "description": "Service token display name", "minLength": 1 },
           "key": { "type": "string", "description": "Unique key for this service token", "pattern": "^[a-z0-9_]+$" },
-          "id": { "type": "string", "description": "Optional external identifier; included in Terraform output service_tokens_provenance as source_id" },
+          "id": { "type": "string", "description": "Optional stable external id; maps to resource_metadata.source_id when the dbtcloud Terraform provider supports it" },
           "protected": { "type": "boolean", "description": "When true, the token uses lifecycle.prevent_destroy", "default": false },
           "state": { "type": "number", "description": "Service token state (1 = active, 2 = inactive)" },
           "permissions": {
@@ -153,7 +153,7 @@
         "properties": {
           "name": { "type": "string", "description": "Group display name", "minLength": 1 },
           "key": { "type": "string", "description": "Unique key for this group", "pattern": "^[a-z0-9_]+$" },
-          "id": { "type": "string", "description": "Optional external identifier; included in Terraform output groups_provenance as source_id" },
+          "id": { "type": "string", "description": "Optional stable external id; maps to resource_metadata.source_id when the dbtcloud Terraform provider supports it" },
           "protected": { "type": "boolean", "description": "When true, the group uses lifecycle.prevent_destroy", "default": false },
           "assign_by_default": { "type": "boolean", "description": "Automatically assign new users to this group", "default": false },
           "sso_mapping_groups": { "type": "array", "description": "SSO group names to map to this group", "items": { "type": "string" } },
@@ -208,7 +208,7 @@
         "type": "object",
         "properties": {
           "key": { "type": "string", "description": "Optional unique Terraform for_each key; defaults to string user_id", "pattern": "^[a-z0-9_]+$" },
-          "id": { "type": "string", "description": "Optional external identifier; included in Terraform output user_groups_provenance as source_id" },
+          "id": { "type": "string", "description": "Optional stable external id; maps to resource_metadata.source_id when the dbtcloud Terraform provider supports it" },
           "user_id": { "type": "integer", "description": "dbt Cloud user ID", "minimum": 1 },
           "group_keys": { "type": "array", "description": "List of group keys to assign the user to", "items": { "type": "string" }, "minItems": 1 }
         },
@@ -225,7 +225,7 @@
         "properties": {
           "name": { "type": "string", "description": "Notification display name", "minLength": 1 },
           "key": { "type": "string", "description": "Unique key for this notification", "pattern": "^[a-z0-9_]+$" },
-          "id": { "type": "string", "description": "Optional external identifier; included in Terraform output notifications_provenance as source_id (not sent to dbt Cloud unless the provider supports it)" },
+          "id": { "type": "string", "description": "Optional stable external id; maps to resource_metadata.source_id when the dbtcloud Terraform provider supports it" },
           "protected": { "type": "boolean", "description": "When true, sets lifecycle.prevent_destroy on this notification", "default": false },
           "state": { "type": "integer", "description": "1 = active (default), 2 = inactive (dbt Cloud API)", "enum": [1, 2], "default": 1 },
           "notification_type": {
@@ -256,7 +256,7 @@
         "properties": {
           "name": { "type": "string", "description": "OAuth config display name", "minLength": 1 },
           "key": { "type": "string", "description": "Unique key (also used as lookup key in oauth_client_secrets)", "pattern": "^[a-z0-9_]+$" },
-          "id": { "type": "string", "description": "Optional external identifier; included in Terraform output oauth_configurations_provenance as source_id (not sent to dbt Cloud unless the provider supports it)" },
+          "id": { "type": "string", "description": "Optional stable external id; maps to resource_metadata.source_id when the dbtcloud Terraform provider supports it" },
           "protected": { "type": "boolean", "description": "When true, use prevent_destroy lifecycle on this OAuth configuration", "default": false },
           "type": { "type": "string", "description": "OAuth provider type", "enum": ["snowflake"] },
           "authorize_url": { "type": "string", "description": "OAuth authorization endpoint URL" },
@@ -278,7 +278,7 @@
         "properties": {
           "name": { "type": "string", "description": "Rule display name", "minLength": 1 },
           "key": { "type": "string", "description": "Unique key for this rule", "pattern": "^[a-z0-9_]+$" },
-          "id": { "type": "string", "description": "Optional external identifier; included in Terraform output ip_rules_provenance as source_id (not sent to dbt Cloud unless the provider supports it)" },
+          "id": { "type": "string", "description": "Optional stable external id; maps to resource_metadata.source_id when the dbtcloud Terraform provider supports it" },
           "protected": { "type": "boolean", "description": "When true, sets lifecycle.prevent_destroy on the rule", "default": false },
           "description": { "type": "string", "description": "Human-readable description" },
           "type": { "type": "string", "description": "Rule type: allow or deny", "enum": ["allow", "deny"] },
