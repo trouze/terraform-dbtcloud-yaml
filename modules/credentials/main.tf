@@ -9,8 +9,8 @@ terraform {
 }
 
 locals {
-  # Flatten all environments across all projects that have credentials defined
-  all_credential_owners = flatten([
+  # Environments that declare an inline credential block (warehouse config in YAML).
+  env_credential_owners_list = flatten([
     for p in var.projects : [
       for env in try(p.environments, []) : {
         project_key   = try(p.key, p.name)
@@ -23,12 +23,45 @@ locals {
     ]
   ])
 
-  credential_owners_map = {
-    for item in local.all_credential_owners :
+  # Source credential IDs from YAML (migration / import) — used to exclude duplicate profile-owned credentials.
+  env_source_credential_ids = toset([
+    for item in local.env_credential_owners_list :
+    tostring(item.cred_data.id)
+    if try(item.cred_data.id, null) != null
+  ])
+
+  credential_owners_from_environments = {
+    for item in local.env_credential_owners_list :
     item.composite_key => item
   }
 
+  # COMPAT(v1-schema): v2/importer YAML may set profiles[].credential + profiles[].credentials_id to mint a
+  # Terraform-managed credential keyed by project_profile (secrets still via environment_credentials map).
+  standalone_profile_credential_owners = {
+    for item in flatten([
+      for p in var.projects : [
+        for profile in try(p.profiles, []) : {
+          project_key   = try(p.key, p.name)
+          project_id    = var.project_ids[try(p.key, p.name)]
+          composite_key = "${try(p.key, p.name)}_${try(profile.key, profile.name)}"
+          cred_data     = try(profile.credential, null)
+        }
+        if try(profile.credential.credential_type, null) != null &&
+        try(profile.credentials_id, null) != null &&
+        !contains(local.env_source_credential_ids, tostring(profile.credentials_id))
+      ]
+    ]) :
+    item.composite_key => item
+  }
+
+  all_credential_owners_map = merge(
+    local.credential_owners_from_environments,
+    local.standalone_profile_credential_owners
+  )
+
   # Non-sensitive helpers for for_each conditions
+  available_token_names = toset(nonsensitive(keys(var.token_map)))
+
   available_env_cred_keys = toset(nonsensitive(keys(var.environment_credentials)))
 
   env_cred_types = nonsensitive({
@@ -41,6 +74,38 @@ locals {
     for k, v in var.environment_credentials :
     k => try(v.tenant_id, null) != null
   })
+
+  merged_credential_ids = merge(
+    { for k, c in dbtcloud_databricks_credential.credentials : k => c.credential_id },
+    { for k, c in dbtcloud_snowflake_credential.credentials_password : k => c.credential_id },
+    { for k, c in dbtcloud_snowflake_credential.credentials_keypair : k => c.credential_id },
+    { for k, c in dbtcloud_bigquery_credential.credentials : k => c.credential_id },
+    { for k, c in dbtcloud_postgres_credential.credentials : k => c.credential_id },
+    { for k, c in dbtcloud_redshift_credential.credentials : k => c.credential_id },
+    { for k, c in dbtcloud_athena_credential.credentials : k => c.credential_id },
+    { for k, c in dbtcloud_fabric_credential.credentials_sql : k => c.credential_id },
+    { for k, c in dbtcloud_fabric_credential.credentials_sp : k => c.credential_id },
+    { for k, c in dbtcloud_synapse_credential.credentials_sql : k => c.credential_id },
+    { for k, c in dbtcloud_synapse_credential.credentials_sp : k => c.credential_id },
+    { for k, c in dbtcloud_starburst_credential.credentials : k => c.credential_id },
+    { for k, c in dbtcloud_spark_credential.credentials : k => c.credential_id },
+    { for k, c in dbtcloud_teradata_credential.credentials : k => c.credential_id },
+  )
+
+  # Map legacy YAML credential.id (dbt Cloud) -> Terraform-managed credential_id after apply
+  # (environments and standalone profile credentials — COMPAT v2/importer).
+  credential_ids_by_source_id = merge(
+    {
+      for item in local.env_credential_owners_list :
+      tostring(item.cred_data.id) => local.merged_credential_ids[item.composite_key]
+      if try(item.cred_data.id, null) != null && try(local.merged_credential_ids[item.composite_key], null) != null
+    },
+    {
+      for k, item in local.standalone_profile_credential_owners :
+      tostring(item.cred_data.id) => local.merged_credential_ids[k]
+      if try(item.cred_data.id, null) != null && try(local.merged_credential_ids[k], null) != null
+    }
+  )
 }
 
 #############################################
@@ -49,14 +114,17 @@ locals {
 
 resource "dbtcloud_databricks_credential" "credentials" {
   for_each = {
-    for k, item in local.credential_owners_map :
+    for k, item in local.all_credential_owners_map :
     k => item
     if(
       contains(local.available_env_cred_keys, k) &&
       try(local.env_cred_types[k], "") == "databricks"
       ) || (
       !contains(local.available_env_cred_keys, k) &&
-      try(item.cred_data.credential_type, try(item.cred_data.type, "databricks")) == "databricks"
+      try(item.cred_data.credential_type, try(item.cred_data.type, "databricks")) == "databricks" &&
+      try(item.cred_data.token_name, null) != null &&
+      contains(local.available_token_names, item.cred_data.token_name) &&
+      try(item.cred_data.schema, null) != null
     )
   }
 
@@ -73,7 +141,7 @@ resource "dbtcloud_databricks_credential" "credentials" {
 
 resource "dbtcloud_snowflake_credential" "credentials_password" {
   for_each = {
-    for k, item in local.credential_owners_map :
+    for k, item in local.all_credential_owners_map :
     k => item
     if contains(local.available_env_cred_keys, k) &&
     try(local.env_cred_types[k], "") == "snowflake" &&
@@ -97,7 +165,7 @@ resource "dbtcloud_snowflake_credential" "credentials_password" {
 
 resource "dbtcloud_snowflake_credential" "credentials_keypair" {
   for_each = {
-    for k, item in local.credential_owners_map :
+    for k, item in local.all_credential_owners_map :
     k => item
     if contains(local.available_env_cred_keys, k) &&
     try(local.env_cred_types[k], "") == "snowflake" &&
@@ -122,7 +190,7 @@ resource "dbtcloud_snowflake_credential" "credentials_keypair" {
 
 resource "dbtcloud_bigquery_credential" "credentials" {
   for_each = {
-    for k, item in local.credential_owners_map :
+    for k, item in local.all_credential_owners_map :
     k => item
     if contains(local.available_env_cred_keys, k) &&
     try(local.env_cred_types[k], "") == "bigquery"
@@ -139,7 +207,7 @@ resource "dbtcloud_bigquery_credential" "credentials" {
 
 resource "dbtcloud_postgres_credential" "credentials" {
   for_each = {
-    for k, item in local.credential_owners_map :
+    for k, item in local.all_credential_owners_map :
     k => item
     if contains(local.available_env_cred_keys, k) &&
     try(local.env_cred_types[k], "") == "postgres"
@@ -160,7 +228,7 @@ resource "dbtcloud_postgres_credential" "credentials" {
 
 resource "dbtcloud_redshift_credential" "credentials" {
   for_each = {
-    for k, item in local.credential_owners_map :
+    for k, item in local.all_credential_owners_map :
     k => item
     if contains(local.available_env_cred_keys, k) &&
     try(local.env_cred_types[k], "") == "redshift"
@@ -179,7 +247,7 @@ resource "dbtcloud_redshift_credential" "credentials" {
 
 resource "dbtcloud_athena_credential" "credentials" {
   for_each = {
-    for k, item in local.credential_owners_map :
+    for k, item in local.all_credential_owners_map :
     k => item
     if contains(local.available_env_cred_keys, k) &&
     try(local.env_cred_types[k], "") == "athena"
@@ -197,7 +265,7 @@ resource "dbtcloud_athena_credential" "credentials" {
 
 resource "dbtcloud_fabric_credential" "credentials_sql" {
   for_each = {
-    for k, item in local.credential_owners_map :
+    for k, item in local.all_credential_owners_map :
     k => item
     if contains(local.available_env_cred_keys, k) &&
     try(local.env_cred_types[k], "") == "fabric" &&
@@ -218,7 +286,7 @@ resource "dbtcloud_fabric_credential" "credentials_sql" {
 
 resource "dbtcloud_fabric_credential" "credentials_sp" {
   for_each = {
-    for k, item in local.credential_owners_map :
+    for k, item in local.all_credential_owners_map :
     k => item
     if contains(local.available_env_cred_keys, k) &&
     try(local.env_cred_types[k], "") == "fabric" &&
@@ -240,7 +308,7 @@ resource "dbtcloud_fabric_credential" "credentials_sp" {
 
 resource "dbtcloud_synapse_credential" "credentials_sql" {
   for_each = {
-    for k, item in local.credential_owners_map :
+    for k, item in local.all_credential_owners_map :
     k => item
     if contains(local.available_env_cred_keys, k) &&
     try(local.env_cred_types[k], "") == "synapse" &&
@@ -262,7 +330,7 @@ resource "dbtcloud_synapse_credential" "credentials_sql" {
 
 resource "dbtcloud_synapse_credential" "credentials_sp" {
   for_each = {
-    for k, item in local.credential_owners_map :
+    for k, item in local.all_credential_owners_map :
     k => item
     if contains(local.available_env_cred_keys, k) &&
     try(local.env_cred_types[k], "") == "synapse" &&
@@ -285,7 +353,7 @@ resource "dbtcloud_synapse_credential" "credentials_sp" {
 
 resource "dbtcloud_starburst_credential" "credentials" {
   for_each = {
-    for k, item in local.credential_owners_map :
+    for k, item in local.all_credential_owners_map :
     k => item
     if contains(local.available_env_cred_keys, k) &&
     contains(["starburst", "trino"], try(local.env_cred_types[k], ""))
@@ -304,7 +372,7 @@ resource "dbtcloud_starburst_credential" "credentials" {
 
 resource "dbtcloud_spark_credential" "credentials" {
   for_each = {
-    for k, item in local.credential_owners_map :
+    for k, item in local.all_credential_owners_map :
     k => item
     if contains(local.available_env_cred_keys, k) &&
     contains(["spark", "apache_spark"], try(local.env_cred_types[k], ""))
@@ -321,7 +389,7 @@ resource "dbtcloud_spark_credential" "credentials" {
 
 resource "dbtcloud_teradata_credential" "credentials" {
   for_each = {
-    for k, item in local.credential_owners_map :
+    for k, item in local.all_credential_owners_map :
     k => item
     if contains(local.available_env_cred_keys, k) &&
     try(local.env_cred_types[k], "") == "teradata"

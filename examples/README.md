@@ -52,9 +52,9 @@ Sensitive values are never in the YAML. They're passed as Terraform variables an
 
 | Variable | Key format | Matches in YAML |
 |---|---|---|
-| `token_map` | `"token_name"` | `credential.token_name` |
+| `token_map` | `"token_name"` | `credential.token_name` (Databricks legacy) or `secret_*` values in `jobs[].environment_variable_overrides` |
 | `environment_credentials` | `"project_key_env_key"` | Environment `credential:` block |
-| `connection_credentials` | `"connection_key"` | `global_connections[].key` |
+| `connection_credentials` | `"connection_key"` | `globals.connections[].key` |
 | `lineage_tokens` | `"project_key_integration_key"` | `lineage_integrations[].key` composite |
 | `oauth_client_secrets` | `"oauth_config_key"` | `oauth_configurations[].key` |
 

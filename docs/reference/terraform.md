@@ -49,9 +49,9 @@ No resources.
 | <a name="input_dbt_token"></a> [dbt\_token](#input\_dbt\_token) | dbt Cloud API token for authentication | `string` | n/a | yes |
 | <a name="input_yaml_file"></a> [yaml\_file](#input\_yaml\_file) | Path to the YAML file defining dbt Cloud resources | `string` | n/a | yes |
 | <a name="input_target_name"></a> [target\_name](#input\_target\_name) | Default target name for dbt jobs (e.g., 'prod') | `string` | `""` | no |
-| <a name="input_token_map"></a> [token\_map](#input\_token\_map) | Map of Databricks token names to values. Key corresponds to `credential.token_name` in YAML. | `map(string)` | `{}` | no |
+| <a name="input_token_map"></a> [token\_map](#input\_token\_map) | Map of token names to secret values. Keys match `credential.token_name` (legacy Databricks) or the suffix after `secret_` in `jobs[].environment_variable_overrides` values. | `map(string)` | `{}` | no |
 | <a name="input_environment_credentials"></a> [environment\_credentials](#input\_environment\_credentials) | Map of environment credential objects keyed by `"{project_key}_{env_key}"`. Each object must include `credential_type` and type-specific fields. Supports 14 warehouse types. | `map(any)` | `{}` | no |
-| <a name="input_connection_credentials"></a> [connection\_credentials](#input\_connection\_credentials) | Map of global connection keys to OAuth/auth credential objects. Key corresponds to `global_connections[].key` in YAML. | `map(any)` | `{}` | no |
+| <a name="input_connection_credentials"></a> [connection\_credentials](#input\_connection\_credentials) | Map of global connection keys to OAuth/auth credential objects. Key corresponds to `globals.connections[].key` in YAML. | `map(any)` | `{}` | no |
 | <a name="input_lineage_tokens"></a> [lineage\_tokens](#input\_lineage\_tokens) | Map of lineage integration tokens keyed by `"{project_key}_{integration_key}"`. | `map(string)` | `{}` | no |
 | <a name="input_oauth_client_secrets"></a> [oauth\_client\_secrets](#input\_oauth\_client\_secrets) | Map of OAuth configuration keys to their client secrets. Key corresponds to `oauth_configurations[].key` in YAML. | `map(string)` | `{}` | no |
 

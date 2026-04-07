@@ -49,6 +49,28 @@ terraform apply
 Store multiple projects in a single YAML file. All share one Terraform state.
 
 ```yaml title="dbt-config.yml"
+version: 1
+account:
+  name: Your Account
+  host_url: https://cloud.getdbt.com
+
+globals:
+  connections:
+    - name: Databricks Shared
+      key: databricks_prod
+      type: databricks
+      details:
+        host: adb-1234567890.1.azuredatabricks.net
+        http_path: /sql/1.0/warehouses/abc123
+        catalog: main
+    - name: Snowflake Shared
+      key: snowflake_prod
+      type: snowflake
+      details:
+        account: xy12345
+        database: ANALYTICS
+        warehouse: TRANSFORMING
+
 projects:
   - name: Finance Analytics
     key: finance
@@ -60,7 +82,7 @@ projects:
         key: prod
         type: deployment
         deployment_type: production
-        connection_key: databricks_prod
+        connection: databricks_prod
         credential:
           credential_type: databricks
           catalog: main
@@ -86,7 +108,7 @@ projects:
         key: prod
         type: deployment
         deployment_type: production
-        connection_key: snowflake_prod
+        connection: snowflake_prod
         credential:
           credential_type: snowflake
           auth_type: password
@@ -161,6 +183,21 @@ terraform apply -var="yaml_file=./configs/marketing.yml"
 Development, staging, and production environments in one project, with job deferral:
 
 ```yaml title="dbt-config.yml"
+version: 1
+account:
+  name: Your Account
+  host_url: https://cloud.getdbt.com
+
+globals:
+  connections:
+    - name: Databricks Production
+      key: databricks_prod
+      type: databricks
+      details:
+        host: adb-1234567890.1.azuredatabricks.net
+        http_path: /sql/1.0/warehouses/abc123
+        catalog: main
+
 projects:
   - name: Analytics
     key: analytics
@@ -172,7 +209,7 @@ projects:
       - name: Development
         key: dev
         type: development
-        connection_key: databricks_prod
+        connection: databricks_prod
         custom_branch: develop
         credential:
           credential_type: databricks
@@ -183,7 +220,7 @@ projects:
         key: staging
         type: deployment
         deployment_type: staging
-        connection_key: databricks_prod
+        connection: databricks_prod
         credential:
           credential_type: databricks
           catalog: main
@@ -193,7 +230,7 @@ projects:
         key: prod
         type: deployment
         deployment_type: production
-        connection_key: databricks_prod
+        connection: databricks_prod
         protected: true
         credential:
           credential_type: databricks
@@ -256,37 +293,45 @@ See [YAML Schema](../configuration/yaml-schema.md) for every field with types, d
 ### Quick Reference
 
 ```yaml
-# Account-level (optional)
+version: 1
+account:
+  name: Your Account
+  host_url: https://cloud.getdbt.com
+
+# Optional account-level flags
 account_features:
   advanced_ci: true
   partial_parsing: true
 
-global_connections:
-  - name: Databricks Production
-    key: databricks_prod
-    type: databricks
-    host: adb-1234.azuredatabricks.net
-    http_path: /sql/1.0/warehouses/abc123
+globals:
+  connections:
+    - name: Databricks Production
+      key: databricks_prod
+      type: databricks
+      details:
+        host: adb-1234.azuredatabricks.net
+        http_path: /sql/1.0/warehouses/abc123
+        catalog: main
 
-service_tokens:
-  - name: CI Service Token
-    key: ci_token
-    permissions:
-      - permission_set: job_runner
-        all_projects: true
+  service_tokens:
+    - name: CI Service Token
+      key: ci_token
+      permissions:
+        - permission_set: job_runner
+          all_projects: true
 
-groups:
-  - name: Developers
-    key: developers
-    assign_by_default: false
+  groups:
+    - name: Developers
+      key: developers
+      assign_by_default: false
 
-notifications:
-  - name: prod-failures
-    key: prod_failures
-    notification_type: 2          # 2 = Slack
-    slack_channel_id: C0123456789
-    slack_channel_name: "#dbt-alerts"
-    on_failure: []
+  notifications:
+    - name: prod-failures
+      key: prod_failures
+      notification_type: 2          # 2 = Slack
+      slack_channel_id: C0123456789
+      slack_channel_name: "#dbt-alerts"
+      on_failure: []
 
 # Projects (required)
 projects:
@@ -303,7 +348,7 @@ projects:
         key: prod
         type: deployment
         deployment_type: production
-        connection_key: databricks_prod
+        connection: databricks_prod
         protected: true
         credential:
           credential_type: databricks

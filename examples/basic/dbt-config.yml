@@ -1,72 +1,56 @@
 # yaml-language-server: $schema=https://raw.githubusercontent.com/trouze/terraform-dbtcloud-yaml/refs/heads/main/schemas/v1.json
 
 ##############################################################################
-# dbt Cloud Terraform YAML — Minimal Starter
+# dbt Cloud Terraform YAML — Minimal Starter (version: 1)
 #
 # Fill in the placeholder values (search for YOUR_) and run:
 #   terraform init && terraform apply
-#
-# For a full reference of every supported field see:
-#   https://github.com/trouze/terraform-dbtcloud-yaml/blob/main/docs/configuration/yaml-schema.md
 ##############################################################################
 
-###########################
-# Warehouse connection
-# Shared across environments in this project.
-# Supported types: databricks | snowflake | bigquery | postgres | redshift
-###########################
+version: 1
+account:
+  name: YOUR_ACCOUNT_NAME
+  host_url: https://cloud.getdbt.com
 
-global_connections:
-  - name: YOUR_CONNECTION_NAME          # e.g. "Databricks Production"
-    key: prod_connection                 # referenced by environments below
-    type: databricks                     # change to your warehouse type
-    host: YOUR_HOST                      # e.g. adb-1234567890.1.azuredatabricks.net
-    http_path: YOUR_HTTP_PATH            # e.g. /sql/1.0/warehouses/abc123
-    catalog: YOUR_CATALOG                # e.g. main
-    protected: true                      # prevents accidental deletion
-
-  # --- Snowflake alternative ---
-  # - name: YOUR_CONNECTION_NAME
-  #   key: prod_connection
-  #   type: snowflake
-  #   account: xy12345.us-east-1
-  #   database: ANALYTICS
-  #   warehouse: TRANSFORMING
-  #   role: TRANSFORMER
-
-###########################
-# Projects
-###########################
+globals:
+  connections:
+    - name: YOUR_CONNECTION_NAME
+      key: prod_connection
+      type: databricks
+      protected: true
+      details:
+        host: YOUR_HOST
+        http_path: YOUR_HTTP_PATH
+        catalog: YOUR_CATALOG
 
 projects:
-  - name: YOUR_PROJECT_NAME             # e.g. "Analytics"
-    key: analytics                       # short identifier used in credential keys
-
+  - name: YOUR_PROJECT_NAME
+    key: analytics
     repository:
-      remote_url: "YOUR_ORG/YOUR_REPO"  # e.g. "acme/analytics"
-      github_installation_id: YOUR_GITHUB_APP_ID   # GitHub App installation ID
-      # For GitLab, replace the two lines above with:
-      # remote_url: "your-org/group/repo"
-      # gitlab_project_id: 1234
+      remote_url: "YOUR_ORG/YOUR_REPO"
+      github_installation_id: YOUR_GITHUB_APP_ID
 
     environments:
       - name: Production
         key: prod
-        connection_key: prod_connection   # matches global_connections[].key
-        deployment_type: production
         type: deployment
+        deployment_type: production
+        connection: prod_connection
         custom_branch: main
         protected: true
         credential:
           credential_type: databricks
-          catalog: YOUR_CATALOG           # e.g. main
-          schema: YOUR_SCHEMA             # e.g. analytics
-          # token supplied via var.environment_credentials["analytics_prod"]
+          catalog: YOUR_CATALOG
+          schema: YOUR_SCHEMA
 
       - name: Development
         key: dev
-        connection_key: prod_connection
         type: development
+        connection: prod_connection
+        credential:
+          credential_type: databricks
+          catalog: YOUR_CATALOG
+          schema: YOUR_SCHEMA_DEV
 
     jobs:
       - name: Daily Build
@@ -80,5 +64,5 @@ projects:
           git_provider_webhook: false
           on_merge: false
         schedule_type: days_of_week
-        schedule_days: [1, 2, 3, 4, 5]   # Mon–Fri (0=Sun, 6=Sat)
-        schedule_hours: [6]               # 6 AM UTC
+        schedule_days: [1, 2, 3, 4, 5]
+        schedule_hours: [6]

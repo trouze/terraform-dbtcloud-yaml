@@ -20,3 +20,21 @@ variable "enable_gitlab_deploy_token" {
   type        = bool
   default     = false
 }
+
+variable "github_installation_by_owner" {
+  description = "Lowercase GitHub org/user login → installation id (from module data_lookups when dbt_pat is set). Used to set github_installation_id when not in YAML."
+  type        = map(any)
+  default     = {}
+}
+
+variable "github_installation_fallback_id" {
+  description = "First GitHub App installation id in the account when owner-based match fails (from module data_lookups)"
+  type        = number
+  default     = null
+}
+
+variable "privatelink_endpoints" {
+  description = "Optional account-level PrivateLink registry (key + endpoint_id) for resolving repository.private_link_endpoint_key"
+  type        = list(any)
+  default     = []
+}

@@ -1,3 +1,5 @@
+Populated from each project’s `jobs[]` entries that set **`environment_variable_overrides`**: a map of variable name to string. The root module passes resolved job IDs and project IDs after jobs are created. See [YAML Schema — environment variable job overrides](../configuration/yaml-schema.md#environment_variable_overrides).
+
 ## Requirements
 
 No requirements.

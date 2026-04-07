@@ -47,6 +47,23 @@ This module bridges that gap: you describe your dbt Cloud setup in YAML, and Ter
 === "Step 2: Create dbt-config.yml"
 
     ```yaml
+    # yaml-language-server: $schema=https://raw.githubusercontent.com/trouze/terraform-dbtcloud-yaml/main/schemas/v1.json
+
+    version: 1
+    account:
+      name: Your Account
+      host_url: https://cloud.getdbt.com
+
+    globals:
+      connections:
+        - name: Databricks Production
+          key: databricks_prod
+          type: databricks
+          details:
+            host: adb-1234567890.1.azuredatabricks.net
+            http_path: /sql/1.0/warehouses/abc123
+            catalog: main
+
     projects:
       - name: Analytics
         key: analytics
@@ -59,7 +76,7 @@ This module bridges that gap: you describe your dbt Cloud setup in YAML, and Ter
             key: prod
             type: deployment
             deployment_type: production
-            connection_key: databricks_prod   # references global_connections[].key
+            connection: databricks_prod   # globals.connections[].key
             credential:
               credential_type: databricks
               catalog: main
@@ -115,8 +132,8 @@ This module bridges that gap: you describe your dbt Cloud setup in YAML, and Ter
 
 | Scope | Resources |
 |-------|-----------|
-| Account | Projects, global connections, service tokens, groups, user groups, notifications, OAuth configurations, IP restrictions, account features |
-| Project | Repository, environments, credentials (14 warehouse types), jobs, environment variables, extended attributes, profiles, lineage integrations, project artefacts, semantic layer |
+| Account | Projects, `globals.connections`, `globals.service_tokens`, `globals.groups`, user groups, `globals.notifications`, OAuth configurations, IP restrictions, account features |
+| Project | Repository, environments, credentials (many warehouse types), jobs (incl. `environment_variable_overrides`), environment variables, extended attributes, profiles, lineage integrations, `project_artefacts`, `semantic_layer_config` |
 
 ### Credential Types
 
@@ -149,8 +166,8 @@ Sensitive values are never in the YAML. They're passed as Terraform variables an
 | Variable | Key format | Matches in YAML |
 |---|---|---|
 | `environment_credentials` | `"project_key_env_key"` | Environment `credential:` block |
-| `connection_credentials` | `"connection_key"` | `global_connections[].key` |
-| `token_map` | `"token_name"` | `credential.token_name` (legacy Databricks) |
+| `connection_credentials` | `"connection_key"` | `globals.connections[].key` |
+| `token_map` | `"token_name"` | `credential.token_name` (legacy Databricks) or `secret_*` values in `jobs[].environment_variable_overrides` |
 | `lineage_tokens` | `"project_key_integration_key"` | `lineage_integrations[].key` composite |
 | `oauth_client_secrets` | `"oauth_config_key"` | `oauth_configurations[].key` |
 

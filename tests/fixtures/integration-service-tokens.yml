@@ -1,10 +1,33 @@
+version: 1
+account:
+  name: TF Integration Svc Acct
+  host_url: https://cloud.getdbt.com
+globals:
+  connections:
+    - key: tf_int_wh
+      name: TF Int WH
+      type: snowflake
+      protected: true
+      details:
+        account: xy12345
+        database: ANALYTICS
+        warehouse: COMPUTE_WH
+  service_tokens:
+    - name: TF Integration Token
+      key: tf_int_svc_token
+      permissions:
+        - permission_set: readonly
+          all_projects: true
 projects:
   - name: TF Integration Svc
     key: tf_int_svc
-
-service_tokens:
-  - name: TF Integration Token
-    key: tf_int_svc_token
-    permissions:
-      - permission_set: readonly
-        all_projects: true
+    repository:
+      remote_url: org/repo
+    environments:
+      - name: Dev
+        key: dev
+        type: development
+        connection: tf_int_wh
+        credential:
+          token_name: SNOWFLAKE_PASSWORD
+          schema: ANALYTICS

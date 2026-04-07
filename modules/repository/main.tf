@@ -22,6 +22,17 @@ locals {
     try(p.key, p.name) => p
   }
 
+  privatelink_endpoints_map = {
+    for ple in var.privatelink_endpoints :
+    ple.key => ple
+  }
+
+  # COMPAT(v1-schema): resolve PrivateLink via privatelink_endpoints[] + account data when only private_link_endpoint_key is set (v2 projects.tf parity).
+  needs_privatelink_data = length([
+    for k, repo in local.repos_map : k
+    if try(repo.private_link_endpoint_key, null) != null && try(repo.private_link_endpoint_id, null) == null
+  ]) > 0
+
   # Auto-detect provider from remote_url
   detected_provider = {
     for k, repo in local.repos_map :
@@ -34,27 +45,56 @@ locals {
     )
   }
 
-  # Effective git clone strategy per repo (with fallbacks)
-  effective_git_clone_strategy = {
+  # GitHub owner segment from remote_url (github.com only), for installation lookup
+  # With a single capture group, regexall returns one element per match; inner list is [ capture ] (see terraform console).
+  github_owner_from_url = {
+    for k, repo in local.repos_map :
+    k => try(regexall("github\\.com[/:]([^/]+)/", trimspace(try(repo.remote_url, "")))[0][0], null)
+  }
+
+  installation_id_from_discovery = {
+    for k, repo in local.repos_map :
+    k => lookup(
+      var.github_installation_by_owner,
+      try(local.github_owner_from_url[k], null) != null && trimspace(tostring(local.github_owner_from_url[k])) != "" ? lower(local.github_owner_from_url[k]) : "",
+      null
+    )
+  }
+
+  # YAML github_installation_id > owner match from discovery map > account fallback installation
+  resolved_github_installation_id = {
     for k, repo in local.repos_map :
     k => (
-      # Azure DevOps: downgrade if required IDs are missing
+      try(repo.github_installation_id, null) != null ? try(repo.github_installation_id, null) : (
+        local.installation_id_from_discovery[k] != null ?
+        local.installation_id_from_discovery[k] :
+        try(var.github_installation_fallback_id, null)
+      )
+    )
+  }
+
+  # Effective git clone strategy per repo (with fallbacks).
+  # nonsensitive() keeps the strategy string from inheriting sensitivity from var.dbt_pat (v2 projects.tf).
+  effective_git_clone_strategy = {
+    for k, repo in local.repos_map :
+    k => nonsensitive(
       try(repo.git_clone_strategy, "") == "azure_active_directory_app" && (
         trimspace(tostring(try(repo.azure_active_directory_project_id, ""))) == "" ||
         trimspace(tostring(try(repo.azure_active_directory_repository_id, ""))) == ""
       ) ? "deploy_key" :
-      # GitLab deploy_token: downgrade to deploy_key unless explicitly enabled
       try(repo.git_clone_strategy, "") == "deploy_token" ? (
         var.enable_gitlab_deploy_token ? "deploy_token" : "deploy_key"
       ) :
-      # GitHub App: use if installation ID available, else deploy_key
       try(repo.git_clone_strategy, "") == "github_app" ? (
-        try(repo.github_installation_id, null) != null || var.dbt_pat != null ? "github_app" : "deploy_key"
+        try(repo.github_installation_id, null) != null ||
+        local.resolved_github_installation_id[k] != null ||
+        var.dbt_pat != null
+        ? "github_app" : "deploy_key"
       ) :
-      # Explicit strategy set to something other than the above
       try(repo.git_clone_strategy, null) != null ? try(repo.git_clone_strategy, "deploy_key") :
-      # Auto-detect defaults
-      local.detected_provider[k] == "github" ? "github_app" :
+      local.detected_provider[k] == "github" ? (
+        local.resolved_github_installation_id[k] != null || var.dbt_pat != null ? "github_app" : "deploy_key"
+      ) :
       local.detected_provider[k] == "gitlab" ? "deploy_token" :
       local.detected_provider[k] == "azure_devops" ? "azure_active_directory_app" :
       "deploy_key"
@@ -109,6 +149,27 @@ locals {
     for k, repo in local.repos_map : k => repo
     if local.repo_protected[k] != true
   }
+
+  private_link_endpoint_id_by_repo_key = {
+    for k, repo in local.repos_map : k => (
+      try(repo.private_link_endpoint_id, null) != null && trimspace(tostring(try(repo.private_link_endpoint_id, ""))) != "" ?
+      try(repo.private_link_endpoint_id, null) :
+      (
+        length(data.dbtcloud_privatelink_endpoints.all) > 0 &&
+        try(repo.private_link_endpoint_key, null) != null &&
+        lookup(local.privatelink_endpoints_map, repo.private_link_endpoint_key, null) != null
+        ) ? data.dbtcloud_privatelink_endpoints.all[0].endpoints[
+        index(
+          [for ep in data.dbtcloud_privatelink_endpoints.all[0].endpoints : ep.id],
+          lookup(local.privatelink_endpoints_map, repo.private_link_endpoint_key, { endpoint_id = null }).endpoint_id
+        )
+      ].id : null
+    )
+  }
+}
+
+data "dbtcloud_privatelink_endpoints" "all" {
+  count = local.needs_privatelink_data ? 1 : 0
 }
 
 #############################################
@@ -125,7 +186,7 @@ resource "dbtcloud_repository" "repositories" {
 
   github_installation_id = (
     local.effective_git_clone_strategy[each.key] == "github_app"
-    ? try(each.value.github_installation_id, null)
+    ? local.resolved_github_installation_id[each.key]
     : null
   )
 
@@ -144,8 +205,18 @@ resource "dbtcloud_repository" "repositories" {
     each.value.azure_bypass_webhook_registration_failure, false
   )
 
-  private_link_endpoint_id  = try(each.value.private_link_endpoint_id, null)
+  private_link_endpoint_id  = local.private_link_endpoint_id_by_repo_key[each.key]
   pull_request_url_template = try(each.value.pull_request_url_template, null)
+
+  # Deferred until dbt-labs/dbtcloud supports resource_metadata on dbtcloud_repository (v2 parity).
+  # resource_metadata = {
+  #   source_project_id  = try(local.all_projects_map[each.key].id, null)
+  #   source_id          = try(each.value.id, null)
+  #   source_identity    = "REP:${each.key}"
+  #   source_key         = each.key
+  #   source_project_key = each.key
+  #   source_name        = try(each.value.name, each.key)
+  # }
 }
 
 #############################################
@@ -162,7 +233,7 @@ resource "dbtcloud_repository" "protected_repositories" {
 
   github_installation_id = (
     local.effective_git_clone_strategy[each.key] == "github_app"
-    ? try(each.value.github_installation_id, null)
+    ? local.resolved_github_installation_id[each.key]
     : null
   )
 
@@ -181,8 +252,18 @@ resource "dbtcloud_repository" "protected_repositories" {
     each.value.azure_bypass_webhook_registration_failure, false
   )
 
-  private_link_endpoint_id  = try(each.value.private_link_endpoint_id, null)
+  private_link_endpoint_id  = local.private_link_endpoint_id_by_repo_key[each.key]
   pull_request_url_template = try(each.value.pull_request_url_template, null)
+
+  # Deferred until dbt-labs/dbtcloud supports resource_metadata on dbtcloud_repository (v2 parity).
+  # resource_metadata = {
+  #   source_project_id  = try(local.all_projects_map[each.key].id, null)
+  #   source_id          = try(each.value.id, null)
+  #   source_identity    = "REP:${each.key}"
+  #   source_key         = each.key
+  #   source_project_key = each.key
+  #   source_name        = try(each.value.name, each.key)
+  # }
 
   lifecycle {
     prevent_destroy = true

@@ -8,7 +8,7 @@ mock_provider "dbtcloud" {}
 
 # ── GitHub URL auto-detection ─────────────────────────────────────────────────
 
-run "github_url_without_explicit_strategy_auto_detects_github_app" {
+run "github_url_without_pat_or_discovery_map_falls_back_to_deploy_key" {
   command = plan
 
   variables {
@@ -26,8 +26,8 @@ run "github_url_without_explicit_strategy_auto_detects_github_app" {
   }
 
   assert {
-    condition     = dbtcloud_repository.repositories["analytics"].git_clone_strategy == "github_app"
-    error_message = "GitHub URL without explicit strategy auto-detects to github_app (no installation_id check in auto-detect path)"
+    condition     = dbtcloud_repository.repositories["analytics"].git_clone_strategy == "deploy_key"
+    error_message = "GitHub without installation id, PAT, or discovery map should use deploy_key (github_app requires a resolvable installation or PAT)"
   }
 }
 
@@ -75,6 +75,66 @@ run "github_url_with_pat_uses_github_app" {
   assert {
     condition     = dbtcloud_repository.repositories["analytics"].git_clone_strategy == "github_app"
     error_message = "GitHub URL with PAT set should use github_app strategy"
+  }
+}
+
+run "github_url_resolves_installation_from_discovery_map_without_pat" {
+  command = plan
+
+  variables {
+    projects = [
+      {
+        key  = "analytics"
+        name = "Analytics"
+        repository = {
+          remote_url = "https://github.com/my-org/analytics"
+        }
+      }
+    ]
+    project_ids                     = { analytics = "1001" }
+    dbt_pat                         = null
+    github_installation_by_owner    = { "my-org" = 88332211 }
+    github_installation_fallback_id = null
+  }
+
+  assert {
+    condition     = nonsensitive(dbtcloud_repository.repositories["analytics"].git_clone_strategy) == "github_app"
+    error_message = "GitHub with owner match in github_installation_by_owner should use github_app"
+  }
+
+  assert {
+    condition     = nonsensitive(dbtcloud_repository.repositories["analytics"].github_installation_id) == 88332211
+    error_message = "github_installation_id should come from discovery map keyed by lowercase org from remote_url"
+  }
+}
+
+run "github_url_uses_installation_fallback_when_owner_unknown" {
+  command = plan
+
+  variables {
+    projects = [
+      {
+        key  = "analytics"
+        name = "Analytics"
+        repository = {
+          remote_url = "https://github.com/other-org/analytics"
+        }
+      }
+    ]
+    project_ids                     = { analytics = "1001" }
+    dbt_pat                         = null
+    github_installation_by_owner    = { "my-org" = 111 }
+    github_installation_fallback_id = 99988877
+  }
+
+  assert {
+    condition     = dbtcloud_repository.repositories["analytics"].git_clone_strategy == "github_app"
+    error_message = "GitHub should still use github_app when fallback installation id is provided"
+  }
+
+  assert {
+    condition     = dbtcloud_repository.repositories["analytics"].github_installation_id == 99988877
+    error_message = "github_installation_id should fall back when remote_url owner is not in the map"
   }
 }
 

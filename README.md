@@ -15,7 +15,7 @@ This downloads the [examples/basic/](examples/basic/) starter into `./my-dbt-clo
 Then:
 
 ```bash
-cd my-dbt-platform
+cd my-dbt-cloud
 cp .env.example .env        # fill in your dbt Cloud credentials
 # edit dbt-config.yml       # replace YOUR_ placeholders with your warehouse details
 source .env && terraform init && terraform apply
@@ -69,7 +69,26 @@ module "dbt_cloud" {
 
 **2. Create `dbt-config.yml`**
 
+Configuration uses **`version: 1`**, an **`account`** block (including `host_url` for the dbt Cloud region), shared resources under **`globals`** (connections, service tokens, groups, notifications, PrivateLink endpoints), and a **`projects`** list. Validate in your editor with [`schemas/v1.json`](docs/configuration/yaml-schema.md).
+
 ```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/trouze/terraform-dbtcloud-yaml/main/schemas/v1.json
+
+version: 1
+account:
+  name: Your Account
+  host_url: https://cloud.getdbt.com
+
+globals:
+  connections:
+    - name: Databricks Production
+      key: databricks_prod
+      type: databricks
+      details:
+        host: adb-1234567890.1.azuredatabricks.net
+        http_path: /sql/1.0/warehouses/abc123
+        catalog: main
+
 projects:
   - name: Analytics
     key: analytics
@@ -81,7 +100,7 @@ projects:
     environments:
       - name: Production
         key: prod
-        connection_key: databricks_prod   # references global_connections key below
+        connection: databricks_prod      # globals.connections[].key (or numeric id / LOOKUP:…)
         deployment_type: production
         type: deployment
         custom_branch: main
@@ -93,8 +112,12 @@ projects:
 
       - name: Development
         key: dev
-        connection_key: databricks_prod
+        connection: databricks_prod
         type: development
+        credential:
+          credential_type: databricks
+          catalog: main
+          schema: analytics_dev
 
     jobs:
       - name: Daily Build
@@ -110,14 +133,6 @@ projects:
         schedule_type: days_of_week
         schedule_days: [1, 2, 3, 4, 5]
         schedule_hours: [6]
-
-global_connections:
-  - name: Databricks Production
-    key: databricks_prod
-    type: databricks
-    host: adb-1234567890.1.azuredatabricks.net
-    http_path: /sql/1.0/warehouses/abc123
-    catalog: main
 ```
 
 **3. Create `terraform.tfvars`**
@@ -157,9 +172,9 @@ Sensitive values are never in the YAML file. They're passed as Terraform variabl
 
 | Variable | Key format | Matches |
 |---|---|---|
-| `token_map` | `"my_token_name"` | `credential.token_name` in YAML (Databricks legacy) |
+| `token_map` | `"my_token_name"` | `credential.token_name` (Databricks legacy) or `jobs[].environment_variable_overrides` values prefixed with `secret_` |
 | `environment_credentials` | `"project_key_env_key"` | Environment credential by composite key |
-| `connection_credentials` | `"connection_key"` | `global_connections[].key` in YAML |
+| `connection_credentials` | `"connection_key"` | `globals.connections[].key` in YAML |
 | `lineage_tokens` | `"project_key_integration_key"` | `lineage_integrations[].key` composite |
 | `oauth_client_secrets` | `"oauth_config_key"` | `oauth_configurations[].key` in YAML |
 
@@ -169,27 +184,27 @@ The composite key for `environment_credentials` uses underscores: a project with
 
 ## What you can manage
 
-**Account-level**
+**Account-level** (optional unless noted; shared connections and RBAC live under `globals` in YAML)
 - `account_features` — advanced CI, partial parsing, repo caching flags
-- `global_connections` — shared warehouse connections (Databricks, Snowflake, BigQuery, Postgres, Redshift)
-- `service_tokens` — API tokens with scoped permissions
-- `groups` — user groups with project/account permissions
-- `user_groups` — user-to-group assignments
-- `notifications` — email, Slack, PagerDuty, webhook alerts
+- `globals.connections` — shared warehouse connections (Databricks, Snowflake, BigQuery, Postgres, Redshift, and other adapter types supported by the provider)
+- `globals.service_tokens` — API tokens with scoped permissions
+- `globals.groups` — user groups with project/account permissions
+- `user_groups` — user-to-group assignments (document root)
+- `globals.notifications` — job alerts (dbt Cloud user, Slack channel, or external email)
 - `oauth_configurations` — OAuth provider configs
 - `ip_restrictions` — IP allowlist/denylist rules
 
 **Per-project**
-- `repository` — Git integration (GitHub App, GitLab deploy token, Azure DevOps, SSH)
-- `environments` — deployment and development environments
-- `credentials` — warehouse credentials (14 types: Databricks, Snowflake password/keypair, BigQuery, Postgres, Redshift, Athena, Fabric, Synapse, Starburst, Spark, Teradata)
-- `jobs` — scheduled, CI, merge, and on-demand jobs
-- `environment_variables` — project and environment-level dbt vars
-- `extended_attributes` — connection-level overrides per environment
-- `profiles` — links connection + credential + extended attributes
-- `lineage_integrations` — Tableau/Looker lineage config
-- `artefacts` — docs job and freshness job links
-- `semantic_layer` — semantic layer configuration
+- `repository` — Git integration (GitHub App, GitLab, Azure DevOps, deploy key/token)
+- `environments` — deployment and development environments (reference a global connection with `connection`, or use `primary_profile_key` when using profiles)
+- per-environment `credential` — warehouse credentials (many adapter types; secrets via `environment_credentials`)
+- `jobs` — scheduled, CI, merge, and other job types; optional `environment_variable_overrides` for job-specific env vars
+- `environment_variables` — project- and environment-scoped dbt vars (with map or list `environment_values` forms normalized at apply time)
+- `extended_attributes` — connection-level override payloads linked from environments
+- `profiles` — link connection, credentials, and extended attributes for deployment environments
+- `lineage_integrations` — Tableau / Looker lineage config
+- `project_artefacts` — docs job and freshness job keys
+- `semantic_layer_config` — semantic layer target environment
 
 ---
 
@@ -198,11 +213,12 @@ The composite key for `environment_credentials` uses underscores: a project with
 Set `protected: true` on any resource to prevent accidental deletion:
 
 ```yaml
-global_connections:
-  - name: Databricks Production
-    key: databricks_prod
-    protected: true   # terraform destroy will be blocked for this resource
-    ...
+globals:
+  connections:
+    - name: Databricks Production
+      key: databricks_prod
+      protected: true   # terraform destroy will be blocked for this resource
+      ...
 
 projects:
   - name: Analytics
@@ -240,8 +256,6 @@ Or keep separate YAML files per team and apply them independently:
 terraform apply -var="yaml_file=./configs/finance.yml"
 terraform apply -var="yaml_file=./configs/marketing.yml"
 ```
-
-**Backward compatibility:** If your existing YAML uses the singular `project:` key, it still works — the module automatically wraps it in a list.
 
 ---
 

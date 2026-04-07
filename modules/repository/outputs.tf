@@ -5,3 +5,8 @@ output "repository_ids" {
     { for k, r in dbtcloud_repository.protected_repositories : k => tostring(r.repository_id) }
   )
 }
+
+output "protected_repository_keys" {
+  description = "Project keys whose dbtcloud_repository uses lifecycle.prevent_destroy (for module.project_repository split)."
+  value       = keys(local.protected_repos_map)
+}

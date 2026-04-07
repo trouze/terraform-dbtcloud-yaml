@@ -80,6 +80,23 @@ export TF_VAR_environment_credentials='{
 Edit `dbt-config.yml` with your project details:
 
 ```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/trouze/terraform-dbtcloud-yaml/main/schemas/v1.json
+
+version: 1
+account:
+  name: Your Account
+  host_url: https://cloud.getdbt.com
+
+globals:
+  connections:
+    - name: Databricks Production
+      key: databricks_prod
+      type: databricks
+      details:
+        host: adb-1234567890.1.azuredatabricks.net
+        http_path: /sql/1.0/warehouses/abc123
+        catalog: main
+
 projects:
   - name: Analytics
     key: analytics
@@ -92,7 +109,7 @@ projects:
         key: prod
         type: deployment
         deployment_type: production
-        connection_key: databricks_prod      # References global_connections[].key
+        connection: databricks_prod          # globals.connections[].key (or id / LOOKUP:…)
         credential:
           credential_type: databricks
           catalog: main
@@ -110,8 +127,8 @@ projects:
         schedule_hours: [6]                 # 6 AM UTC
 ```
 
-!!! info "connection_key"
-    Instead of a raw numeric `connection_id`, environments reference connections by `connection_key` — matching `global_connections[].key` in the YAML. This keeps your config portable and readable.
+!!! info "`connection`"
+    Environments reference a global connection with **`connection`**: the `key` from `globals.connections`, a numeric dbt Cloud connection id, or a `LOOKUP:…` placeholder for existing account connections. Alternatively, set **`primary_profile_key`** to use a profile instead of `connection`.
 
 !!! info "Jobs at project level"
     Jobs are defined at the project level with an `environment_key` field, not nested inside environments. This makes them easier to read and reference by key for deferral.

@@ -5,8 +5,14 @@ terraform {
       source  = "dbt-labs/dbtcloud"
       version = "~> 1.8"
     }
+    http = {
+      source  = "hashicorp/http"
+      version = "~> 3.0"
+    }
   }
 }
+
+provider "http" {}
 
 provider "dbtcloud" {
   account_id = var.dbt_account_id

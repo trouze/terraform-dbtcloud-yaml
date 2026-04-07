@@ -190,22 +190,23 @@ Error: dbt Cloud API error: 403 Forbidden
 Error: Cannot find connection with key: "my_connection"
 ```
 
-**Cause:** The `connection_key` in your environment doesn't match any `global_connections[].key`.
+**Cause:** The environment's `connection` value doesn't match any `globals.connections[].key` (and isn't a valid numeric connection id or `LOOKUP:…` reference).
 
 **Solutions:**
 
-1. **Check your global_connections keys:**
+1. **Check your global connection keys under `globals`:**
 ```yaml
-global_connections:
-  - name: Databricks Production
-    key: databricks_prod     # ← this is the key
+globals:
+  connections:
+    - name: Databricks Production
+      key: databricks_prod     # ← this is the key
 ```
 
-2. **Make sure your environment references it correctly:**
+2. **Reference that key from the environment with `connection`:**
 ```yaml
 environments:
   - name: Production
-    connection_key: databricks_prod   # ← must match exactly
+    connection: databricks_prod   # ← must match globals.connections[].key (unless using id / LOOKUP)
 ```
 
 ---
@@ -277,7 +278,7 @@ environments:
     key: prod                 # Required
     type: deployment          # Required
     deployment_type: production  # Required for deployment envs
-    connection_key: my_conn   # References global_connections[].key
+    connection: my_conn   # References globals.connections[].key
     credential:
       credential_type: databricks
       schema: analytics

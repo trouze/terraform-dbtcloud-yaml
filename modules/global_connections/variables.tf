@@ -10,3 +10,9 @@ variable "connection_credentials" {
   default     = {}
   sensitive   = true
 }
+
+variable "privatelink_endpoints" {
+  description = "Optional account-level PrivateLink endpoint registry (key + endpoint_id) for resolving global_connections[].private_link_endpoint_key"
+  type        = any
+  default     = []
+}

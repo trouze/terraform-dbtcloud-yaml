@@ -199,7 +199,7 @@ The key `"analytics_prod"` maps to a project with `key: analytics` and an enviro
 
 ### `connection_credentials`
 
-Map of connection credential objects for global connections, keyed by `global_connections[].key`:
+Map of connection credential objects for global connections, keyed by `globals.connections[].key`:
 
 ```bash
 export TF_VAR_connection_credentials='{
@@ -216,13 +216,16 @@ export TF_VAR_connection_credentials='{
 
 ### `token_map`
 
-Legacy Databricks token map, keyed by `credential.token_name` in YAML:
+Used in two ways:
+
+1. **Legacy Databricks** — keyed by `credential.token_name` in an environment `credential` block.
+2. **Job env var overrides** — when a job sets `environment_variable_overrides` and a value starts with `secret_`, the prefix is removed and the remainder is looked up in this map (see [YAML Schema](yaml-schema.md)).
 
 ```bash
-export TF_VAR_token_map='{"my_databricks_token": "dapi_abc123"}'
+export TF_VAR_token_map='{"my_databricks_token": "dapi_abc123", "ci_override_secret": "sensitive-value"}'
 ```
 
-This is the older pattern. Prefer `environment_credentials` for new setups.
+For warehouse credentials, prefer `environment_credentials` over legacy `token_name` when possible.
 
 ### `lineage_tokens`
 

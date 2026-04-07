@@ -1,23 +1,43 @@
-project:
-  name: My Test Project
-  key: my_project
-  environments:
-    - name: Production
-      key: prod
-      type: deployment
-      deployment_type: production
+version: 1
+account:
+  name: Test Account
+  host_url: https://cloud.getdbt.com
+globals:
+  connections:
+    - name: Test Warehouse
+      key: test_wh
+      type: snowflake
       protected: true
-  jobs:
-    - name: Daily Run
-      key: daily_run
-      environment_key: prod
-      execute_steps:
-        - dbt build
-      triggers:
-        schedule: true
-        github_webhook: false
-        git_provider_webhook: false
-        on_merge: false
-      schedule_type: days_of_week
-      schedule_days: [0, 1, 2, 3, 4]
-      schedule_hours: [6]
+      details:
+        account: xy12345
+        database: ANALYTICS
+        warehouse: COMPUTE_WH
+projects:
+  - name: My Test Project
+    key: my_project
+    repository:
+      remote_url: acme/analytics
+    environments:
+      - name: Production
+        key: prod
+        type: deployment
+        deployment_type: production
+        protected: true
+        connection: test_wh
+        credential:
+          token_name: SNOWFLAKE_PASSWORD
+          schema: ANALYTICS
+    jobs:
+      - name: Daily Run
+        key: daily_run
+        environment_key: prod
+        execute_steps:
+          - dbt build
+        triggers:
+          schedule: true
+          github_webhook: false
+          git_provider_webhook: false
+          on_merge: false
+        schedule_type: days_of_week
+        schedule_days: [0, 1, 2, 3, 4]
+        schedule_hours: [6]

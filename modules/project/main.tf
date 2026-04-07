@@ -37,6 +37,15 @@ resource "dbtcloud_project" "projects" {
   for_each = local.unprotected_projects_map
 
   name = "${var.target_name}${each.value.name}"
+
+  # Deferred until dbt-labs/dbtcloud supports resource_metadata on dbtcloud_project (v2 parity).
+  # resource_metadata = {
+  #   source_project_id = try(each.value.id, null)
+  #   source_id         = try(each.value.id, null)
+  #   source_identity   = "PRJ:${each.key}"
+  #   source_key        = each.key
+  #   source_name       = each.value.name
+  # }
 }
 
 #############################################
@@ -47,6 +56,15 @@ resource "dbtcloud_project" "protected_projects" {
   for_each = local.protected_projects_map
 
   name = "${var.target_name}${each.value.name}"
+
+  # Deferred until dbt-labs/dbtcloud supports resource_metadata on dbtcloud_project (v2 parity).
+  # resource_metadata = {
+  #   source_project_id = try(each.value.id, null)
+  #   source_id         = try(each.value.id, null)
+  #   source_identity   = "PRJ:${each.key}"
+  #   source_key        = each.key
+  #   source_name       = each.value.name
+  # }
 
   lifecycle {
     prevent_destroy = true

@@ -1,8 +1,7 @@
 #############################################
 # Root Module - dbt Cloud Resources
 #
-# Orchestrates all dbt Cloud resources from a YAML file.
-# Supports both single-project (project:) and multi-project (projects:) YAML.
+# Orchestrates all dbt Cloud resources from a YAML file (version: 1; schemas/v1.json).
 # Account-scoped resources are created first, then project-scoped resources.
 #############################################
 
@@ -43,17 +42,20 @@ module "global_connections" {
 
   connections_data       = try(local.yaml_content.global_connections, [])
   connection_credentials = var.connection_credentials
+  privatelink_endpoints  = try(local.yaml_content.privatelink_endpoints, [])
 }
 
 #############################################
-# Account-Level: Service Tokens
+# Account-Level: Data lookups (LOOKUP: + GitHub installations)
 #############################################
 
-module "service_tokens" {
-  count  = length(try(local.yaml_content.service_tokens, [])) > 0 ? 1 : 0
-  source = "./modules/service_tokens"
+module "data_lookups" {
+  count  = length(local._lookup_connection_ref_strings) > 0 || var.dbt_pat != null ? 1 : 0
+  source = "./modules/data_lookups"
 
-  service_tokens_data = try(local.yaml_content.service_tokens, [])
+  projects     = local.projects
+  dbt_pat      = var.dbt_pat
+  dbt_host_url = local.dbt_host_url_effective
 }
 
 #############################################
@@ -64,7 +66,8 @@ module "groups" {
   count  = length(try(local.yaml_content.groups, [])) > 0 ? 1 : 0
   source = "./modules/groups"
 
-  groups_data = try(local.yaml_content.groups, [])
+  groups_data                     = try(local.yaml_content.groups, [])
+  skip_global_project_permissions = var.skip_global_project_permissions
 }
 
 #############################################
@@ -125,6 +128,20 @@ module "project" {
 }
 
 #############################################
+# Account-Level: Service Tokens
+# Declared after project so permissions[].project_key resolves via project_ids.
+#############################################
+
+module "service_tokens" {
+  count  = length(try(local.yaml_content.service_tokens, [])) > 0 ? 1 : 0
+  source = "./modules/service_tokens"
+
+  service_tokens_data             = try(local.yaml_content.service_tokens, [])
+  project_ids                     = module.project.project_ids
+  skip_global_project_permissions = var.skip_global_project_permissions
+}
+
+#############################################
 # Repository Configuration
 #############################################
 
@@ -134,17 +151,21 @@ module "repository" {
     dbtcloud = dbtcloud.pat_provider
   }
 
-  projects                   = local.projects
-  project_ids                = module.project.project_ids
-  dbt_pat                    = var.dbt_pat
-  enable_gitlab_deploy_token = var.enable_gitlab_deploy_token
+  projects                        = local.projects
+  project_ids                     = module.project.project_ids
+  dbt_pat                         = var.dbt_pat
+  enable_gitlab_deploy_token      = var.enable_gitlab_deploy_token
+  github_installation_by_owner    = length(module.data_lookups) > 0 ? module.data_lookups[0].github_installation_by_owner : {}
+  github_installation_fallback_id = length(module.data_lookups) > 0 ? module.data_lookups[0].github_installation_fallback_id : null
+  privatelink_endpoints           = try(local.yaml_content.privatelink_endpoints, [])
 }
 
 module "project_repository" {
   source = "./modules/project_repository"
 
-  project_ids    = module.project.project_ids
-  repository_ids = module.repository.repository_ids
+  project_ids               = module.project.project_ids
+  repository_ids            = module.repository.repository_ids
+  protected_repository_keys = module.repository.protected_repository_keys
 }
 
 #############################################
@@ -173,17 +194,36 @@ module "credentials" {
 }
 
 #############################################
+# Profiles (before environments when environments use primary_profile_key)
+#############################################
+
+module "profiles" {
+  count  = length(flatten([for p in local.projects : try(p.profiles, [])])) > 0 ? 1 : 0
+  source = "./modules/profiles"
+
+  projects                            = local.projects
+  project_ids                         = module.project.project_ids
+  global_connection_ids               = local.global_connection_ids_effective
+  credential_ids                      = module.credentials.credential_ids
+  credential_ids_by_source_id         = module.credentials.credential_ids_by_source_id
+  extended_attribute_ids              = length(flatten([for p in local.projects : try(p.extended_attributes, [])])) > 0 ? module.extended_attributes[0].extended_attribute_ids : {}
+  extended_attribute_ids_by_source_id = length(flatten([for p in local.projects : try(p.extended_attributes, [])])) > 0 ? module.extended_attributes[0].extended_attribute_ids_by_source_id : {}
+}
+
+#############################################
 # Environments
 #############################################
 
 module "environments" {
   source = "./modules/environments"
 
-  projects               = local.projects
-  project_ids            = module.project.project_ids
-  credential_ids         = module.credentials.credential_ids
-  global_connection_ids  = length(try(local.yaml_content.global_connections, [])) > 0 ? module.global_connections[0].connection_ids : {}
-  extended_attribute_ids = length(flatten([for p in local.projects : try(p.extended_attributes, [])])) > 0 ? module.extended_attributes[0].extended_attribute_ids : {}
+  projects                            = local.projects
+  project_ids                         = module.project.project_ids
+  credential_ids                      = module.credentials.credential_ids
+  global_connection_ids               = local.global_connection_ids_effective
+  extended_attribute_ids              = length(flatten([for p in local.projects : try(p.extended_attributes, [])])) > 0 ? module.extended_attributes[0].extended_attribute_ids : {}
+  extended_attribute_ids_by_source_id = length(flatten([for p in local.projects : try(p.extended_attributes, [])])) > 0 ? module.extended_attributes[0].extended_attribute_ids_by_source_id : {}
+  profile_ids                         = length(flatten([for p in local.projects : try(p.profiles, [])])) > 0 ? module.profiles[0].profile_ids : {}
 }
 
 #############################################
@@ -193,9 +233,12 @@ module "environments" {
 module "jobs" {
   source = "./modules/jobs"
 
-  projects        = local.projects
-  project_ids     = module.project.project_ids
-  environment_ids = module.environments.environment_ids
+  projects         = local.projects
+  project_ids      = module.project.project_ids
+  environment_ids  = module.environments.environment_ids
+  deployment_types = module.environments.deployment_types
+
+  depends_on = [module.environments, module.environment_variables]
 }
 
 #############################################
@@ -222,23 +265,9 @@ module "environment_variable_job_overrides" {
   projects    = local.projects
   project_ids = module.project.project_ids
   job_ids     = module.jobs.job_ids
+  token_map   = var.token_map
 
-  depends_on = [module.environment_variables]
-}
-
-#############################################
-# Profiles (links connection + credential + extended_attributes)
-#############################################
-
-module "profiles" {
-  count  = length(flatten([for p in local.projects : try(p.profiles, [])])) > 0 ? 1 : 0
-  source = "./modules/profiles"
-
-  projects               = local.projects
-  project_ids            = module.project.project_ids
-  global_connection_ids  = length(try(local.yaml_content.global_connections, [])) > 0 ? module.global_connections[0].connection_ids : {}
-  credential_ids         = module.credentials.credential_ids
-  extended_attribute_ids = length(flatten([for p in local.projects : try(p.extended_attributes, [])])) > 0 ? module.extended_attributes[0].extended_attribute_ids : {}
+  depends_on = [module.environment_variables, module.jobs]
 }
 
 #############################################
@@ -259,7 +288,7 @@ module "lineage_integrations" {
 #############################################
 
 module "project_artefacts" {
-  count  = length([for p in local.projects : p if try(p.artefacts, null) != null]) > 0 ? 1 : 0
+  count  = length([for p in local.projects : p if try(p.project_artefacts, null) != null]) > 0 ? 1 : 0
   source = "./modules/project_artefacts"
 
   projects    = local.projects
@@ -274,10 +303,15 @@ module "project_artefacts" {
 #############################################
 
 module "semantic_layer" {
-  count  = length([for p in local.projects : p if try(p.semantic_layer, null) != null]) > 0 ? 1 : 0
+  count = length([
+    for p in local.projects : p
+    if try(p.semantic_layer_config, null) != null
+  ]) > 0 ? 1 : 0
   source = "./modules/semantic_layer"
 
   projects        = local.projects
   project_ids     = module.project.project_ids
   environment_ids = module.environments.environment_ids
+
+  depends_on = [module.environments]
 }

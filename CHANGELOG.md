@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Documentation now matches the **YAML schema version 1** layout: `version: 1`, `account`, `globals` (connections, service tokens, groups, notifications, PrivateLink), environment field **`connection`** (not `connection_key`), `project_artefacts` / `semantic_layer_config`, and job **`environment_variable_overrides`**. Examples and troubleshooting were updated accordingly.
+
 ### Fixed
 
 ### Removed

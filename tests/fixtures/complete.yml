@@ -1,15 +1,39 @@
+version: 1
+account:
+  name: Test Account
+  host_url: https://cloud.getdbt.com
+globals:
+  connections:
+    - name: Shared Warehouse
+      key: shared_wh
+      type: snowflake
+      protected: true
+      details:
+        account: xy12345
+        database: ANALYTICS
+        warehouse: COMPUTE_WH
 projects:
   - name: Analytics
     key: analytics
+    repository:
+      remote_url: acme/analytics
     environments:
       - name: Development
         key: dev
         type: development
+        connection: shared_wh
+        credential:
+          token_name: SNOWFLAKE_PASSWORD
+          schema: ANALYTICS
       - name: Production
         key: prod
         type: deployment
         deployment_type: production
         protected: true
+        connection: shared_wh
+        credential:
+          token_name: SNOWFLAKE_PASSWORD
+          schema: ANALYTICS
     jobs:
       - name: CI Check
         key: ci_check
@@ -36,9 +60,15 @@ projects:
   - name: Finance
     key: finance
     protected: true
+    repository:
+      remote_url: acme/finance
     environments:
       - name: Production
         key: prod
         type: deployment
         deployment_type: production
         protected: true
+        connection: shared_wh
+        credential:
+          token_name: SNOWFLAKE_PASSWORD
+          schema: ANALYTICS

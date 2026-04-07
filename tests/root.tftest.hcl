@@ -16,7 +16,7 @@ variables {
   yaml_file      = "tests/fixtures/basic.yml"
 }
 
-# ── Single-project YAML (project: key) ───────────────────────────────────────
+# ── Single-project YAML (version: 1) ─────────────────────────────────────────
 
 run "single_project_yaml_produces_one_project" {
   command = plan
@@ -126,5 +126,40 @@ run "multi_project_jobs_keyed_correctly" {
   assert {
     condition     = contains(keys(output.job_ids), "analytics_daily_run")
     error_message = "Expected composite key 'analytics_daily_run' in job_ids"
+  }
+}
+
+# ── version: 1 YAML (globals.* normalized at root) ─────────────────────────────
+
+run "v1_yaml_flattens_globals_and_reports_schema_version" {
+  command = plan
+
+  variables {
+    yaml_file = "tests/fixtures/v1_minimal.yml"
+  }
+
+  assert {
+    condition     = output.yaml_schema_version == 1
+    error_message = "Expected yaml_schema_version output 1 for version: 1 fixture"
+  }
+
+  assert {
+    condition     = output.yaml_account != null && output.yaml_account.host_url == "https://cloud.getdbt.com"
+    error_message = "Expected yaml_account.host_url from version: 1 YAML"
+  }
+
+  assert {
+    condition     = contains(keys(output.project_ids), "my_project")
+    error_message = "Expected project key my_project after globals normalization"
+  }
+
+  assert {
+    condition     = contains(keys(output.environment_ids), "my_project_prod")
+    error_message = "Expected environment composite key my_project_prod"
+  }
+
+  assert {
+    condition     = contains(keys(output.job_ids), "my_project_daily_run")
+    error_message = "Expected job composite key my_project_daily_run"
   }
 }

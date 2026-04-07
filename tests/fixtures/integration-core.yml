@@ -1,10 +1,30 @@
+version: 1
+account:
+  name: TF Integration
+  host_url: https://cloud.getdbt.com
+globals:
+  connections:
+    - name: TF Int WH
+      key: tf_int_wh
+      type: snowflake
+      protected: true
+      details:
+        account: xy12345
+        database: ANALYTICS
+        warehouse: COMPUTE_WH
 projects:
   - name: TF Integration Core
     key: tf_int_core
+    repository:
+      remote_url: org/tf-int-core
     environments:
       - name: Dev
         key: dev
         type: development
+        connection: tf_int_wh
+        credential:
+          token_name: SNOWFLAKE_PASSWORD
+          schema: ANALYTICS
     jobs:
       - name: Daily Run
         key: daily_run

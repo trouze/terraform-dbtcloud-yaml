@@ -27,6 +27,11 @@ locals {
     item.composite_key => item
   }
 
+  env_connection_ref = {
+    for k, item in local.envs_map :
+    k => try(item.env_data.connection, null)
+  }
+
   protected_envs_map = {
     for k, item in local.envs_map :
     k => item
@@ -45,27 +50,35 @@ locals {
     k => lookup(var.credential_ids, k, null)
   }
 
-  # Resolve connection_id: prefer connection key lookup (global connections),
-  # fall back to direct numeric ID from YAML
+  # Resolve connection_id: global connection key, LOOKUP:… placeholder, or numeric id.
   resolve_connection_id = {
     for k, item in local.envs_map :
     k => (
-      try(item.env_data.connection, null) != null ?
-      lookup(var.global_connection_ids, tostring(item.env_data.connection), null) != null ?
-      lookup(var.global_connection_ids, tostring(item.env_data.connection), null) :
-      try(tonumber(item.env_data.connection), null) :
-      try(item.env_data.connection_id, null)
+      local.env_connection_ref[k] != null ?
+      lookup(var.global_connection_ids, tostring(local.env_connection_ref[k]), null) != null ?
+      lookup(var.global_connection_ids, tostring(local.env_connection_ref[k]), null) :
+      try(tonumber(local.env_connection_ref[k]), null) :
+      null
     )
   }
 
-  # Resolve extended_attributes_id via key lookup
+  # extended_attributes_key lookup, source id remap, or raw extended_attributes_id
   resolve_extended_attributes_id = {
     for k, item in local.envs_map :
-    k => (
-      try(item.env_data.extended_attributes_key, null) != null ?
-      lookup(var.extended_attribute_ids, "${item.project_key}_${item.env_data.extended_attributes_key}", null) :
-      null
-    )
+    k => try(coalesce(
+      try(item.env_data.extended_attributes_key, null) != null && try(item.env_data.extended_attributes_key, "") != "" ?
+      lookup(var.extended_attribute_ids, "${item.project_key}_${item.env_data.extended_attributes_key}", null) : null,
+      try(item.env_data.extended_attributes_id, null) != null ?
+      lookup(var.extended_attribute_ids_by_source_id, tostring(item.env_data.extended_attributes_id), null) : null,
+      try(tonumber(item.env_data.extended_attributes_id), null)
+    ), null)
+  }
+
+  # v2/importer: when primary_profile_key is set, connection/credential/extended_attributes on the environment are omitted (profile supplies them).
+  resolve_primary_profile_id = {
+    for k, item in local.envs_map :
+    k => try(item.env_data.primary_profile_key, null) != null && try(item.env_data.primary_profile_key, "") != "" ?
+    lookup(var.profile_ids, "${item.project_key}_${item.env_data.primary_profile_key}", null) : null
   }
 }
 
@@ -79,15 +92,26 @@ resource "dbtcloud_environment" "environments" {
   project_id    = each.value.project_id
   name          = each.value.env_data.name
   type          = each.value.env_data.type
-  connection_id = local.resolve_connection_id[each.key]
-  credential_id = local.resolve_credential_id[each.key]
+  connection_id = local.resolve_primary_profile_id[each.key] != null ? null : local.resolve_connection_id[each.key]
+  credential_id = local.resolve_primary_profile_id[each.key] != null ? null : local.resolve_credential_id[each.key]
 
   dbt_version                = try(each.value.env_data.dbt_version, null)
   enable_model_query_history = try(each.value.env_data.enable_model_query_history, null)
   custom_branch              = try(each.value.env_data.custom_branch, null)
   deployment_type            = try(each.value.env_data.deployment_type, null)
   use_custom_branch          = try(each.value.env_data.custom_branch, null) != null
-  extended_attributes_id     = local.resolve_extended_attributes_id[each.key]
+  primary_profile_id         = local.resolve_primary_profile_id[each.key]
+  extended_attributes_id     = local.resolve_primary_profile_id[each.key] != null ? null : local.resolve_extended_attributes_id[each.key]
+
+  # Deferred: stock dbtcloud provider has no resource_metadata on dbtcloud_environment (terraform providers schema).
+  # resource_metadata = {
+  #   source_project_id  = null # v2 importer: lookup(local.source_project_ids_by_key, each.value.project_key, null)
+  #   source_id          = try(each.value.env_data.id, null)
+  #   source_identity    = "ENV:${each.value.project_key}:${each.value.env_key}"
+  #   source_key         = each.value.env_key
+  #   source_project_key = each.value.project_key
+  #   source_name        = each.value.env_data.name
+  # }
 }
 
 #############################################
@@ -100,15 +124,26 @@ resource "dbtcloud_environment" "protected_environments" {
   project_id    = each.value.project_id
   name          = each.value.env_data.name
   type          = each.value.env_data.type
-  connection_id = local.resolve_connection_id[each.key]
-  credential_id = local.resolve_credential_id[each.key]
+  connection_id = local.resolve_primary_profile_id[each.key] != null ? null : local.resolve_connection_id[each.key]
+  credential_id = local.resolve_primary_profile_id[each.key] != null ? null : local.resolve_credential_id[each.key]
 
   dbt_version                = try(each.value.env_data.dbt_version, null)
   enable_model_query_history = try(each.value.env_data.enable_model_query_history, null)
   custom_branch              = try(each.value.env_data.custom_branch, null)
   deployment_type            = try(each.value.env_data.deployment_type, null)
   use_custom_branch          = try(each.value.env_data.custom_branch, null) != null
-  extended_attributes_id     = local.resolve_extended_attributes_id[each.key]
+  primary_profile_id         = local.resolve_primary_profile_id[each.key]
+  extended_attributes_id     = local.resolve_primary_profile_id[each.key] != null ? null : local.resolve_extended_attributes_id[each.key]
+
+  # Deferred: stock dbtcloud provider has no resource_metadata on dbtcloud_environment.
+  # resource_metadata = {
+  #   source_project_id  = null # v2 importer: lookup(local.source_project_ids_by_key, each.value.project_key, null)
+  #   source_id          = try(each.value.env_data.id, null)
+  #   source_identity    = "ENV:${each.value.project_key}:${each.value.env_key}"
+  #   source_key         = each.value.env_key
+  #   source_project_key = each.value.project_key
+  #   source_name        = each.value.env_data.name
+  # }
 
   lifecycle {
     prevent_destroy = true
