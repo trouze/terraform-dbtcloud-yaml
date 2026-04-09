@@ -3,7 +3,7 @@ terraform {
   required_providers {
     dbtcloud = {
       source  = "dbt-labs/dbtcloud"
-      version = "~> 1.8"
+      version = "~> 1.9"
     }
   }
 }
@@ -47,8 +47,7 @@ locals {
           cred_data     = try(profile.credential, null)
         }
         if try(profile.credential.credential_type, null) != null &&
-        try(profile.credentials_id, null) != null &&
-        !contains(local.env_source_credential_ids, tostring(profile.credentials_id))
+        !contains(local.env_source_credential_ids, tostring(try(profile.credentials_id, "")))
       ]
     ]) :
     item.composite_key => item
@@ -64,16 +63,24 @@ locals {
 
   available_env_cred_keys = toset(nonsensitive(keys(var.environment_credentials)))
 
-  env_cred_types = nonsensitive({
-    for k, v in var.environment_credentials :
-    k => try(v.credential_type, "")
-  })
+  # credential_type: env var takes precedence; falls back to cred_data for profile credentials
+  # that declare credential_type in the YAML credential: block rather than the env var.
+  env_cred_types = nonsensitive(merge(
+    { for k, item in local.all_credential_owners_map : k => try(item.cred_data.credential_type, "") },
+    { for k, v in var.environment_credentials : k => try(v.credential_type, "") }
+  ))
+
+  # auth_type: env var takes precedence; falls back to cred_data for profile credentials.
+  env_cred_auth_types = nonsensitive(merge(
+    { for k, item in local.all_credential_owners_map : k => try(item.cred_data.auth_type, "password") },
+    { for k, v in var.environment_credentials : k => try(v.auth_type, "password") }
+  ))
 
   # Fabric/Synapse: service principal auth uses tenant_id
-  env_cred_has_tenant = nonsensitive({
-    for k, v in var.environment_credentials :
-    k => try(v.tenant_id, null) != null
-  })
+  env_cred_has_tenant = nonsensitive(merge(
+    { for k, item in local.all_credential_owners_map : k => try(item.cred_data.tenant_id, null) != null },
+    { for k, v in var.environment_credentials : k => try(v.tenant_id, null) != null }
+  ))
 
   merged_credential_ids = merge(
     { for k, c in dbtcloud_databricks_credential.credentials : k => c.credential_id },
@@ -145,18 +152,18 @@ resource "dbtcloud_snowflake_credential" "credentials_password" {
     k => item
     if contains(local.available_env_cred_keys, k) &&
     try(local.env_cred_types[k], "") == "snowflake" &&
-    try(nonsensitive(var.environment_credentials[k].auth_type), "password") == "password"
+    try(local.env_cred_auth_types[k], "password") == "password"
   }
 
   project_id  = each.value.project_id
   auth_type   = "password"
-  user        = try(var.environment_credentials[each.key].user, "")
+  user        = try(var.environment_credentials[each.key].user, try(each.value.cred_data.user, ""))
   password    = try(var.environment_credentials[each.key].password, null)
   schema      = try(var.environment_credentials[each.key].schema, try(each.value.cred_data.schema, ""))
-  num_threads = try(var.environment_credentials[each.key].num_threads, null)
-  database    = try(var.environment_credentials[each.key].database, null)
-  role        = try(var.environment_credentials[each.key].role, null)
-  warehouse   = try(var.environment_credentials[each.key].warehouse, null)
+  num_threads = try(var.environment_credentials[each.key].num_threads, try(each.value.cred_data.num_threads, null))
+  database    = try(var.environment_credentials[each.key].database, try(each.value.cred_data.database, null))
+  role        = try(var.environment_credentials[each.key].role, try(each.value.cred_data.role, null))
+  warehouse   = try(var.environment_credentials[each.key].warehouse, try(each.value.cred_data.warehouse, null))
 }
 
 #############################################
@@ -169,19 +176,19 @@ resource "dbtcloud_snowflake_credential" "credentials_keypair" {
     k => item
     if contains(local.available_env_cred_keys, k) &&
     try(local.env_cred_types[k], "") == "snowflake" &&
-    try(nonsensitive(var.environment_credentials[k].auth_type), "password") == "keypair"
+    try(local.env_cred_auth_types[k], "password") == "keypair"
   }
 
   project_id             = each.value.project_id
   auth_type              = "keypair"
-  user                   = try(var.environment_credentials[each.key].user, "")
+  user                   = try(var.environment_credentials[each.key].user, try(each.value.cred_data.user, ""))
   private_key            = try(var.environment_credentials[each.key].private_key, null)
   private_key_passphrase = try(var.environment_credentials[each.key].private_key_passphrase, null)
   schema                 = try(var.environment_credentials[each.key].schema, try(each.value.cred_data.schema, ""))
-  num_threads            = try(var.environment_credentials[each.key].num_threads, null)
-  database               = try(var.environment_credentials[each.key].database, null)
-  role                   = try(var.environment_credentials[each.key].role, null)
-  warehouse              = try(var.environment_credentials[each.key].warehouse, null)
+  num_threads            = try(var.environment_credentials[each.key].num_threads, try(each.value.cred_data.num_threads, null))
+  database               = try(var.environment_credentials[each.key].database, try(each.value.cred_data.database, null))
+  role                   = try(var.environment_credentials[each.key].role, try(each.value.cred_data.role, null))
+  warehouse              = try(var.environment_credentials[each.key].warehouse, try(each.value.cred_data.warehouse, null))
 }
 
 #############################################
@@ -198,7 +205,7 @@ resource "dbtcloud_bigquery_credential" "credentials" {
 
   project_id  = each.value.project_id
   dataset     = try(var.environment_credentials[each.key].dataset, try(each.value.cred_data.schema, ""))
-  num_threads = try(var.environment_credentials[each.key].num_threads, null)
+  num_threads = try(var.environment_credentials[each.key].num_threads, try(each.value.cred_data.num_threads, null))
 }
 
 #############################################
@@ -216,10 +223,10 @@ resource "dbtcloud_postgres_credential" "credentials" {
   project_id     = each.value.project_id
   type           = "postgres"
   default_schema = try(var.environment_credentials[each.key].default_schema, try(each.value.cred_data.schema, ""))
-  username       = try(var.environment_credentials[each.key].username, "")
+  username       = try(var.environment_credentials[each.key].username, try(each.value.cred_data.username, try(each.value.cred_data.user, "")))
   password       = try(var.environment_credentials[each.key].password, null)
-  target_name    = try(var.environment_credentials[each.key].target_name, null)
-  num_threads    = try(var.environment_credentials[each.key].num_threads, null)
+  target_name    = try(var.environment_credentials[each.key].target_name, try(each.value.cred_data.target_name, null))
+  num_threads    = try(var.environment_credentials[each.key].num_threads, try(each.value.cred_data.num_threads, null))
 }
 
 #############################################
@@ -236,9 +243,9 @@ resource "dbtcloud_redshift_credential" "credentials" {
 
   project_id     = each.value.project_id
   default_schema = try(var.environment_credentials[each.key].default_schema, try(each.value.cred_data.schema, ""))
-  username       = try(var.environment_credentials[each.key].username, "")
+  username       = try(var.environment_credentials[each.key].username, try(each.value.cred_data.username, try(each.value.cred_data.user, "")))
   password       = try(var.environment_credentials[each.key].password, null)
-  num_threads    = try(var.environment_credentials[each.key].num_threads, 4)
+  num_threads    = try(var.environment_credentials[each.key].num_threads, try(each.value.cred_data.num_threads, 4))
 }
 
 #############################################
@@ -275,9 +282,9 @@ resource "dbtcloud_fabric_credential" "credentials_sql" {
   project_id           = each.value.project_id
   adapter_type         = "fabric"
   schema               = try(var.environment_credentials[each.key].schema, try(each.value.cred_data.schema, ""))
-  user                 = try(var.environment_credentials[each.key].user, "")
+  user                 = try(var.environment_credentials[each.key].user, try(each.value.cred_data.user, ""))
   password             = try(var.environment_credentials[each.key].password, "")
-  schema_authorization = try(var.environment_credentials[each.key].schema_authorization, null)
+  schema_authorization = try(var.environment_credentials[each.key].schema_authorization, try(each.value.cred_data.schema_authorization, null))
 }
 
 #############################################
@@ -296,10 +303,10 @@ resource "dbtcloud_fabric_credential" "credentials_sp" {
   project_id           = each.value.project_id
   adapter_type         = "fabric"
   schema               = try(var.environment_credentials[each.key].schema, try(each.value.cred_data.schema, ""))
-  tenant_id            = try(var.environment_credentials[each.key].tenant_id, "")
-  client_id            = try(var.environment_credentials[each.key].client_id, "")
+  tenant_id            = try(var.environment_credentials[each.key].tenant_id, try(each.value.cred_data.tenant_id, ""))
+  client_id            = try(var.environment_credentials[each.key].client_id, try(each.value.cred_data.client_id, ""))
   client_secret        = try(var.environment_credentials[each.key].client_secret, "")
-  schema_authorization = try(var.environment_credentials[each.key].schema_authorization, null)
+  schema_authorization = try(var.environment_credentials[each.key].schema_authorization, try(each.value.cred_data.schema_authorization, null))
 }
 
 #############################################
@@ -317,11 +324,11 @@ resource "dbtcloud_synapse_credential" "credentials_sql" {
 
   project_id           = each.value.project_id
   adapter_type         = "synapse"
-  authentication       = try(var.environment_credentials[each.key].authentication, "sql")
+  authentication       = try(var.environment_credentials[each.key].authentication, try(each.value.cred_data.authentication, "sql"))
   schema               = try(var.environment_credentials[each.key].schema, try(each.value.cred_data.schema, ""))
-  user                 = try(var.environment_credentials[each.key].user, "")
+  user                 = try(var.environment_credentials[each.key].user, try(each.value.cred_data.user, ""))
   password             = try(var.environment_credentials[each.key].password, "")
-  schema_authorization = try(var.environment_credentials[each.key].schema_authorization, null)
+  schema_authorization = try(var.environment_credentials[each.key].schema_authorization, try(each.value.cred_data.schema_authorization, null))
 }
 
 #############################################
@@ -339,12 +346,12 @@ resource "dbtcloud_synapse_credential" "credentials_sp" {
 
   project_id           = each.value.project_id
   adapter_type         = "synapse"
-  authentication       = try(var.environment_credentials[each.key].authentication, "ServicePrincipal")
+  authentication       = try(var.environment_credentials[each.key].authentication, try(each.value.cred_data.authentication, "ServicePrincipal"))
   schema               = try(var.environment_credentials[each.key].schema, try(each.value.cred_data.schema, ""))
-  tenant_id            = try(var.environment_credentials[each.key].tenant_id, "")
-  client_id            = try(var.environment_credentials[each.key].client_id, "")
+  tenant_id            = try(var.environment_credentials[each.key].tenant_id, try(each.value.cred_data.tenant_id, ""))
+  client_id            = try(var.environment_credentials[each.key].client_id, try(each.value.cred_data.client_id, ""))
   client_secret        = try(var.environment_credentials[each.key].client_secret, "")
-  schema_authorization = try(var.environment_credentials[each.key].schema_authorization, null)
+  schema_authorization = try(var.environment_credentials[each.key].schema_authorization, try(each.value.cred_data.schema_authorization, null))
 }
 
 #############################################
@@ -362,7 +369,7 @@ resource "dbtcloud_starburst_credential" "credentials" {
   project_id = each.value.project_id
   database   = try(var.environment_credentials[each.key].catalog, try(each.value.cred_data.catalog, ""))
   schema     = try(var.environment_credentials[each.key].schema, try(each.value.cred_data.schema, ""))
-  user       = try(var.environment_credentials[each.key].user, "")
+  user       = try(var.environment_credentials[each.key].user, try(each.value.cred_data.user, ""))
   password   = try(var.environment_credentials[each.key].password, "")
 }
 
@@ -397,7 +404,7 @@ resource "dbtcloud_teradata_credential" "credentials" {
 
   project_id = each.value.project_id
   schema     = try(var.environment_credentials[each.key].schema, try(each.value.cred_data.schema, ""))
-  user       = try(var.environment_credentials[each.key].user, "")
+  user       = try(var.environment_credentials[each.key].user, try(each.value.cred_data.user, ""))
   password   = try(var.environment_credentials[each.key].password, "")
-  threads    = try(var.environment_credentials[each.key].num_threads, null)
+  threads    = try(var.environment_credentials[each.key].num_threads, try(each.value.cred_data.num_threads, null))
 }

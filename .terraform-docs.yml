@@ -1,0 +1,20 @@
+formatter: "markdown table"
+
+output:
+  file: docs/reference/terraform.md
+  mode: replace
+
+sort:
+  enabled: true
+  by: required
+
+settings:
+  anchor: true
+  color: true
+  default: true
+  description: true
+  escape: true
+  indent: 2
+  required: true
+  sensitive: true
+  type: true

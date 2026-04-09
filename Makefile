@@ -21,8 +21,15 @@ test: ## Run terraform test with mock providers (no credentials needed)
 test-integration: ## Run Go integration tests against a real dbt Cloud account (requires DBT_CLOUD_ACCOUNT_ID and DBT_CLOUD_TOKEN)
 	cd test && RUN_INTEGRATION_TESTS=1 go test -v -timeout 30m -run Integration ./...
 
-docs: ## Regenerate terraform-docs for all modules
-	pre-commit run terraform-docs-go --all-files
+docs: ## Regenerate terraform-docs for root module and all submodules
+	terraform-docs -c .terraform-docs.yml .
+	@for dir in modules/*/; do \
+		module=$$(basename $$dir); \
+		terraform-docs markdown table \
+			--output-file "../../docs/reference/module-$${module}.md" \
+			--output-mode replace \
+			"$$dir"; \
+	done
 
 pre-commit: ## Run all pre-commit hooks on staged files
 	pre-commit run

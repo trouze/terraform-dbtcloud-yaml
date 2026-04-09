@@ -1,26 +1,23 @@
 repos:
   # Terraform formatting and documentation
-  - repo: https://github.com/terraform-docs/terraform-docs
-    rev: v0.16.0
+  - repo: local
     hooks:
       - id: terraform-docs-go
         name: terraform-docs
         description: Generate terraform documentation
         entry: terraform-docs -c .terraform-docs.yml
-        language: golang
+        language: system
         files: ^[^/]*\.tf$
         exclude: ^\.terraform/.*$
-        args: [--sort-by-required]
 
   # Terraform linting
-  - repo: https://github.com/terraform-linters/tflint
-    rev: v0.50.3
+  - repo: local
     hooks:
       - id: tflint
         name: tflint
         description: Run tflint to check terraform code quality
         entry: tflint
-        language: golang
+        language: system
         files: \.tf$
         exclude: ^\.terraform/.*$
 

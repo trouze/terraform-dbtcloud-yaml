@@ -37,16 +37,16 @@ fi
 if [[ ${_fallback:-0} -eq 1 ]] || [[ ! -d "$TARGET" ]]; then
   if command -v npx &>/dev/null; then
     echo "(release asset not found, falling back to degit)"
-    npx --yes degit "$REPO/examples/basic" "$TARGET"
+    npx --yes degit "$REPO/topologies/basic" "$TARGET"
   else
     # Strategy 3: git sparse-checkout
     echo "(falling back to git sparse-checkout)"
     TMP=$(mktemp -d)
     trap 'rm -rf "$TMP"' EXIT
     git clone --no-checkout --depth=1 "https://github.com/$REPO" "$TMP/repo" --quiet
-    git -C "$TMP/repo" sparse-checkout set examples/basic
+    git -C "$TMP/repo" sparse-checkout set topologies/basic
     git -C "$TMP/repo" checkout --quiet
-    cp -r "$TMP/repo/examples/basic/." "$TARGET/"
+    cp -r "$TMP/repo/topologies/basic/." "$TARGET/"
   fi
 fi
 
@@ -60,4 +60,4 @@ echo "  3.  Edit dbt-config.yml"
 echo "      # replace YOUR_ placeholders with your warehouse and repo details"
 echo "  4.  source .env && terraform init && terraform apply"
 echo ""
-echo "Full walkthrough: https://github.com/$REPO/blob/main/examples/basic/README.md"
+echo "Full walkthrough: https://github.com/$REPO/blob/main/topologies/basic/README.md"

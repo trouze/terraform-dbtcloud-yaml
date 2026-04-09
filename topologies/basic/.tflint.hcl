@@ -8,4 +8,3 @@ rule "terraform_comment_syntax" { enabled = false }
 rule "terraform_unused_declarations" { enabled = false }
 rule "terraform_unused_required_providers" { enabled = false }
 rule "terraform_standard_module_structure" { enabled = false }
-rule "terraform_module_pinned_source" { enabled = false }

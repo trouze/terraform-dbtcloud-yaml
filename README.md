@@ -1,7 +1,7 @@
 # terraform-dbtcloud-as-yaml
 
 [![Terraform Version](https://img.shields.io/badge/terraform-%3E%3D%201.0-blue?logo=terraform)](https://www.terraform.io)
-[![dbt Cloud Provider](https://img.shields.io/badge/dbt--cloud--provider-%3E%3D%201.8-blue)](https://registry.terraform.io/providers/dbt-labs/dbtcloud/latest)
+[![dbt Cloud Provider](https://img.shields.io/badge/dbt--cloud--provider-%3E%3D%201.9-blue)](https://registry.terraform.io/providers/dbt-labs/dbtcloud/latest)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green)](./LICENSE)
 
 Managing dbt Cloud infrastructure shouldn't require deep Terraform expertise. Whether you've never written HCL or just don't want to untangle the provider's resource model yourself, this module gives you a single YAML file that maps to how dbt Platform actually works — projects, environments, jobs, and connections — with relationship wiring, credential handling, and production safeguards built in.
@@ -12,7 +12,7 @@ Managing dbt Cloud infrastructure shouldn't require deep Terraform expertise. Wh
 curl -fsSL https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/releases/latest/download/install.sh | bash
 ```
 
-This downloads the [examples/basic/](examples/basic/) starter into `./my-dbt-cloud`. No npm, no git magic — just curl and tar. To use a different directory name: `curl -fsSL ... | bash -s -- my-project`.
+This downloads the [topologies/basic/](topologies/basic/) starter into `./my-dbt-cloud`. No npm, no git magic — just curl and tar. To use a different directory name: `curl -fsSL ... | bash -s -- my-project`.
 
 Then:
 
@@ -23,7 +23,7 @@ cp .env.example .env        # fill in your dbt Cloud credentials
 source .env && terraform init && terraform apply
 ```
 
-See [examples/basic/README.md](examples/basic/README.md) for a full walkthrough.
+See [topologies/basic/README.md](topologies/basic/README.md) for a full walkthrough.
 
 ---
 
@@ -327,7 +327,7 @@ Terraform credentials.
 ## Documentation
 
 - **Hosted docs (GitHub Pages):** [dbt-labs.github.io/terraform-dbtcloud-as-yaml](https://dbt-labs.github.io/terraform-dbtcloud-as-yaml/)
-- [examples/basic/](examples/basic/) — clone-and-go starter with step-by-step README
+- [topologies/basic/](topologies/basic/) — clone-and-go starter with step-by-step README
 - [docs/configuration/yaml-schema.md](docs/configuration/yaml-schema.md) — full YAML field reference
 - [docs/guides/cicd.md](docs/guides/cicd.md) — CI/CD setup (GitHub Actions, etc.)
 - [docs/guides/best-practices.md](docs/guides/best-practices.md) — patterns and recommendations

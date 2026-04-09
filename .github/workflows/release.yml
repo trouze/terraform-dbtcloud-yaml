@@ -1,7 +1,7 @@
 # release.yml — triggered by a version tag (e.g. git tag v1.2.3 && git push --tags).
 #
 # Produces two release assets:
-#   starter.tar.gz  — the examples/basic/ directory, ready to extract
+#   starter.tar.gz  — the topologies/basic/ directory, ready to extract
 #   install.sh      — bootstrap script that downloads starter.tar.gz
 
 name: Release
@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Package starter
-        run: tar -czf starter.tar.gz -C examples/basic .
+        run: tar -czf starter.tar.gz -C topologies/basic .
 
       - name: Create release with assets
         uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2

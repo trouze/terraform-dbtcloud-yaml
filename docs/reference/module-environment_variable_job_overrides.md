@@ -1,14 +1,16 @@
-Populated from each project’s `jobs[]` entries that set **`environment_variable_overrides`**: a map of variable name to string. The root module passes resolved job IDs and project IDs after jobs are created. See [YAML Schema — environment variable job overrides](../configuration/yaml-schema.md#environment_variable_overrides).
-
+<!-- BEGIN_TF_DOCS -->
 ## Requirements
 
-No requirements.
+| Name | Version |
+|------|---------|
+| <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.7 |
+| <a name="requirement_dbtcloud"></a> [dbtcloud](#requirement\_dbtcloud) | ~> 1.9 |
 
 ## Providers
 
 | Name | Version |
 |------|---------|
-| <a name="provider_dbtcloud"></a> [dbtcloud](#provider\_dbtcloud) | n/a |
+| <a name="provider_dbtcloud"></a> [dbtcloud](#provider\_dbtcloud) | 1.9.1 |
 
 ## Modules
 
@@ -24,10 +26,12 @@ No modules.
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
-| <a name="input_environments_data"></a> [environments\_data](#input\_environments\_data) | List of environment configurations, including credentials, overrides | `any` | n/a | yes |
-| <a name="input_job_ids"></a> [job\_ids](#input\_job\_ids) | Map of Env Name \_ Job Name as key : Job ID | `any` | n/a | yes |
-| <a name="input_project_id"></a> [project\_id](#input\_project\_id) | The ID of the project to which jobs belong | `string` | n/a | yes |
+| <a name="input_job_ids"></a> [job\_ids](#input\_job\_ids) | Map of composite key (project\_key\_job\_key) to dbt Cloud job ID (from jobs module) | `map(string)` | n/a | yes |
+| <a name="input_project_ids"></a> [project\_ids](#input\_project\_ids) | Map of project key to dbt Cloud project ID | `map(string)` | n/a | yes |
+| <a name="input_projects"></a> [projects](#input\_projects) | List of project configurations. Job-level environment\_variable\_overrides on project.jobs[] (see modules/environment\_variable\_job\_overrides). | `any` | n/a | yes |
+| <a name="input_token_map"></a> [token\_map](#input\_token\_map) | Secret values for override values prefixed with secret\_ (same semantics as modules/environment\_variables). | `map(string)` | `{}` | no |
 
 ## Outputs
 
 No outputs.
+<!-- END_TF_DOCS -->

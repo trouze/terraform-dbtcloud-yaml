@@ -17,10 +17,10 @@ Start with the basic example as a template:
 
 ```bash
 git clone https://github.com/dbt-labs/terraform-dbtcloud-as-yaml.git
-cd terraform-dbtcloud-as-yaml/examples/basic
+cd terraform-dbtcloud-as-yaml/topologies/basic
 
 # Or copy to your own directory
-cp -r examples/basic ~/my-dbt-setup
+cp -r topologies/basic ~/my-dbt-setup
 cd ~/my-dbt-setup
 ```
 

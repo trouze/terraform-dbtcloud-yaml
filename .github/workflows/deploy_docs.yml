@@ -13,7 +13,7 @@ on:
       - '*.tf'
       - 'modules/**'
       - 'schemas/**'
-      - 'examples/**'
+      - 'topologies/**'
       - '.github/workflows/deploy_docs.yml'
   
   pull_request:
@@ -24,7 +24,7 @@ on:
       - '*.tf'
       - 'modules/**'
       - 'schemas/**'
-      - 'examples/**'
+      - 'topologies/**'
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
@@ -77,15 +77,7 @@ jobs:
           terraform-docs --version
       
       - name: Generate Terraform documentation
-        run: |
-          # Generate main module docs
-          terraform-docs markdown table . > docs/reference/terraform.md
-          
-          # Generate submodule docs
-          for dir in modules/*/; do
-            module_name=$(basename $dir)
-            terraform-docs markdown table $dir > docs/reference/module-${module_name}.md
-          done
+        run: make docs
       
       - name: Setup Pages
         id: pages

@@ -6,15 +6,19 @@ on:
       - "**.tf"
       - "tests/**"
       - "schemas/**"
+      - "docs/reference/**"
+      - ".terraform-docs.yml"
       - ".github/workflows/ci.yml"
-      - "!examples/**"
+      - "!topologies/**"
   push:
     branches: [main]
     paths:
       - "**.tf"
       - "tests/**"
       - "schemas/**"
-      - "!examples/**"
+      - "docs/reference/**"
+      - ".terraform-docs.yml"
+      - "!topologies/**"
 
 permissions:
   contents: read
@@ -56,3 +60,30 @@ jobs:
 
       - name: Test (mock providers)
         run: terraform test
+
+  docs:
+    name: Docs up to date
+    runs-on: ubuntu-latest
+    env:
+      TERRAFORM_DOCS_VERSION: v0.20.0
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install terraform-docs
+        run: |
+          wget -q -O /tmp/terraform-docs.tar.gz \
+            https://github.com/terraform-docs/terraform-docs/releases/download/${TERRAFORM_DOCS_VERSION}/terraform-docs-${TERRAFORM_DOCS_VERSION}-linux-amd64.tar.gz
+          tar -xzf /tmp/terraform-docs.tar.gz -C /tmp
+          sudo mv /tmp/terraform-docs /usr/local/bin/
+          chmod +x /usr/local/bin/terraform-docs
+
+      - name: Regenerate docs
+        run: make docs
+
+      - name: Check for drift
+        run: |
+          if ! git diff --exit-code docs/reference/; then
+            echo ""
+            echo "Docs are out of date. Run 'make docs' locally and commit the result."
+            exit 1
+          fi

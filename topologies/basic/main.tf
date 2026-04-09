@@ -4,7 +4,7 @@ terraform {
   required_providers {
     dbtcloud = {
       source  = "dbt-labs/dbtcloud"
-      version = "~> 1.8"
+      version = "~> 1.9"
     }
   }
 }
@@ -16,10 +16,10 @@ provider "dbtcloud" {
 }
 
 module "dbt_cloud" {
-  # When this module is published to the Terraform Registry under dbt-labs, you may use:
-  #   source  = "dbt-labs/yaml/dbtcloud"
-  #   version = "~> 0.1"
-  source = "github.com/dbt-labs/terraform-dbtcloud-as-yaml"
+  # Pin to a release tag to avoid unexpected changes on terraform init.
+  # Update the ref when you're ready to upgrade:
+  #   https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/releases
+  source = "github.com/dbt-labs/terraform-dbtcloud-as-yaml?ref=v0.1.0"
 
   dbt_account_id = var.dbt_account_id
   dbt_token      = var.dbt_token

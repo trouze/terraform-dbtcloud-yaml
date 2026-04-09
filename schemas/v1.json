@@ -686,7 +686,7 @@
           "description": "Optional source extended attributes ID for migration metadata."
         }
       },
-      "required": ["key", "connection_key", "credentials_key"],
+      "required": ["key", "connection_key"],
       "additionalProperties": false
     },
     "project": {

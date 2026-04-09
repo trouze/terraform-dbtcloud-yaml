@@ -17,7 +17,7 @@ The simplest possible setup to get started.
 ### Directory Structure
 
 ```
-examples/basic/
+topologies/basic/
 ├── main.tf                         # Terraform module call
 ├── variables.tf                    # Input variables
 ├── dbt-config.yml                  # dbt Cloud configuration
@@ -31,7 +31,7 @@ examples/basic/
 ### Try It Out
 
 ```bash
-cd examples/basic
+cd topologies/basic
 cp .env.example .env
 # Edit .env with your credentials
 source .env
@@ -40,7 +40,7 @@ terraform plan
 terraform apply
 ```
 
-[:material-github: View Source](https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/tree/main/examples/basic){ .md-button }
+[:material-github: View Source](https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/tree/main/topologies/basic){ .md-button }
 
 ---
 
@@ -264,7 +264,7 @@ projects:
 
 ## CI/CD with GitHub Actions
 
-Use the two-workflow pattern from `examples/basic/.github/workflows/`:
+Use the two-workflow pattern from `topologies/basic/.github/workflows/`:
 
 - `ci.yml` — validates and plans on every PR, posts plan as a comment (updates existing comment on re-push)
 - `cd.yml` — applies on merge to main, with optional approval gate via GitHub Environments

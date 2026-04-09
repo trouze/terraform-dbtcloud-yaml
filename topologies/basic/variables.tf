@@ -52,19 +52,24 @@ variable "environment_credentials" {
     Example:
       environment_credentials = {
         analytics_prod = {
-          credential_type = "databricks"
-          token           = "dapi..."
-          catalog         = "main"
-          schema          = "analytics"
-        }
-        analytics_prod_snowflake = {
           credential_type = "snowflake"
           auth_type       = "password"
           user            = "DBT_USER"
           password        = "..."
           schema          = "ANALYTICS"
           database        = "ANALYTICS"
-          warehouse       = "TRANSFORMING"
+          warehouse       = "TRANSFORMING_WH"
+          role            = "TRANSFORMER"
+        }
+        analytics_dev = {
+          credential_type = "snowflake"
+          auth_type       = "password"
+          user            = "DBT_USER"
+          password        = "..."
+          schema          = "ANALYTICS_DEV"
+          database        = "ANALYTICS"
+          warehouse       = "TRANSFORMING_WH"
+          role            = "TRANSFORMER"
         }
       }
   EOT
@@ -80,13 +85,9 @@ variable "connection_credentials" {
 
     Example:
       connection_credentials = {
-        databricks_prod = {
+        main_connection = {
           client_id     = "..."
           client_secret = "..."
-        }
-        snowflake_prod = {
-          oauth_client_id     = "..."
-          oauth_client_secret = "..."
         }
       }
   EOT
@@ -98,12 +99,7 @@ variable "connection_credentials" {
 variable "lineage_tokens" {
   description = <<-EOT
     Map of lineage integration tokens keyed by "{project_key}_{integration_key}".
-    Key corresponds to the composite of project key + lineage_integrations[].key in YAML.
-
-    Example:
-      lineage_tokens = {
-        analytics_tableau_prod = "..."
-      }
+    Not used in this topology — included for compatibility.
   EOT
   type        = map(string)
   sensitive   = true
@@ -113,12 +109,7 @@ variable "lineage_tokens" {
 variable "oauth_client_secrets" {
   description = <<-EOT
     Map of OAuth configuration keys to their client secrets.
-    Key corresponds to oauth_configurations[].key in YAML.
-
-    Example:
-      oauth_client_secrets = {
-        snowflake_oauth = "..."
-      }
+    Not used in this topology — included for compatibility.
   EOT
   type        = map(string)
   sensitive   = true

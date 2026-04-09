@@ -1,0 +1,161 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/dbt-labs/terraform-dbtcloud-as-yaml/refs/heads/main/schemas/v1.json
+
+##############################################################################
+# TOPOLOGY: Basic dbt Cloud Setup
+#
+# What this deploys:
+#   - 1 global warehouse connection (shared across environments)
+#   - 1 dbt project linked to your GitHub repository
+#   - Development environment  (for dbt Cloud IDE)
+#   - Production environment   (for CI and merge runs)
+#   - CI Check job             (runs on every pull request — slim CI)
+#   - Merge Build job          (runs when a PR merges to your main branch)
+#
+# Before you start:
+#   1. Copy .env.example to .env and fill in your warehouse credentials
+#   2. Search for YOUR_ below and replace every placeholder
+#   3. Run: terraform init && terraform apply
+#
+# Tip: use your editor's "Find All" on "YOUR_" to locate every placeholder.
+##############################################################################
+
+version: 1
+
+account:
+  name: YOUR_ACCOUNT_NAME          # Display name — any string you like
+  host_url: https://cloud.getdbt.com  # Change for single-tenant: https://YOUR_PREFIX.YOUR_REGION.dbt.com
+
+globals:
+  connections:
+
+    # ── Snowflake ────────────────────────────────────────────────────────────
+    - name: YOUR_CONNECTION_NAME       # e.g., "Production Snowflake"
+      key: main_connection
+      type: snowflake
+      protected: true                  # Prevents accidental deletion via terraform destroy
+      details:
+        account: YOUR_ACCOUNT_LOCATOR  # e.g., xy12345.us-east-1
+        database: YOUR_DATABASE        # e.g., ANALYTICS
+        warehouse: YOUR_WAREHOUSE      # e.g., TRANSFORMING_WH
+        role: YOUR_ROLE                # e.g., TRANSFORMER (optional — remove line if not needed)
+
+    # ── Databricks (uncomment and remove the Snowflake block above) ──────────
+    # - name: YOUR_CONNECTION_NAME
+    #   key: main_connection
+    #   type: databricks
+    #   protected: true
+    #   details:
+    #     host: YOUR_WORKSPACE_URL     # e.g., dbt-workspace.cloud.databricks.com
+    #     http_path: YOUR_HTTP_PATH    # e.g., /sql/1.0/warehouses/abc123
+    #     catalog: YOUR_CATALOG        # e.g., main
+
+    # ── BigQuery (uncomment and remove the Snowflake block above) ───────────
+    # - name: YOUR_CONNECTION_NAME
+    #   key: main_connection
+    #   type: bigquery
+    #   protected: true
+    #   details:
+    #     project_id: YOUR_GCP_PROJECT # e.g., acme-analytics-prod
+    #     dataset: YOUR_DATASET        # e.g., dbt_prod
+    #     location: US                 # e.g., US, EU, us-central1
+
+projects:
+  - name: YOUR_PROJECT_NAME           # e.g., "Analytics"
+    key: analytics                    # Slug used in all resource keys — change if needed
+    repository:
+      remote_url: "YOUR_ORG/YOUR_REPO"  # e.g., "acme-corp/dbt-analytics"
+      # github_installation_id is auto-discovered from remote_url when dbt_pat is set.
+      # Override only if auto-discovery fails:
+      #   github_installation_id: 12345678  # dbt Cloud > Account Settings > Integrations > GitHub App
+
+
+    profiles:
+      # Profiles bundle connection + credentials for deployment environments.
+      # Secrets (private_key, private_key_passphrase) are matched from
+      # TF_VAR_environment_credentials by key "{project.key}_{profile.key}" — set in .env.
+      # Everything else lives here in the YAML.
+
+      - key: prod_profile
+        connection_key: main_connection
+        protected: true
+        credential:
+          # ── Snowflake ──────────────────────────────────────────────────────
+          credential_type: snowflake
+          auth_type: keypair
+          user: YOUR_SERVICE_USER     # e.g., DBT_SERVICE_ACCOUNT
+          database: YOUR_DATABASE     # e.g., ANALYTICS
+          warehouse: YOUR_WAREHOUSE   # e.g., TRANSFORMING_WH
+          role: YOUR_ROLE             # e.g., TRANSFORMER
+          schema: YOUR_PROD_SCHEMA    # e.g., ANALYTICS
+          num_threads: 8
+
+          # ── Databricks (uncomment and remove the Snowflake block above) ───
+          # credential_type: databricks
+          # catalog: YOUR_CATALOG
+          # schema: YOUR_SCHEMA
+
+          # ── BigQuery (uncomment and remove the Snowflake block above) ─────
+          # credential_type: bigquery
+          # schema: YOUR_DATASET
+
+    environments:
+
+      - name: Production
+        key: prod
+        type: deployment
+        deployment_type: production
+        custom_branch: main           # Branch that triggers merge jobs
+        protected: true               # Prevents accidental deletion
+        primary_profile_key: prod_profile
+
+      - name: Development
+        key: dev
+        type: development
+        connection: main_connection   # Developers set their own credentials in the dbt Cloud IDE
+
+    jobs:
+      # Daily Build — runs every day at 6 AM UTC
+      - name: Daily Build
+        key: daily_build
+        environment_key: prod
+        execute_steps:
+          - dbt build
+        triggers:
+          schedule: true
+          github_webhook: false
+          git_provider_webhook: false
+          on_merge: false
+        schedule_type: days_of_week
+        schedule_days: [1, 2, 3, 4, 5]
+        schedule_hours: [6]
+
+      # Slim CI — runs on every pull request
+      # Builds only the models changed in the PR (and their downstream dependents)
+      # Clones existing incremental models https://docs.getdbt.com/best-practices/clone-incremental-models?version=2.0
+      # using production artifacts as the deferred state.
+      - name: CI Check
+        key: ci_check
+        environment_key: prod
+        deferring_environment_key: prod  # Use prod state for --defer
+        execute_steps:
+          - dbt clone --select state:modified+,config.materialized:incremental,state:old
+          - dbt build --select state:modified+
+        triggers:
+          schedule: false
+          github_webhook: true           # Triggered by GitHub pull request events
+          git_provider_webhook: false
+          on_merge: false
+
+      # Merge Build — runs when a PR merges to your main branch
+      # Runs a full dbt build to keep production state fresh for the next CI run.
+      - name: Merge Build
+        key: merge_build
+        environment_key: prod
+        deferring_environment_key: prod  # Use prod state for --defer
+        execute_steps:
+          - dbt build --select state:modified+
+        triggers:
+          schedule: false
+          github_webhook: false
+          git_provider_webhook: false
+          on_merge: true                 # Triggered when a PR merges

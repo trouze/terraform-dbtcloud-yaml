@@ -13,7 +13,7 @@ on:
       - "tests/**"
       - "schemas/**"
       - ".github/workflows/test.yml"
-      - "!examples/**"
+      - "!topologies/**"
   pull_request:
     paths:
       - "**.tf"
@@ -21,7 +21,7 @@ on:
       - "tests/**"
       - "schemas/**"
       - ".github/workflows/test.yml"
-      - "!examples/**"
+      - "!topologies/**"
 
 permissions:
   contents: read

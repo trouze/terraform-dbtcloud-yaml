@@ -9,7 +9,7 @@ The recommended pattern is two separate workflows:
 - **CI** (`ci.yml`) — runs on every PR, validates config and posts the Terraform plan as a comment
 - **CD** (`cd.yml`) — runs on merge to main, applies the plan with an optional approval gate
 
-The `examples/basic/.github/workflows/` directory contains ready-to-use versions of both.
+The `topologies/basic/.github/workflows/` directory contains ready-to-use versions of both.
 
 ---
 
