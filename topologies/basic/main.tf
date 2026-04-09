@@ -19,7 +19,7 @@ module "dbt_cloud" {
   # Pin to a release tag to avoid unexpected changes on terraform init.
   # Update the ref when you're ready to upgrade:
   #   https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/releases
-  source = "github.com/dbt-labs/terraform-dbtcloud-as-yaml?ref=v0.1.0"
+  source = "github.com/dbt-labs/terraform-dbtcloud-as-yaml?ref=v0.2.0"
 
   dbt_account_id = var.dbt_account_id
   dbt_token      = var.dbt_token

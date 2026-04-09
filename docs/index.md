@@ -1,6 +1,6 @@
 # terraform-dbtcloud-as-yaml
 
-[![Terraform Version](https://img.shields.io/badge/terraform-%3E%3D%201.0-blue?logo=terraform)](https://www.terraform.io) [![dbt Cloud Provider](https://img.shields.io/badge/dbt--cloud--provider-v1.8-blue)](https://registry.terraform.io/providers/dbt-labs/dbtcloud/latest) [![License](https://img.shields.io/badge/license-Apache%202.0-green)](https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/blob/main/LICENSE)
+[![Terraform Version](https://img.shields.io/badge/terraform-%3E%3D%201.0-blue?logo=terraform)](https://www.terraform.io) [![dbt Cloud Provider](https://img.shields.io/badge/dbt--cloud--provider-v1.9-blue)](https://registry.terraform.io/providers/dbt-labs/dbtcloud/latest) [![License](https://img.shields.io/badge/license-Apache%202.0-green)](https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/blob/main/LICENSE)
 
 Manage your entire dbt Cloud setup with infrastructure-as-code using Terraform and YAML. Define projects, repositories, environments, credentials, and jobs in a single, human-readable YAML file.
 
@@ -28,7 +28,7 @@ This module bridges that gap: you describe your dbt Cloud setup in YAML, and Ter
       required_providers {
         dbtcloud = {
           source  = "dbt-labs/dbtcloud"
-          version = "~> 1.8"
+          version = "~> 1.9"
         }
       }
     }
