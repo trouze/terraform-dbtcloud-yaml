@@ -9,7 +9,7 @@ Managing dbt Cloud infrastructure shouldn't require deep Terraform expertise. Wh
 ## Begin managing your dbt Platform resources as code in 60 seconds
 
 ```bash
-curl -fsSL https://github.com/dbt-labs/terraform-dbtcloud-as-yaml/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/trouze/terraform-dbtcloud-as-yaml/releases/latest/download/install.sh | bash
 ```
 
 This downloads the [topologies/basic/](topologies/basic/) starter into `./my-dbt-cloud`. No npm, no git magic — just curl and tar. To use a different directory name: `curl -fsSL ... | bash -s -- my-project`.
@@ -60,7 +60,7 @@ provider "dbtcloud" {
 }
 
 module "dbt_cloud" {
-  source = "github.com/dbt-labs/terraform-dbtcloud-as-yaml"
+  source = "github.com/trouze/terraform-dbtcloud-as-yaml"
 
   dbt_account_id = var.dbt_account_id
   dbt_token      = var.dbt_token
@@ -78,7 +78,7 @@ module "dbt_cloud" {
 Configuration uses **`version: 1`**, an **`account`** block (including `host_url` for the dbt Cloud region), shared resources under **`globals`** (connections, service tokens, groups, notifications, PrivateLink endpoints), and a **`projects`** list. Validate in your editor with [`schemas/v1.json`](docs/configuration/yaml-schema.md).
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/dbt-labs/terraform-dbtcloud-as-yaml/main/schemas/v1.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/trouze/terraform-dbtcloud-as-yaml/main/schemas/v1.json
 
 version: 1
 account:
