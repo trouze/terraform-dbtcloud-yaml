@@ -8,7 +8,7 @@
 set -euo pipefail
 
 TARGET=${1:-my-dbt-platform}
-REPO="dbt-labs/terraform-dbtcloud-as-yaml"
+REPO="trouze/terraform-dbtcloud-as-yaml"
 RELEASE_URL="https://github.com/$REPO/releases/latest/download/starter.tar.gz"
 
 echo "Setting up dbt Platform Terraform starter in ./$TARGET ..."
