@@ -413,6 +413,11 @@
           "description": "Key of a project profile to use as the environment's primary profile.",
           "default": null
         },
+        "is_active": {
+          "type": ["boolean", "null"],
+          "description": "Whether the environment is active.",
+          "default": true
+        },
         "deployment_type": {
           "type": ["string", "null"],
           "enum": ["production", "staging", "other", null],
@@ -708,6 +713,22 @@
           "pattern": "^[a-zA-Z0-9_-]+$",
           "minLength": 1,
           "maxLength": 128
+        },
+        "description": {
+          "type": ["string", "null"],
+          "description": "Project description. Shown in dbt Explorer.",
+          "default": null
+        },
+        "type": {
+          "type": ["integer", "null"],
+          "description": "Project type: 0 = default, 1 = hybrid.",
+          "enum": [0, 1, null],
+          "default": null
+        },
+        "dbt_project_subdirectory": {
+          "type": ["string", "null"],
+          "description": "Subdirectory within the repository where the dbt project lives.",
+          "default": null
         },
         "protected": {
           "type": ["boolean", "null"],

@@ -100,7 +100,6 @@ resource "dbtcloud_environment" "environments" {
   custom_branch              = try(each.value.env_data.custom_branch, null)
   deployment_type            = try(each.value.env_data.deployment_type, null)
   is_active                  = try(each.value.env_data.is_active, null)
-  target_name                = try(each.value.env_data.target_name, null)
   use_custom_branch          = try(each.value.env_data.custom_branch, null) != null
   primary_profile_id         = local.resolve_primary_profile_id[each.key]
   extended_attributes_id     = local.resolve_primary_profile_id[each.key] != null ? null : local.resolve_extended_attributes_id[each.key]
@@ -134,7 +133,6 @@ resource "dbtcloud_environment" "protected_environments" {
   custom_branch              = try(each.value.env_data.custom_branch, null)
   deployment_type            = try(each.value.env_data.deployment_type, null)
   is_active                  = try(each.value.env_data.is_active, null)
-  target_name                = try(each.value.env_data.target_name, null)
   use_custom_branch          = try(each.value.env_data.custom_branch, null) != null
   primary_profile_id         = local.resolve_primary_profile_id[each.key]
   extended_attributes_id     = local.resolve_primary_profile_id[each.key] != null ? null : local.resolve_extended_attributes_id[each.key]
