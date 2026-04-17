@@ -413,13 +413,23 @@
           "description": "Key of a project profile to use as the environment's primary profile.",
           "default": null
         },
+        "deployment_type": {
+          "type": ["string", "null"],
+          "enum": ["production", "staging", "other", null],
+          "description": "Deployment environment type (dbtcloud_environment deployment_type). Only valid for deployment environments.",
+          "default": null
+        },
         "id": {
           "type": ["integer", "null"],
           "description": "Optional environment ID for reference.",
           "minimum": 1
         }
       },
-      "required": ["key", "name", "type", "connection"],
+      "required": ["key", "name", "type"],
+      "anyOf": [
+        { "required": ["connection"] },
+        { "required": ["primary_profile_key"] }
+      ],
       "additionalProperties": false
     },
     "jobTriggers": {
