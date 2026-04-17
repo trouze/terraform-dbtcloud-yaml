@@ -1,0 +1,249 @@
+schema_version: 1
+
+# Each provider resource argument must be classified as one of:
+#   yaml: <field_name>    — exposed in schemas/v1.json $defs/<yaml_defs_key> as <field_name>
+#   computed: <reason>    — derived/set internally by the Terraform module
+#   excluded: <reason>    — intentionally omitted (account-level, internal state, etc.)
+#
+# Special yaml_coverage modes (top-level per resource):
+#   details_passthrough   — nested provider blocks passed through an open `details` object in YAML
+#   variable_passthrough  — credentials passed via Terraform variables, not YAML fields
+#
+# schema_only_defs: $defs keys that have no provider resource mapping and are exempt from STALE_YAML.
+# schema_only_fields: per-resource list of $defs properties that are YAML-only (cross-refs,
+#   sub-resource arrays, migration metadata) and are exempt from STALE_YAML.
+# module_dir: subdirectory under modules/ that materialises this resource (used by MISSING_FROM_MODULE check).
+
+schema_only_defs:
+  - jobTriggers          # nested block within dbtcloud_job, not a standalone resource
+  - credential           # passed via Terraform variable, not a provider resource
+  - profileCredential    # passed via Terraform variable, not a provider resource
+  - environmentVariable  # managed by dbtcloud_environment_variable, not tracked here
+  - privateLinkEndpoint  # managed by dbtcloud_privatelink_endpoint, not tracked here
+  - semanticLayerConfig  # managed by modules/semantic_layer, not tracked here
+  - placeholder          # metadata-only, no provider resource
+
+resources:
+  dbtcloud_environment:
+    yaml_defs_key: environment
+    module_dir: environments
+    schema_only_fields:
+      - connection_id       # deprecated YAML compat alias for connection resourceRef
+      - target_name         # not a dbtcloud_environment provider attribute; read by credentials module for dbt target name
+    fields:
+      name:             { disposition: yaml, yaml_field: name }
+      type:             { disposition: yaml, yaml_field: type }
+      dbt_version:      { disposition: yaml, yaml_field: dbt_version }
+      custom_branch:    { disposition: yaml, yaml_field: custom_branch }
+      deployment_type:  { disposition: yaml, yaml_field: deployment_type }
+      enable_model_query_history: { disposition: yaml, yaml_field: enable_model_query_history }
+      target_name:      { disposition: excluded, reason: "Not a dbtcloud_environment provider attribute; passed to credentials module via environment_credentials" }
+      is_active:        { disposition: yaml, yaml_field: is_active }
+      use_custom_branch:    { disposition: computed, reason: "Derived: custom_branch != null" }
+      connection_id:        { disposition: computed, reason: "Resolved from env.connection resourceRef" }
+      credential_id:        { disposition: computed, reason: "Resolved from env.credential block" }
+      extended_attributes_id: { disposition: computed, reason: "Resolved from extended_attributes_key" }
+      primary_profile_id:   { disposition: computed, reason: "Resolved from primary_profile_key" }
+      project_id:       { disposition: computed, reason: "Injected from project context" }
+      environment_id:   { disposition: excluded, reason: "Terraform state field (read-only alias for id)" }
+      account_id:       { disposition: excluded, reason: "Set at provider level" }
+      id:               { disposition: excluded, reason: "Terraform-managed state field" }
+
+  dbtcloud_job:
+    yaml_defs_key: job
+    module_dir: jobs
+    schema_only_fields:
+      - environment_key         # YAML cross-reference slug resolved by module
+      - deferring_environment_id  # YAML compat field (raw int); canonical form is deferring_environment_key
+    fields:
+      name:               { disposition: yaml, yaml_field: name }
+      execute_steps:      { disposition: yaml, yaml_field: execute_steps }
+      triggers:           { disposition: yaml, yaml_field: triggers }
+      dbt_version:        { disposition: yaml, yaml_field: dbt_version }
+      description:        { disposition: yaml, yaml_field: description }
+      generate_docs:      { disposition: yaml, yaml_field: generate_docs }
+      is_active:          { disposition: yaml, yaml_field: is_active }
+      num_threads:        { disposition: yaml, yaml_field: num_threads }
+      run_compare_changes:  { disposition: yaml, yaml_field: run_compare_changes }
+      compare_changes_flags: { disposition: yaml, yaml_field: compare_changes_flags }
+      run_generate_sources: { disposition: yaml, yaml_field: run_generate_sources }
+      run_lint:           { disposition: yaml, yaml_field: run_lint }
+      errors_on_lint_failure: { disposition: yaml, yaml_field: errors_on_lint_failure }
+      self_deferring:     { disposition: yaml, yaml_field: self_deferring }
+      target_name:        { disposition: yaml, yaml_field: target_name }
+      timeout_seconds:    { disposition: yaml, yaml_field: timeout_seconds }
+      triggers_on_draft_pr: { disposition: yaml, yaml_field: triggers_on_draft_pr }
+      force_node_selection: { disposition: yaml, yaml_field: force_node_selection }
+      deferring_job_id:   { disposition: yaml, yaml_field: deferring_job_id }
+      schedule_cron:      { disposition: yaml, yaml_field: schedule_cron }
+      schedule_days:      { disposition: yaml, yaml_field: schedule_days }
+      schedule_hours:     { disposition: yaml, yaml_field: schedule_hours }
+      schedule_type:      { disposition: yaml, yaml_field: schedule_type }
+      job_type:           { disposition: yaml, yaml_field: job_type }
+      deferring_environment_id: { disposition: computed, reason: "Resolved from deferring_environment_key; raw int also accepted in YAML for compat" }
+      environment_id:     { disposition: computed, reason: "Resolved from environment_key" }
+      project_id:         { disposition: computed, reason: "Injected from project context" }
+      execution:          { disposition: excluded, reason: "Provider-managed execution block; not surfaced in YAML schema" }
+      job_id:             { disposition: excluded, reason: "Terraform state field (read-only alias for id)" }
+      schedule_interval:  { disposition: excluded, reason: "Not surfaced in YAML schema" }
+      validate_execute_steps: { disposition: excluded, reason: "Not surfaced in YAML schema" }
+      job_completion_trigger_condition: { disposition: excluded, reason: "Managed via lifecycle.ignore_changes" }
+      account_id:         { disposition: excluded, reason: "Set at provider level" }
+      id:                 { disposition: excluded, reason: "Terraform state field" }
+
+  dbtcloud_global_connection:
+    yaml_defs_key: connection
+    module_dir: global_connections
+    yaml_coverage: details_passthrough   # nested provider blocks (snowflake/databricks/etc.) flow through open connection.details
+    schema_only_fields:
+      - details                   # open passthrough container for adapter-specific config
+      - type                      # YAML-level discriminator (snowflake/databricks/etc.); not a provider arg
+      - private_link_endpoint_key # YAML cross-reference slug resolved by module
+    fields:
+      name:    { disposition: yaml, yaml_field: name }
+      private_link_endpoint_id: { disposition: computed, reason: "Resolved from private_link_endpoint_key" }
+      adapter_version:          { disposition: computed, reason: "Set by provider after creation" }
+      is_ssh_tunnel_enabled:    { disposition: computed, reason: "Derived from SSH tunnel block presence" }
+      oauth_configuration_id:   { disposition: computed, reason: "Resolved from oauth_configuration_key" }
+      # Adapter-specific blocks — user-facing via connection.details passthrough
+      apache_spark: { disposition: excluded, reason: "Adapter block; user-facing via connection.details passthrough" }
+      athena:       { disposition: excluded, reason: "Adapter block; user-facing via connection.details passthrough" }
+      bigquery:     { disposition: excluded, reason: "Adapter block; user-facing via connection.details passthrough" }
+      databricks:   { disposition: excluded, reason: "Adapter block; user-facing via connection.details passthrough" }
+      fabric:       { disposition: excluded, reason: "Adapter block; user-facing via connection.details passthrough" }
+      postgres:     { disposition: excluded, reason: "Adapter block; user-facing via connection.details passthrough" }
+      redshift:     { disposition: excluded, reason: "Adapter block; user-facing via connection.details passthrough" }
+      salesforce:   { disposition: excluded, reason: "Adapter block; user-facing via connection.details passthrough" }
+      snowflake:    { disposition: excluded, reason: "Adapter block; user-facing via connection.details passthrough" }
+      starburst:    { disposition: excluded, reason: "Adapter block; user-facing via connection.details passthrough" }
+      synapse:      { disposition: excluded, reason: "Adapter block; user-facing via connection.details passthrough" }
+      teradata:     { disposition: excluded, reason: "Adapter block; user-facing via connection.details passthrough" }
+      account_id: { disposition: excluded, reason: "Set at provider level" }
+      id:      { disposition: excluded, reason: "Terraform state field" }
+
+  dbtcloud_repository:
+    yaml_defs_key: repository
+    module_dir: repository
+    schema_only_fields:
+      - private_link_endpoint_key  # YAML cross-reference slug resolved by module
+    fields:
+      remote_url:           { disposition: yaml, yaml_field: remote_url }
+      is_active:            { disposition: yaml, yaml_field: is_active }
+      git_clone_strategy:   { disposition: yaml, yaml_field: git_clone_strategy }
+      github_installation_id: { disposition: yaml, yaml_field: github_installation_id }
+      gitlab_project_id:    { disposition: yaml, yaml_field: gitlab_project_id }
+      azure_active_directory_project_id: { disposition: yaml, yaml_field: azure_active_directory_project_id }
+      azure_active_directory_repository_id: { disposition: yaml, yaml_field: azure_active_directory_repository_id }
+      azure_bypass_webhook_registration_failure: { disposition: yaml, yaml_field: azure_bypass_webhook_registration_failure }
+      pull_request_url_template: { disposition: yaml, yaml_field: pull_request_url_template }
+      private_link_endpoint_id: { disposition: computed, reason: "Resolved from private_link_endpoint_key" }
+      repository_credentials_id: { disposition: computed, reason: "Resolved by provider from deploy key" }
+      project_id:           { disposition: computed, reason: "Injected from project context" }
+      deploy_key:           { disposition: computed, reason: "Read-only generated deploy key block" }
+      fetch_deploy_key:     { disposition: excluded, reason: "Not surfaced in YAML schema" }
+      repository_id:        { disposition: excluded, reason: "Terraform state field (read-only alias for id)" }
+      account_id:           { disposition: excluded, reason: "Set at provider level" }
+      id:                   { disposition: excluded, reason: "Terraform state field" }
+
+  dbtcloud_project:
+    yaml_defs_key: project
+    module_dir: project
+    schema_only_fields:
+      # Sub-resource arrays managed by child modules, not direct provider args
+      - repository
+      - environments
+      - jobs
+      - extended_attributes
+      - profiles
+      - environment_variables
+      - notifications
+      - project_artefacts
+      - semantic_layer_config
+      - lineage_integrations
+    fields:
+      name:       { disposition: yaml, yaml_field: name }
+      description: { disposition: yaml, yaml_field: description }
+      type:        { disposition: yaml, yaml_field: type }
+      dbt_project_subdirectory: { disposition: yaml, yaml_field: dbt_project_subdirectory }
+      account_id: { disposition: excluded, reason: "Set at provider level" }
+      id:         { disposition: excluded, reason: "Terraform state field" }
+
+  dbtcloud_service_token:
+    yaml_defs_key: serviceToken
+    module_dir: service_tokens
+    fields:
+      name:        { disposition: yaml, yaml_field: name }
+      state:       { disposition: yaml, yaml_field: state }
+      description: { disposition: yaml, yaml_field: description }
+      token_string: { disposition: excluded, reason: "Sensitive; computed by provider on creation" }
+      uid:          { disposition: excluded, reason: "Terraform state field" }
+      account_id:   { disposition: excluded, reason: "Set at provider level" }
+      id:           { disposition: excluded, reason: "Terraform state field" }
+    nested_blocks:
+      service_token_permissions: { yaml_coverage: yaml, yaml_field: permissions }
+
+  dbtcloud_group:
+    yaml_defs_key: group
+    module_dir: groups
+    schema_only_fields:
+      - members  # user assignments managed by modules/user_groups, not a provider arg
+    fields:
+      name:                 { disposition: yaml, yaml_field: name }
+      assign_by_default:    { disposition: yaml, yaml_field: assign_by_default }
+      sso_mapping_groups:   { disposition: yaml, yaml_field: sso_mapping_groups }
+      account_id:           { disposition: excluded, reason: "Set at provider level" }
+      id:                   { disposition: excluded, reason: "Terraform state field" }
+    nested_blocks:
+      group_permissions: { yaml_coverage: yaml, yaml_field: group_permissions }
+
+  dbtcloud_notification:
+    yaml_defs_key: notificationTarget
+    module_dir: notifications
+    schema_only_fields:
+      - type    # YAML discriminator (slack/email/pagerduty/webhook); drives notification_type computed arg
+      - target  # open YAML object; contents extracted by module into individual provider args
+    fields:
+      notification_type:  { disposition: computed, reason: "Derived from notificationTarget.type enum" }
+      on_cancel:          { disposition: computed, reason: "Assembled from job keys by module" }
+      on_failure:         { disposition: computed, reason: "Assembled from job keys by module" }
+      on_success:         { disposition: computed, reason: "Assembled from job keys by module" }
+      on_warning:         { disposition: computed, reason: "Assembled from job keys by module" }
+      slack_channel_id:   { disposition: computed, reason: "Extracted from target by module" }
+      slack_channel_name: { disposition: computed, reason: "Extracted from target by module" }
+      external_email:     { disposition: computed, reason: "Extracted from target by module" }
+      user_id:            { disposition: excluded, reason: "Resolved at apply time" }
+      state:              { disposition: excluded, reason: "Not surfaced in YAML schema" }
+      account_id:         { disposition: excluded, reason: "Set at provider level" }
+      id:                 { disposition: excluded, reason: "Terraform state field" }
+
+  dbtcloud_extended_attributes:
+    yaml_defs_key: extendedAttributes
+    module_dir: extended_attributes
+    schema_only_fields:
+      - name  # YAML identifier used when key is omitted; not a provider arg
+    fields:
+      state:               { disposition: yaml, yaml_field: state }
+      extended_attributes: { disposition: yaml, yaml_field: extended_attributes }
+      project_id:          { disposition: computed, reason: "Injected from project context" }
+      extended_attributes_id: { disposition: excluded, reason: "Terraform state field (read-only alias for id)" }
+      account_id:          { disposition: excluded, reason: "Set at provider level" }
+      id:                  { disposition: excluded, reason: "Terraform state field" }
+
+  dbtcloud_profile:
+    yaml_defs_key: profile
+    module_dir: profiles
+    schema_only_fields:
+      # Migration metadata fields — present in YAML for import/compat, not provider args
+      - connection_id
+      - credentials_id
+      - credentials_key
+      - extended_attributes_id
+    fields:
+      connection_id:         { disposition: computed, reason: "Resolved from connection_key" }
+      credentials_id:        { disposition: computed, reason: "Resolved from credentials_key/id" }
+      extended_attributes_id: { disposition: computed, reason: "Resolved from extended_attributes_key" }
+      project_id:            { disposition: computed, reason: "Injected from project context" }
+      key:                   { disposition: computed, reason: "Profile identifier slug; managed by module" }
+      profile_id:            { disposition: excluded, reason: "Terraform state field (read-only alias for id)" }
+      account_id:            { disposition: excluded, reason: "Set at provider level" }
+      id:                    { disposition: excluded, reason: "Terraform state field" }

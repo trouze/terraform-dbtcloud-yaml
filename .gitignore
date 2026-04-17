@@ -38,5 +38,9 @@ terraform.rc
 
 *.DS_Store
 
+# Cached provider schema output (used by scripts/check_schema_drift.py --provider-schema)
+provider_schema_cache.json
+scripts/provider_schema_cache.json
+
 # Internal publishing checklist (keep local only)
 .claude/implementation/public.md

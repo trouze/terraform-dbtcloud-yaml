@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 
-.PHONY: fmt fmt-check lint validate test test-integration docs pre-commit pre-commit-all help
+.PHONY: fmt fmt-check lint validate schema-drift schema-drift-verbose test test-integration docs pre-commit pre-commit-all help
 
 fmt: ## Auto-format all Terraform files
 	terraform fmt -recursive
@@ -14,6 +14,21 @@ lint: ## Run tflint on all modules
 validate: ## Run terraform validate (requires terraform init)
 	terraform init -backend=false -reconfigure
 	terraform validate
+
+schema-drift: ## Check for drift between dbtcloud provider schema and schemas/v1.json
+	terraform init -backend=false -reconfigure
+	uv run --with PyYAML scripts/check_schema_drift.py \
+		--mapping scripts/resource_mapping.yml \
+		--schema schemas/v1.json \
+		--terraform-dir .
+
+schema-drift-verbose: ## Same as schema-drift but also fails on STALE_YAML findings
+	terraform init -backend=false -reconfigure
+	uv run --with PyYAML scripts/check_schema_drift.py \
+		--mapping scripts/resource_mapping.yml \
+		--schema schemas/v1.json \
+		--terraform-dir . \
+		--fail-on-stale
 
 test: ## Run terraform test with mock providers (no credentials needed)
 	terraform test

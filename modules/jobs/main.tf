@@ -207,6 +207,7 @@ resource "dbtcloud_job" "jobs" {
   triggers_on_draft_pr     = try(each.value.job_data.triggers_on_draft_pr, false)
   force_node_selection     = local.force_node_selection_effective[each.key]
   deferring_environment_id = local.resolve_deferring_environment_id[each.key]
+  deferring_job_id         = try(each.value.job_data.deferring_job_id, null)
 
   schedule_cron     = local.schedule_cron_effective[each.key]
   schedule_days     = try(each.value.job_data.schedule_days, null)
@@ -263,6 +264,7 @@ resource "dbtcloud_job" "protected_jobs" {
   triggers_on_draft_pr     = try(each.value.job_data.triggers_on_draft_pr, false)
   force_node_selection     = local.force_node_selection_effective[each.key]
   deferring_environment_id = local.resolve_deferring_environment_id[each.key]
+  deferring_job_id         = try(each.value.job_data.deferring_job_id, null)
 
   schedule_cron     = local.schedule_cron_effective[each.key]
   schedule_days     = try(each.value.job_data.schedule_days, null)

@@ -1,0 +1,60 @@
+name: Schema Drift
+
+on:
+  pull_request:
+    paths:
+      - ".terraform.lock.hcl"
+      - "schemas/**"
+      - "scripts/resource_mapping.yml"
+      - "scripts/check_schema_drift.py"
+      - ".github/workflows/schema-drift.yml"
+  push:
+    branches: [main]
+    paths:
+      - ".terraform.lock.hcl"
+      - "schemas/**"
+      - "scripts/resource_mapping.yml"
+      - "scripts/check_schema_drift.py"
+  schedule:
+    - cron: "0 8 * * 1"  # Monday 08:00 UTC — catches upstream provider releases
+
+permissions:
+  contents: read
+
+jobs:
+  schema-drift:
+    name: Schema Drift Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version_file: .terraform-version
+
+      - name: Cache Terraform providers
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .terraform
+          key: terraform-${{ hashFiles('.terraform.lock.hcl') }}
+          restore-keys: terraform-
+
+      - name: Init (downloads provider binary, no credentials needed)
+        run: terraform init -backend=false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Check schema drift
+        id: drift
+        run: |
+          uv run --with PyYAML scripts/check_schema_drift.py \
+            --mapping scripts/resource_mapping.yml \
+            --schema schemas/v1.json \
+            --terraform-dir .
+
+      - name: Annotate PR on failure
+        if: failure() && github.event_name == 'pull_request'
+        run: |
+          echo "::error::Schema drift detected. Run 'make schema-drift' locally and classify any UNMAPPED fields in scripts/resource_mapping.yml. Add MISSING_FROM_SCHEMA fields to schemas/v1.json."

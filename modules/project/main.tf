@@ -36,7 +36,10 @@ locals {
 resource "dbtcloud_project" "projects" {
   for_each = local.unprotected_projects_map
 
-  name = "${var.target_name}${each.value.name}"
+  name                     = "${var.target_name}${each.value.name}"
+  description              = try(each.value.description, null)
+  type                     = try(each.value.type, null)
+  dbt_project_subdirectory = try(each.value.dbt_project_subdirectory, null)
 
   # Deferred until dbt-labs/dbtcloud supports resource_metadata on dbtcloud_project (v2 parity).
   # resource_metadata = {
@@ -55,7 +58,10 @@ resource "dbtcloud_project" "projects" {
 resource "dbtcloud_project" "protected_projects" {
   for_each = local.protected_projects_map
 
-  name = "${var.target_name}${each.value.name}"
+  name                     = "${var.target_name}${each.value.name}"
+  description              = try(each.value.description, null)
+  type                     = try(each.value.type, null)
+  dbt_project_subdirectory = try(each.value.dbt_project_subdirectory, null)
 
   # Deferred until dbt-labs/dbtcloud supports resource_metadata on dbtcloud_project (v2 parity).
   # resource_metadata = {
